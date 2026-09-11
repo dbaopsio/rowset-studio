@@ -16,19 +16,19 @@ export default function ProtectedLayout() {
   const showPasswordAdvice = useAuth((s) => s.showPasswordAdvice);
   const dismissPasswordAdvice = useAuth((s) => s.dismissPasswordAdvice);
   const navigate = useNavigate();
-  // "auto" keeps the navigation out of the way in the SQL editor, where the
-  // explorer needs the width, and open everywhere else. Using the toggle
-  // fixes the choice until it is used again.
   const location = useLocation();
-  // A new key: the old one always held "expanded" or "collapsed", so reusing
-  // it would keep every existing workspace out of the automatic mode.
-  const [sidebarMode, setSidebarMode] = useState(() => localStorage.getItem("rowset.sidebar.mode") ?? "auto");
+  // The SQL editor always opens with the navigation collapsed, because the
+  // explorer needs the width; expanding it there lasts for that visit only.
+  // Every other page keeps the width last chosen on such a page.
   const editing = location.pathname.startsWith("/editor");
-  const sidebarCollapsed = sidebarMode === "auto" ? editing : sidebarMode === "collapsed";
+  const [sidebarSaved, setSidebarSaved] = useState(() => localStorage.getItem("rowset.sidebar") === "collapsed");
+  const [sidebarOverride, setSidebarOverride] = useState<boolean | null>(null);
+  useEffect(() => setSidebarOverride(null), [editing]);
+  const sidebarCollapsed = sidebarOverride ?? (editing || sidebarSaved);
 
   useEffect(() => {
-    localStorage.setItem("rowset.sidebar.mode", sidebarMode);
-  }, [sidebarCollapsed]);
+    localStorage.setItem("rowset.sidebar", sidebarSaved ? "collapsed" : "expanded");
+  }, [sidebarSaved]);
 
   // Session restore (refresh-cookie exchange) is still in flight; don't bounce
   // to /login before it settles.
@@ -42,7 +42,13 @@ export default function ProtectedLayout() {
   if (!token) return <Navigate to="/login" replace />;
   return (
     <div className="flex h-screen bg-paper text-ink dark:bg-[#121317] dark:text-slate-100">
-      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarMode(sidebarCollapsed ? "expanded" : "collapsed")} />
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggle={() => {
+          setSidebarOverride(!sidebarCollapsed);
+          if (!editing) setSidebarSaved(!sidebarCollapsed);
+        }}
+      />
       <main className="flex-1 overflow-auto p-3">
         {showPasswordAdvice && (
           <div className="mb-3 flex items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">

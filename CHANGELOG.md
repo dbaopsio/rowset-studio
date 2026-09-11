@@ -5,6 +5,12 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.40 — 2026-09-12
+
+- Opening the SQL editor always collapses the navigation to icons, however
+  it was left before. Expanding it there lasts for that visit; every other
+  page keeps the width last chosen on such a page.
+
 ## 0.0.39 — 2026-09-12
 
 - Fixed: the navigation kept its old width in the SQL editor. Every
