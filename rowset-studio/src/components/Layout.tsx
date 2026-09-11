@@ -64,6 +64,7 @@ const personalGroups: NavGroup[] = [
   { title: "Personal workspace", items: [
     { to: "/editor", label: "SQL", icon: "sql" },
     { to: "/notebooks", label: "Notebooks", icon: "notebook" },
+    { to: "/schedules", label: "Schedules", icon: "clock" },
     { to: "/connections", label: "Connections", icon: "plug" },
     { to: "/activity", label: "Activity", icon: "activity" },
     { to: "/policies", label: "My policies", icon: "shield" },

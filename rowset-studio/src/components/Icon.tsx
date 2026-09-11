@@ -28,6 +28,7 @@ export type IconName =
   | "plus"
   | "search"
   | "history"
+  | "clock"
   | "grid"
   | "text"
   | "filter"
@@ -149,6 +150,12 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <circle cx="7" cy="7" r="4" />
       <path d="M10 10l3 3" />
+    </>
+  ),
+  clock: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M8 5v3.2l2 1.3" />
     </>
   ),
   history: (

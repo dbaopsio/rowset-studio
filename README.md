@@ -22,6 +22,8 @@ install or run.
 - **Notebooks** — Markdown notes and SQL cells together, encrypted and saved
   automatically. Export as Markdown or as a SQL script. **Save** in the editor
   adds the current query to a notebook; a cell opens in a new editor tab.
+- **Schedules** — run a SELECT at set times in your time zone and save each
+  result as a CSV or JSON file, while Rowset Studio is running.
 - **Activity** — your statements across every connection, plus per-connection
   history in the editor.
 - **Policies** — default guardrails (block `DELETE`/`UPDATE` without `WHERE`,

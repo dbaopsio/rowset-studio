@@ -1,12 +1,12 @@
 {
   "name": "rowset-studio",
   "private": true,
-  "version": "0.0.16",
+  "version": "0.0.17",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "node --experimental-strip-types --test src/features/editor/*.test.mjs src/features/notifications/*.test.mjs src/features/connections/*.test.mjs src/features/notebooks/*.test.mjs",
+    "test": "node --experimental-strip-types --test src/features/editor/*.test.mjs src/features/notifications/*.test.mjs src/features/connections/*.test.mjs src/features/notebooks/*.test.mjs src/features/schedules/*.test.mjs",
     "audit:prod": "node scripts/audit-production.mjs",
     "preview": "vite preview",
     "lint": "eslint ."

@@ -5,6 +5,17 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.17 — 2026-09-11
+
+- **Schedules** run a SELECT every day, on chosen weekdays or every few
+  minutes, in a chosen time zone, and save each result as a new CSV or JSON
+  file in a folder. They run while Rowset Studio is running, even with the
+  browser closed; a run missed while it was closed either runs once when it
+  opens or is skipped. Runs go through the same policies as the editor, are
+  listed per schedule and appear in Activity. "Schedule this query" in the
+  editor starts a schedule from the current statement. The SQL of a schedule
+  is stored encrypted.
+
 ## 0.0.16 — 2026-09-11
 
 - **Explain** draws the execution plan of the statement under the cursor in

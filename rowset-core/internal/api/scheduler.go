@@ -1,0 +1,330 @@
+package api
+
+import (
+	"bufio"
+	"context"
+	"encoding/csv"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/dbaopsio/rowset-studio/rowset-core/internal/domain"
+	"github.com/dbaopsio/rowset-studio/rowset-core/internal/id"
+	"github.com/dbaopsio/rowset-studio/rowset-core/internal/policy"
+	"github.com/dbaopsio/rowset-studio/rowset-core/internal/store"
+	sqlguard "github.com/dbaopsio/rowset-studio/rowset-parser"
+)
+
+// scheduleTick is how often due scheduled queries are looked up.
+const scheduleTick = 15 * time.Second
+
+// scheduler starts due scheduled queries while Rowset runs. A run missed while
+// Rowset was closed runs once at start when the query asks for it; otherwise
+// the query waits for its next time.
+func (s *Server) scheduler(ctx context.Context) {
+	ticker := time.NewTicker(scheduleTick)
+	defer ticker.Stop()
+	s.startDueSchedules(ctx, time.Now())
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			s.startDueSchedules(ctx, now)
+		}
+	}
+}
+
+func (s *Server) startDueSchedules(ctx context.Context, now time.Time) {
+	now = now.UTC()
+	items, err := s.store.DueScheduledQueries(ctx, now.Format(time.RFC3339))
+	if err != nil {
+		return
+	}
+	for _, item := range items {
+		var spec scheduleSpec
+		if json.Unmarshal([]byte(item.Schedule), &spec) != nil {
+			continue
+		}
+		// Advance first, so a slow or failing run is never started twice.
+		next, err := nextRunString(spec, true, now)
+		if err != nil {
+			continue
+		}
+		if s.store.SetScheduledNextRun(ctx, item.ID, next) != nil {
+			continue
+		}
+		due, err := time.Parse(time.RFC3339, *item.NextRunAt)
+		if err == nil && now.Sub(due) > 2*scheduleTick && !item.CatchUp {
+			continue
+		}
+		s.startScheduled(item, "schedule")
+	}
+}
+
+// startScheduled runs the query in the background unless it is running.
+func (s *Server) startScheduled(item store.ScheduledQuery, trigger string) bool {
+	s.scheduleMu.Lock()
+	if s.scheduleRunning[item.ID] || s.scheduleContext == nil || s.scheduleContext.Err() != nil {
+		s.scheduleMu.Unlock()
+		return false
+	}
+	s.scheduleRunning[item.ID] = true
+	s.scheduleRuns.Add(1)
+	s.scheduleMu.Unlock()
+	go func() {
+		defer s.scheduleRuns.Done()
+		defer func() {
+			s.scheduleMu.Lock()
+			delete(s.scheduleRunning, item.ID)
+			s.scheduleMu.Unlock()
+		}()
+		s.runScheduled(s.scheduleContext, item, trigger)
+	}()
+	return true
+}
+
+func (s *Server) runScheduled(ctx context.Context, item store.ScheduledQuery, trigger string) {
+	run := store.ScheduledRun{ID: id.New(), QueryID: item.ID, Trigger: trigger, StartedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: "running"}
+	if err := s.store.CreateScheduledRun(ctx, run); err != nil {
+		s.logger.Error("scheduled query run not recorded", "query", item.ID, "error", err)
+		return
+	}
+	rows, path, err := s.executeScheduled(ctx, item)
+	finished := time.Now().UTC().Format(time.RFC3339Nano)
+	run.FinishedAt, run.Rows = &finished, rows
+	if err != nil {
+		message := err.Error()
+		run.Status, run.Error = "error", &message
+	} else {
+		run.Status, run.OutputPath = "success", &path
+	}
+	if err := s.store.FinishScheduledRun(context.Background(), run); err != nil {
+		s.logger.Error("scheduled query run not finished", "query", item.ID, "error", err)
+	}
+}
+
+// executeScheduled runs the query for its owner through the same checks as
+// the editor (access, policies, statement and result hooks) and writes the
+// result to a new file in the output folder.
+func (s *Server) executeScheduled(ctx context.Context, item store.ScheduledQuery) (int64, string, error) {
+	sql, err := s.openScheduledSQL(item)
+	if err != nil {
+		return 0, "", err
+	}
+	user, err := s.store.User(ctx, item.UserID)
+	if err != nil || user.Status != "active" {
+		return 0, "", errors.New("the owner of this query is no longer active")
+	}
+	role, err := s.store.UserRole(ctx, user.ID)
+	if err != nil {
+		return 0, "", errors.New("the owner has no role")
+	}
+	connection, err := s.store.Connection(ctx, item.ConnectionID)
+	if err != nil {
+		return 0, "", errors.New("the connection no longer exists")
+	}
+	identity := domain.Identity{UserID: user.ID, OrgID: user.OrgID, Email: user.Email, Role: role.Name}
+	r, err := http.NewRequestWithContext(ctx, http.MethodPost, "/scheduled", nil)
+	if err != nil {
+		return 0, "", err
+	}
+	if !s.canUseConnection(r, identity, role.ID, connection) {
+		return 0, "", errors.New("the owner no longer has access to the connection")
+	}
+	info, err := sqlguard.Parse(sql)
+	if err != nil {
+		return 0, "", err
+	}
+	if info.Kind != sqlguard.Select {
+		return 0, "", errors.New("scheduled queries run one SELECT statement")
+	}
+	normalized, hash := sqlguard.Normalize(info)
+	disabled, enabled, _, policyTimeout, err := s.resolvePolicies(r, identity, connection)
+	if err != nil {
+		return 0, "", errors.New("governance rules unavailable")
+	}
+	decision := policy.Evaluate(policy.Input{Statement: info, Role: role.Name, ReadOnly: role.IsReadOnly, Environment: connection.Environment, Disabled: disabled, Enabled: enabled})
+	if !s.config.Shared || !identity.IsAdmin() {
+		if decision, _, err = s.applyCustomPolicies(r, identity, connection, info, false, decision, 0); err != nil {
+			return 0, "", errors.New("governance rules unavailable")
+		}
+	}
+	if decision.Effect != policy.Allow {
+		s.recordClientActivity(ctx, identity, connection, sql, normalized, hash, "scheduler", "", "", 0, 0, false, "blocked", decision, "deny", "", decision.Reason)
+		return 0, "", fmt.Errorf("blocked by policy: %s", decision.Reason)
+	}
+	prepared, _, err := s.prepareStatement(ctx, StatementRequest{Identity: identity, RoleID: role.ID, Connection: connection, Statement: info})
+	if err != nil {
+		return 0, "", err
+	}
+	target, _, err := s.routedEngineConnection(ctx, identity, connection, item.Database, nil, &prepared)
+	if err != nil {
+		return 0, "", err
+	}
+	runCtx, cancel := withConnectionTimeout(r, connection, policyTimeout, 30*time.Minute)
+	defer cancel()
+	stream, err := s.engines.Query(runCtx, target, prepared.Raw)
+	if err != nil {
+		s.recordClientActivity(ctx, identity, connection, sql, normalized, hash, "scheduler", "", "", 0, 0, false, "error", decision, "allow", "", err.Error())
+		return 0, "", err
+	}
+	defer stream.Close()
+	transforms, _, err := s.prepareResult(ctx, ResultRequest{Identity: identity, Connection: connection, Statement: prepared, Columns: stream.Columns(), Origins: stream.ColumnOrigins()})
+	if err != nil {
+		return 0, "", err
+	}
+	rows, path, err := writeScheduledResult(item, stream, transforms)
+	status, message := "success", ""
+	if err != nil {
+		status, message = "error", err.Error()
+	}
+	s.recordClientActivity(ctx, identity, connection, sql, normalized, hash, "scheduler", "", "", rows, stream.DurationMS(), false, status, decision, "allow", "", message)
+	return rows, path, err
+}
+
+// writeScheduledResult streams rows into "<name>_<local time>.<format>". The
+// file appears under its final name only once it is complete.
+func writeScheduledResult(item store.ScheduledQuery, stream queryRowStream, transforms ResultTransforms) (int64, string, error) {
+	if err := os.MkdirAll(item.OutputDir, 0o755); err != nil {
+		return 0, "", fmt.Errorf("output folder: %w", err)
+	}
+	var spec scheduleSpec
+	_ = json.Unmarshal([]byte(item.Schedule), &spec)
+	location, err := time.LoadLocation(spec.Timezone)
+	if err != nil {
+		location = time.UTC
+	}
+	name := fmt.Sprintf("%s_%s.%s", fileSlug(item.Name), time.Now().In(location).Format("2006-01-02_150405"), item.OutputFormat)
+	path := filepath.Join(item.OutputDir, name)
+	partial := path + ".partial"
+	file, err := os.OpenFile(partial, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return 0, "", fmt.Errorf("output file: %w", err)
+	}
+	buffered := bufio.NewWriter(file)
+	rows, writeErr := writeRows(buffered, item.OutputFormat, stream, transforms)
+	if writeErr == nil {
+		writeErr = buffered.Flush()
+	}
+	if closeErr := file.Close(); writeErr == nil {
+		writeErr = closeErr
+	}
+	if writeErr != nil {
+		_ = os.Remove(partial)
+		return rows, "", writeErr
+	}
+	if err := os.Rename(partial, path); err != nil {
+		_ = os.Remove(partial)
+		return rows, "", err
+	}
+	return rows, path, nil
+}
+
+func writeRows(out *bufio.Writer, format string, stream queryRowStream, transforms ResultTransforms) (int64, error) {
+	columns := stream.Columns()
+	var rows int64
+	if format == "json" {
+		if _, err := out.WriteString("[\n"); err != nil {
+			return 0, err
+		}
+		for {
+			row, ok, err := stream.Next()
+			if err != nil {
+				return rows, err
+			}
+			if !ok {
+				break
+			}
+			transforms.apply(row)
+			object := make(map[string]any, len(columns))
+			for index, column := range columns {
+				if index < len(row) {
+					object[column] = fileValue(row[index])
+				}
+			}
+			encoded, err := json.Marshal(object)
+			if err != nil {
+				return rows, err
+			}
+			if rows > 0 {
+				if _, err := out.WriteString(",\n"); err != nil {
+					return rows, err
+				}
+			}
+			if _, err := out.Write(encoded); err != nil {
+				return rows, err
+			}
+			rows++
+		}
+		_, err := out.WriteString("\n]\n")
+		return rows, err
+	}
+	writer := csv.NewWriter(out)
+	if err := writer.Write(columns); err != nil {
+		return 0, err
+	}
+	record := make([]string, len(columns))
+	for {
+		row, ok, err := stream.Next()
+		if err != nil {
+			return rows, err
+		}
+		if !ok {
+			break
+		}
+		transforms.apply(row)
+		for index := range record {
+			record[index] = ""
+			if index < len(row) && row[index] != nil {
+				record[index] = fmt.Sprint(fileValue(row[index]))
+			}
+		}
+		if err := writer.Write(record); err != nil {
+			return rows, err
+		}
+		rows++
+	}
+	writer.Flush()
+	return rows, writer.Error()
+}
+
+func fileValue(value any) any {
+	switch v := value.(type) {
+	case []byte:
+		return string(v)
+	case time.Time:
+		return v.Format(time.RFC3339Nano)
+	default:
+		return v
+	}
+}
+
+// fileSlug turns a query name into a safe file-name prefix.
+func fileSlug(name string) string {
+	var out strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			out.WriteRune(r)
+			dash = false
+		case !dash && out.Len() > 0:
+			out.WriteByte('-')
+			dash = true
+		}
+	}
+	slug := strings.Trim(out.String(), "-")
+	if slug == "" {
+		return "query"
+	}
+	if len(slug) > 60 {
+		slug = strings.Trim(slug[:60], "-")
+	}
+	return slug
+}

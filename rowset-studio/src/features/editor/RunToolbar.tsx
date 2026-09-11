@@ -17,6 +17,7 @@ export default function RunToolbar({
   onRun,
   onRunAll,
   onExplain,
+  onSchedule,
   onOpenFile,
   onSaveFile,
   onExportWorkspace,
@@ -44,6 +45,8 @@ export default function RunToolbar({
   onRunAll: () => void;
   /** Explain the current statement; analyze runs it to measure actual rows. */
   onExplain: (analyze: boolean) => void;
+  /** Open the statement under the cursor as a new schedule. */
+  onSchedule?: () => void;
   onOpenFile: () => void;
   onSaveFile: () => void;
   onExportWorkspace: () => void;
@@ -145,6 +148,7 @@ export default function RunToolbar({
         <MoreMenu items={[
           { label: "Run all statements", hint: "⇧⌘↵ · stops at the first error", onSelect: onRunAll, disabled: !connectionId || running || transactionBusy },
           { label: "Explain with actual rows", hint: "Runs the SELECT to measure it", onSelect: () => onExplain(true), disabled: !connectionId || running || transactionBusy },
+          ...(onSchedule ? [{ label: "Schedule this query…", hint: "Save its result to a file on a schedule", onSelect: onSchedule, disabled: !connectionId }] : []),
           { label: "Open .sql file…", onSelect: onOpenFile },
           { label: "Download as .sql", onSelect: onSaveFile },
           { label: "Export workspace (JSON)", onSelect: onExportWorkspace, hint: "All open tabs, not encrypted" },

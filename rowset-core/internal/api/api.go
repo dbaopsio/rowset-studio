@@ -46,6 +46,11 @@ type Server struct {
 	connectionDetails   []func(context.Context, domain.Connection, map[string]any)
 	connectionSaveHooks []ConnectionSaveHook
 	connectionFields    map[string]bool
+	scheduleMu          sync.Mutex
+	scheduleRunning     map[string]bool
+	scheduleContext     context.Context
+	stopSchedules       context.CancelFunc
+	scheduleRuns        sync.WaitGroup
 }
 
 func New(cfg config.Config, data *store.Store, issuer *auth.Issuer, logger *slog.Logger) *Server {
@@ -62,12 +67,23 @@ func NewWithActivity(cfg config.Config, data *store.Store, activityStore activit
 	server := &Server{config: cfg, store: data, activity: activityStore, issuer: issuer, logger: logger, vault: secretVault, engines: engine.NewManager(), txns: make(map[string]*transactionEntry), stopTransactions: cancel, topologyLocks: make(map[string]*sync.Mutex), stopTopology: stopTopology, rateClients: make(map[string]*rateWindow)}
 	go server.transactionReaper(txnContext)
 	go server.topologyRefresher(topologyContext)
+	server.scheduleRunning = map[string]bool{}
+	server.scheduleContext, server.stopSchedules = context.WithCancel(context.Background())
+	// Scheduled queries write files on this computer, so only personal
+	// workspaces run them.
+	if !cfg.Shared {
+		go server.scheduler(server.scheduleContext)
+	}
 	return server
 }
 
 func (s *Server) Close() error {
 	s.stopTransactions()
 	s.stopTopology()
+	if s.stopSchedules != nil {
+		s.stopSchedules()
+		s.scheduleRuns.Wait()
+	}
 	s.txnMu.Lock()
 	items := make([]*transactionEntry, 0, len(s.txns))
 	for id, item := range s.txns {
@@ -133,6 +149,15 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/notebooks/{id}", s.authenticated(http.HandlerFunc(s.getNotebook)))
 	mux.Handle("PUT /api/notebooks/{id}", s.authenticated(http.HandlerFunc(s.putNotebook)))
 	mux.Handle("DELETE /api/notebooks/{id}", s.authenticated(http.HandlerFunc(s.deleteNotebook)))
+	if !s.config.Shared {
+		mux.Handle("GET /api/scheduled-queries", s.authenticated(http.HandlerFunc(s.listScheduled)))
+		mux.Handle("GET /api/scheduled-queries/defaults", s.authenticated(http.HandlerFunc(s.scheduleDefaults)))
+		mux.Handle("POST /api/scheduled-queries", s.authenticated(http.HandlerFunc(s.createScheduled)))
+		mux.Handle("PUT /api/scheduled-queries/{id}", s.authenticated(http.HandlerFunc(s.updateScheduled)))
+		mux.Handle("DELETE /api/scheduled-queries/{id}", s.authenticated(http.HandlerFunc(s.deleteScheduled)))
+		mux.Handle("POST /api/scheduled-queries/{id}/run", s.authenticated(http.HandlerFunc(s.runScheduledNow)))
+		mux.Handle("GET /api/scheduled-queries/{id}/runs", s.authenticated(http.HandlerFunc(s.listScheduledRuns)))
+	}
 	mux.Handle("POST /api/saved-queries", s.authenticated(http.HandlerFunc(s.createSavedQuery)))
 	mux.Handle("DELETE /api/saved-queries/{id}", s.authenticated(http.HandlerFunc(s.deleteSavedQuery)))
 	mux.Handle("GET /api/policies", s.authenticated(http.HandlerFunc(s.listPolicies)))

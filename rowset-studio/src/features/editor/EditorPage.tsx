@@ -21,6 +21,7 @@ import { formatSql, statementAt, splitStatements } from "./sqlText";
 import { useAuth } from "../../lib/auth";
 import { SchemaActions } from "./schemaActions";
 import { ApiError } from "../../lib/api";
+import { useShared } from "../../lib/instance";
 import { useActiveExtensions, type DenialContext } from "../../app/extensions";
 import WorkspaceGate, { exportWorkspace, useWorkspacePersistence } from "./WorkspaceGate";
 import { mergeWorkspace, type WorkspaceDocument, type WorkspaceSnapshot, type WorkspaceTab } from "./workspace";
@@ -71,6 +72,8 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   // a new tab, then drop the navigation state so reloads do not repeat it.
   const location = useLocation();
   const navigate = useNavigate();
+  // Scheduled queries write files on this computer: personal workspaces only.
+  const shared = useShared();
   const openedFromNavigation = useRef<string | null>(null);
   useEffect(() => {
     const state = location.state as { openSql?: string; connectionId?: string | null; database?: string; title?: string } | null;
@@ -419,12 +422,16 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   }
 
   // Explain the first selected statement, or the statement at the cursor.
+  function statementUnderCursor() {
+    const selected = selectedSql.trim();
+    const offset = currentSql.split("\n").slice(0, cursor.line - 1).reduce((n, line) => n + line.length + 1, 0) + cursor.column - 1;
+    return (selected ? splitStatements(selected)[0]?.sql ?? selected : statementAt(currentSql, offset)).trim();
+  }
+
   async function onExplain(analyze: boolean) {
     const tabId = activeTabId;
     const connectionId = activeConnectionId;
-    const selected = selectedSql.trim();
-    const offset = currentSql.split("\n").slice(0, cursor.line - 1).reduce((n, line) => n + line.length + 1, 0) + cursor.column - 1;
-    const sql = (selected ? splitStatements(selected)[0]?.sql ?? selected : statementAt(currentSql, offset)).trim();
+    const sql = statementUnderCursor();
     if (!connectionId || !sql) return;
     setBottomTab("plan");
     setPlans((current) => ({ ...current, [tabId]: { status: "loading", sql, analyze } }));
@@ -614,6 +621,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
           onImportWorkspace={() => workspaceFileInput.current?.click()}
           onRunAll={onRunAll}
           onExplain={(analyze) => void onExplain(analyze)}
+          onSchedule={!shared ? () => navigate("/schedules", { state: { newSchedule: { sql: statementUnderCursor(), connectionId: activeConnectionId, database: selectedDb } } }) : undefined}
           onStop={() => {
             if (transactions.current[activeTabId] && !window.confirm("Stopping a statement inside a transaction ends the transaction and discards its uncommitted changes. Stop anyway?")) return;
             scripts.current[activeTabId] = false; controllers.current[activeTabId]?.abort();
