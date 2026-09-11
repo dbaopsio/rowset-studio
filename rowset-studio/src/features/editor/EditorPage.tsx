@@ -9,7 +9,7 @@ import { useEditorStore } from "../../stores/editorStore";
 import { listConnections } from "../connections/api";
 import HistoryPanel from "./HistoryPanel";
 import PolicyBanner from "./PolicyBanner";
-import ResultsGrid from "./ResultsGrid";
+import ResultsGrid, { type ResultEditing } from "./ResultsGrid";
 import RunToolbar, { type WorkspaceStatus } from "./RunToolbar";
 import SaveToNotebookDialog from "../notebooks/SaveToNotebookDialog";
 import PlanPanel, { type PlanState } from "../plan/PlanPanel";
@@ -34,6 +34,8 @@ type QueryTab = WorkspaceTab;
 // blocks or overwrites another tab's in-flight run, result or status line.
 interface TabRunState {
   status: "idle" | "running" | "success" | "error" | "pending";
+  /** The statement of the latest single run. */
+  sql?: string;
   data?: QueryResult;
   error?: Error;
   startedAt?: number;
@@ -51,6 +53,17 @@ interface StatementResult {
   data?: QueryResult;
   error?: Error;
   message: string;
+}
+
+interface RowEditing {
+  engine: string;
+  primaryKey: ResultEditing["primaryKey"];
+  onApply: (statements: string[], sourceSql: string) => void;
+}
+
+function editingFor(rowEditing: RowEditing | undefined, sourceSql: string | undefined): ResultEditing | undefined {
+  if (!rowEditing || !sourceSql) return undefined;
+  return { engine: rowEditing.engine, primaryKey: rowEditing.primaryKey, onApply: (statements) => rowEditing.onApply(statements, sourceSql) };
 }
 
 const IDLE_RUN: TabRunState = { status: "idle", message: "Ready", messageError: false };
@@ -321,6 +334,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     setBottomTab("results");
     patchRun(tabId, {
       status: "running",
+      sql,
       data: undefined,
       error: undefined,
       startedAt: Date.now(),
@@ -533,6 +547,20 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     setActiveConnection(id);
   }
 
+  // Rows of a one-table result can be edited; the edits run as UPDATEs through
+  // runStatements, followed by the original query to reload the result.
+  const rowEditing: RowEditing | undefined = activeConnection ? {
+    engine: activeConnection.engine,
+    primaryKey: (schemaName, table) => {
+      const nodes = schema?.schemas ?? [];
+      const node = nodes.find((item) => item.name.toLowerCase() === schemaName.toLowerCase()) ?? (nodes.length === 1 ? nodes[0] : undefined);
+      const found = node?.tables.find((item) => item.name.toLowerCase() === table.toLowerCase());
+      const key = found?.columns.filter((column) => column.pk).map((column) => column.name) ?? [];
+      return key.length ? key : null;
+    },
+    onApply: (statements, sourceSql) => void runStatements([...statements.map((sql) => ({ sql })), { sql: sourceSql }]),
+  } : undefined;
+
   const denialContext: DenialContext | undefined = activeConnectionId ? {
     connectionId: activeConnectionId,
     sql: selectedSql.trim() || currentSql,
@@ -683,6 +711,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
               }}
               denialContext={denialContext}
               plan={plans[activeTabId]}
+              rowEditing={rowEditing}
               onSelectResult={(index) => patchRun(activeTabId, { activeResult: index })}
             />
           </div>
@@ -1212,6 +1241,7 @@ function BottomPanel({
   onPickHistory,
   denialContext,
   plan,
+  rowEditing,
   onSelectResult,
 }: {
   activeTab: BottomTab;
@@ -1221,6 +1251,7 @@ function BottomPanel({
   onPickHistory: (sql: string) => void;
   denialContext?: DenialContext;
   plan?: PlanState;
+  rowEditing?: RowEditing;
   onSelectResult?: (index: number) => void;
 }) {
   // Several statements ran: show one result at a time, picked from a strip.
@@ -1276,7 +1307,7 @@ function BottomPanel({
             {(shownRun.status === "error" || shownRun.status === "pending") && shownRun.error ? (
               <PolicyBanner error={shownRun.error} context={denialContext} />
             ) : shownRun.data ? (
-              <ResultsGrid key={activeResult} result={shownRun.data} />
+              <ResultsGrid key={activeResult} result={shownRun.data} editing={editingFor(rowEditing, selected ? selected.sql : run.sql)} />
             ) : (
               run.status !== "running" && (
                 <EmptyState title="No results yet" text="Run a query to populate the result grid." />

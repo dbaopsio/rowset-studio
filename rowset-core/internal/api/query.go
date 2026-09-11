@@ -226,8 +226,9 @@ func (s *Server) streamQueryResponse(w http.ResponseWriter, r *http.Request, con
 	}
 	columnsJSON, _ := json.Marshal(stream.Columns())
 	typesJSON, _ := json.Marshal(streamColumnTypes(stream))
+	originsJSON, _ := json.Marshal(streamColumnOrigins(stream))
 	w.Header().Set("Content-Type", "application/json")
-	_, writeErr := fmt.Fprintf(w, `{"columns":%s,"columnTypes":%s,%s"rows":[`, columnsJSON, typesJSON, annotations.fields())
+	_, writeErr := fmt.Fprintf(w, `{"columns":%s,"columnTypes":%s,"columnOrigins":%s,%s"rows":[`, columnsJSON, typesJSON, originsJSON, annotations.fields())
 	rowCount, first, truncated := int64(0), true, false
 	var streamErr error
 	for writeErr == nil {

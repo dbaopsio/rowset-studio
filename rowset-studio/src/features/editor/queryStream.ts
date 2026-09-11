@@ -1,11 +1,13 @@
 export interface StreamResult {
   columns: string[]; columnTypes?: string[]; rows: unknown[][]; rowCount: number;
   durationMs: number; truncated?: boolean; policyNotice?: string;
+  /** Table column behind each result column, null where unknown. */
+  columnOrigins?: ({ schema: string; table: string; column: string } | null)[];
   /** Fields the server added on behalf of its extensions. */
   annotations?: Record<string, unknown>;
 }
 
-const RESULT_FIELDS = new Set(["type", "columns", "columnTypes", "rows", "rowCount", "rowsAffected", "durationMs", "truncated", "policyNotice", "error", "status", "message"]);
+const RESULT_FIELDS = new Set(["type", "columns", "columnTypes", "columnOrigins", "rows", "rowCount", "rowsAffected", "durationMs", "truncated", "policyNotice", "error", "status", "message"]);
 
 /** Returns the fields of a result message that the result format does not define. */
 export function resultAnnotations(source: Record<string, unknown>): Record<string, unknown> {
@@ -29,7 +31,7 @@ export async function readQueryStream(response: Response, onProgress?: (result: 
     if (event.type === "columns") {
       if (receivedColumns || !Array.isArray(event.columns) || !event.columns.every((column: unknown) => typeof column === "string")) throw new Error("Invalid query metadata");
       receivedColumns = true;
-      result.columns = event.columns; result.columnTypes = event.columnTypes;
+      result.columns = event.columns; result.columnTypes = event.columnTypes; result.columnOrigins = event.columnOrigins ?? undefined;
       result.annotations = resultAnnotations(event);
     } else if (event.type === "rows") {
       if (!receivedColumns || !Array.isArray(event.rows) || !event.rows.every((row: unknown) => Array.isArray(row) && row.length === result.columns.length)) throw new Error("Invalid query row batch");

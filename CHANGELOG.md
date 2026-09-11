@@ -5,6 +5,15 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.18 — 2026-09-11
+
+- **Edit rows** in the result grid: when a result comes from one table and
+  includes its primary key, double-click a cell to change it (or set NULL).
+  Review shows the generated UPDATE statements; applying runs them through
+  the editor (policies and manual commit apply) and reloads the result.
+- Query results report which table column each result column comes from,
+  also inside manual-commit transactions.
+
 ## 0.0.17 — 2026-09-11
 
 - **Schedules** run a SELECT every day, on chosen weekdays or every few

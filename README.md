@@ -17,6 +17,8 @@ install or run.
   `.sql` files.
 - **Execution plans** — Explain draws the plan of a statement as a diagram
   with cost heat and warnings; actual rows and timings on request.
+- **Edit rows** — change cells of a one-table result, review the generated
+  UPDATE statements and apply them like any query.
 - **Schema browser** — schemas, tables, views, routines, triggers, columns and
   indexes, with quick actions to open a table or copy names.
 - **Notebooks** — Markdown notes and SQL cells together, encrypted and saved

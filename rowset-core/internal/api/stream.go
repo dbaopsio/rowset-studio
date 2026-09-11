@@ -8,6 +8,23 @@ import (
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/domain"
 )
 
+// streamColumnOrigins reports the table column behind each result column, or
+// null where the database did not say (expressions, joins it cannot trace).
+func streamColumnOrigins(stream queryRowStream) []any {
+	typed, ok := stream.(interface{ ColumnOrigins() []domain.ColumnOrigin })
+	if !ok {
+		return nil
+	}
+	origins := typed.ColumnOrigins()
+	out := make([]any, len(origins))
+	for index, origin := range origins {
+		if origin.Resolved && origin.Table != "" && origin.Column != "" {
+			out[index] = map[string]string{"schema": origin.Schema, "table": origin.Table, "column": origin.Column}
+		}
+	}
+	return out
+}
+
 func streamColumnTypes(stream queryRowStream) []string {
 	if typed, ok := stream.(interface{ DatabaseTypes() []string }); ok {
 		return typed.DatabaseTypes()
@@ -25,7 +42,7 @@ func (s *Server) streamNDJSON(w http.ResponseWriter, r *http.Request, connection
 			f.Flush()
 		}
 	}
-	writeErr := encoder.Encode(annotations.addTo(map[string]any{"type": "columns", "columns": stream.Columns(), "columnTypes": streamColumnTypes(stream)}))
+	writeErr := encoder.Encode(annotations.addTo(map[string]any{"type": "columns", "columns": stream.Columns(), "columnTypes": streamColumnTypes(stream), "columnOrigins": streamColumnOrigins(stream)}))
 	flush()
 	var streamErr error
 	count := int64(0)

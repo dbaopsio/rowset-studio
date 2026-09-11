@@ -9,6 +9,8 @@ export interface QueryResult {
   truncated?: boolean;
   policyNotice?: string;
   columnTypes?: string[];
+  /** Table column behind each result column, null where unknown. */
+  columnOrigins?: ({ schema: string; table: string; column: string } | null)[];
   /** Fields the server added on behalf of its extensions. */
   annotations?: Record<string, unknown>;
 }
@@ -84,6 +86,7 @@ function normalizeResult(r: RawQueryResponse): QueryResult {
     truncated: r.truncated ?? false,
     policyNotice: r.policyNotice,
     columnTypes: r.columnTypes,
+    columnOrigins: r.columnOrigins ?? undefined,
     annotations: resultAnnotations(r as unknown as Record<string, unknown>),
   };
 }

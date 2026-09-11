@@ -201,6 +201,7 @@ func (m *Manager) Query(ctx context.Context, connection Connection, query string
 type Transaction struct {
 	tx      *sql.Tx
 	conn    *sql.Conn
+	config  Connection
 	cancel  context.CancelFunc
 	finish  sync.Once
 	started time.Time
@@ -375,7 +376,7 @@ func (m *Manager) BeginWithOptions(ctx context.Context, connection Connection, o
 		_ = conn.Close()
 		return nil, err
 	}
-	return &Transaction{tx: tx, conn: conn, cancel: cancel, started: time.Now()}, nil
+	return &Transaction{tx: tx, conn: conn, config: connection, cancel: cancel, started: time.Now()}, nil
 }
 
 func sqlTransactionOptions(options TransactionOptions) (*sql.TxOptions, error) {
@@ -419,6 +420,8 @@ func (t *Transaction) Execute(ctx context.Context, query string, maxRows int) (R
 }
 func (t *Transaction) Query(ctx context.Context, query string) (*RowStream, error) {
 	started := time.Now()
+	// Origins let Studio edit rows of the result inside the transaction too.
+	origins := columnOrigins(ctx, t.config, t.conn, query)
 	rows, err := t.tx.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -428,7 +431,7 @@ func (t *Transaction) Query(ctx context.Context, query string) (*RowStream, erro
 		rows.Close()
 		return nil, err
 	}
-	return newRowStream(rows, columns, nil, started, nil), nil
+	return newRowStream(rows, columns, origins, started, nil), nil
 }
 
 func newRowStream(rows *sql.Rows, columns []string, origins []domain.ColumnOrigin, started time.Time, release func() error) *RowStream {
