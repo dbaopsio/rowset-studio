@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/domain"
+	"github.com/dbaopsio/rowset-studio/rowset-core/internal/engine"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/id"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/policy"
+	"github.com/dbaopsio/rowset-studio/rowset-core/internal/rowlimit"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/store"
 	sqlguard "github.com/dbaopsio/rowset-studio/rowset-parser"
 )
@@ -137,55 +139,93 @@ func (s *Server) executeScheduled(ctx context.Context, item store.ScheduledQuery
 	if !s.canUseConnection(r, identity, role.ID, connection) {
 		return 0, "", errors.New("the owner no longer has access to the connection")
 	}
-	info, err := sqlguard.Parse(sql)
+	selected, err := s.openGovernedSelect(ctx, r, identity, role, connection, item.Database, sql, "scheduler", 30*time.Minute)
 	if err != nil {
 		return 0, "", err
 	}
+	defer selected.Close()
+	rows, path, err := writeScheduledResult(item, selected.stream, selected.transforms)
+	selected.finish(rows, err)
+	return rows, path, err
+}
+
+// errSelectBlocked marks a SELECT that policies do not allow.
+var errSelectBlocked = errors.New("blocked by policy")
+
+// governedSelect is one SELECT opened with the checks the editor applies:
+// policies (including their row limit), statement hooks and result hooks.
+type governedSelect struct {
+	stream     *engine.RowStream
+	transforms ResultTransforms
+	cancel     context.CancelFunc
+	finish     func(rows int64, err error)
+}
+
+func (g *governedSelect) Close() {
+	g.stream.Close()
+	g.cancel()
+}
+
+// openGovernedSelect runs sql, which must be one SELECT, for a caller that has
+// already checked access to the connection. finish records the activity.
+func (s *Server) openGovernedSelect(ctx context.Context, r *http.Request, identity domain.Identity, role domain.Role, connection domain.Connection, database, sql, source string, timeout time.Duration) (*governedSelect, error) {
+	info, err := sqlguard.Parse(sql)
+	if err != nil {
+		return nil, err
+	}
 	if info.Kind != sqlguard.Select {
-		return 0, "", errors.New("scheduled queries run one SELECT statement")
+		return nil, errors.New("only one SELECT statement can run here")
 	}
 	normalized, hash := sqlguard.Normalize(info)
-	disabled, enabled, _, policyTimeout, err := s.resolvePolicies(r, identity, connection)
+	disabled, enabled, rowLimit, policyTimeout, err := s.resolvePolicies(r, identity, connection)
 	if err != nil {
-		return 0, "", errors.New("governance rules unavailable")
+		return nil, errors.New("governance rules unavailable")
 	}
 	decision := policy.Evaluate(policy.Input{Statement: info, Role: role.Name, ReadOnly: role.IsReadOnly, Environment: connection.Environment, Disabled: disabled, Enabled: enabled})
 	if !s.config.Shared || !identity.IsAdmin() {
-		if decision, _, err = s.applyCustomPolicies(r, identity, connection, info, false, decision, 0); err != nil {
-			return 0, "", errors.New("governance rules unavailable")
+		if decision, rowLimit, err = s.applyCustomPolicies(r, identity, connection, info, false, decision, rowLimit); err != nil {
+			return nil, errors.New("governance rules unavailable")
 		}
 	}
 	if decision.Effect != policy.Allow {
-		s.recordClientActivity(ctx, identity, connection, sql, normalized, hash, "scheduler", "", "", 0, 0, false, "blocked", decision, "deny", "", decision.Reason)
-		return 0, "", fmt.Errorf("blocked by policy: %s", decision.Reason)
+		s.recordClientActivity(ctx, identity, connection, sql, normalized, hash, source, "", "", 0, 0, false, "blocked", decision, "deny", "", decision.Reason)
+		return nil, fmt.Errorf("%w: %s", errSelectBlocked, decision.Reason)
 	}
 	prepared, _, err := s.prepareStatement(ctx, StatementRequest{Identity: identity, RoleID: role.ID, Connection: connection, Statement: info})
 	if err != nil {
-		return 0, "", err
+		return nil, err
 	}
-	target, _, err := s.routedEngineConnection(ctx, identity, connection, item.Database, nil, &prepared)
+	effectiveSQL := prepared.Raw
+	if rowLimit > 0 {
+		if effectiveSQL, err = rowlimit.Apply(connection.Engine, prepared, rowLimit); err != nil {
+			return nil, err
+		}
+	}
+	target, _, err := s.routedEngineConnection(ctx, identity, connection, database, nil, &prepared)
 	if err != nil {
-		return 0, "", err
+		return nil, err
 	}
-	runCtx, cancel := withConnectionTimeout(r, connection, policyTimeout, 30*time.Minute)
-	defer cancel()
-	stream, err := s.engines.Query(runCtx, target, prepared.Raw)
+	runCtx, cancel := withConnectionTimeout(r, connection, policyTimeout, timeout)
+	stream, err := s.engines.Query(runCtx, target, effectiveSQL)
 	if err != nil {
-		s.recordClientActivity(ctx, identity, connection, sql, normalized, hash, "scheduler", "", "", 0, 0, false, "error", decision, "allow", "", err.Error())
-		return 0, "", err
+		cancel()
+		s.recordClientActivity(ctx, identity, connection, sql, normalized, hash, source, "", "", 0, 0, false, "error", decision, "allow", "", err.Error())
+		return nil, err
 	}
-	defer stream.Close()
 	transforms, _, err := s.prepareResult(ctx, ResultRequest{Identity: identity, Connection: connection, Statement: prepared, Columns: stream.Columns(), Origins: stream.ColumnOrigins()})
 	if err != nil {
-		return 0, "", err
+		stream.Close()
+		cancel()
+		return nil, err
 	}
-	rows, path, err := writeScheduledResult(item, stream, transforms)
-	status, message := "success", ""
-	if err != nil {
-		status, message = "error", err.Error()
+	finish := func(rows int64, err error) {
+		status, message := "success", ""
+		if err != nil {
+			status, message = "error", err.Error()
+		}
+		s.recordClientActivity(ctx, identity, connection, sql, normalized, hash, source, "", "", rows, stream.DurationMS(), false, status, decision, "allow", "", message)
 	}
-	s.recordClientActivity(ctx, identity, connection, sql, normalized, hash, "scheduler", "", "", rows, stream.DurationMS(), false, status, decision, "allow", "", message)
-	return rows, path, err
+	return &governedSelect{stream: stream, transforms: transforms, cancel: cancel, finish: finish}, nil
 }
 
 // writeScheduledResult streams rows into "<name>_<local time>.<format>". The

@@ -5,6 +5,17 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.26 — 2026-09-11
+
+- More compact Database Explorer; counts in square boxes.
+- Tables show Open SELECT and Copy name on hover again; their ⋯ menu has
+  **Export as CSV / JSON** and Import CSV.
+- Table export downloads the whole table. It runs as a SELECT with the same
+  policies, row limits and result hooks as the editor, so the default
+  "no SELECT without WHERE" policy blocks it until turned off.
+- Scheduled queries now honour policy row limits too.
+- The result grid's column resize handle is invisible until hovered.
+
 ## 0.0.25 — 2026-09-11
 
 - Redesigned Database Explorer: a search box for databases, tables and

@@ -193,7 +193,7 @@ function GridView({ result, editable, edits, onEdit }: { result: QueryResult; ed
                       size={11}
                       className={`transition ${active ? "text-brand-500" : "text-slate-300 dark:text-slate-600"} ${active && sort?.dir === "asc" ? "rotate-180" : ""}`}
                     />
-                    <span role="separator" aria-label={`Resize ${c}`} className="ml-auto h-4 w-2 cursor-col-resize bg-slate-200 dark:bg-slate-700" onClick={event => event.stopPropagation()} onPointerDown={event => {
+                    <span role="separator" aria-label={`Resize ${c}`} className="-mr-2 ml-auto h-5 w-2 shrink-0 cursor-col-resize border-r-2 border-transparent hover:border-slate-400 dark:hover:border-slate-500" onClick={event => event.stopPropagation()} onPointerDown={event => {
                       event.preventDefault(); event.stopPropagation();
                       const start = event.clientX, width = event.currentTarget.closest("th")?.getBoundingClientRect().width ?? 120;
                       const move = (ev: PointerEvent) => setWidths(current => ({ ...current, [ci]: Math.max(70, Math.min(1200, width + ev.clientX - start)) }));

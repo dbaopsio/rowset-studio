@@ -2,7 +2,7 @@ import { useContext, useState } from "react";
 import { Icon, type IconName } from "../../components/Icon";
 import { ApiError } from "../../lib/api";
 import { useSchema } from "./useEditor";
-import { ColumnInfo, RoutineInfo, TableInfo, TriggerInfo } from "./api";
+import { ColumnInfo, RoutineInfo, TableInfo, TriggerInfo, exportTable } from "./api";
 import { SchemaActions, quoteIdentifier, tableSelect } from "./schemaActions";
 import CsvImportDialog from "./CsvImportDialog";
 import RowMenu from "../../components/RowMenu";
@@ -139,7 +139,7 @@ export default function SchemaBrowser({
 
         return (
           <>
-            <div className="mb-1.5 flex items-center gap-1">
+            <div className="mb-1 flex items-center gap-1">
               <div className="relative min-w-0 flex-1">
                 <Icon name="search" size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
@@ -148,7 +148,7 @@ export default function SchemaBrowser({
                   placeholder={search && !filter ? `Filtered by “${search}”` : "Filter tables and columns…"}
                   title="Search tables, views, routines and column names"
                   aria-label="Search objects or columns"
-                  className="h-8 w-full rounded-md border border-slate-200 bg-white pl-8 pr-8 text-[12.5px] text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+                  className="h-7 w-full rounded-md border border-slate-200 bg-white pl-8 pr-8 text-[12px] text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
                 />
                 <button
                   type="button"
@@ -156,13 +156,13 @@ export default function SchemaBrowser({
                   aria-label="Refresh schema"
                   disabled={isFetching}
                   onClick={() => void refetch()}
-                  className="absolute right-1.5 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-wait dark:hover:bg-slate-900 dark:hover:text-slate-200"
+                  className="absolute right-1 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-wait dark:hover:bg-slate-900 dark:hover:text-slate-200"
                 >
                   <Icon name="refresh" size={12} className={isFetching ? "animate-spin" : ""} />
                 </button>
               </div>
               {((data.schemas?.length ?? 0) > 1 || schemaFilter) && (
-                <select aria-label="Filter schema" title="Schema" className="h-8 w-24 shrink-0 truncate rounded-md border border-slate-200 bg-white px-1.5 text-[12px] text-slate-700 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200" value={schemaFilter} onChange={e => setSchemaFilter(e.target.value)}>
+                <select aria-label="Filter schema" title="Schema" className="h-7 w-24 shrink-0 truncate rounded-md border border-slate-200 bg-white px-1.5 text-[12px] text-slate-700 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200" value={schemaFilter} onChange={e => setSchemaFilter(e.target.value)}>
                   <option value="">All schemas</option>
                   {(data.schemas ?? []).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
                 </select>
@@ -216,12 +216,12 @@ export default function SchemaBrowser({
 }
 
 function CountPill({ children }: { children: React.ReactNode }) {
-  return <span className="min-w-[20px] rounded-full bg-slate-100 px-1.5 text-center text-[11px] leading-5 tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">{children}</span>;
+  return <span className="min-w-[18px] rounded bg-slate-100 px-1 text-center text-[10.5px] leading-[17px] tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">{children}</span>;
 }
 
 function SectionTitle({ label, count }: { label: string; count: string }) {
   return (
-    <div className="mb-0.5 mt-1 flex h-7 items-center gap-2 px-1 text-[12.5px] text-slate-500 dark:text-slate-400">
+    <div className="mt-0.5 flex h-6 items-center gap-2 px-1 text-[12px] text-slate-500 dark:text-slate-400">
       {label}
       <CountPill>{count}</CountPill>
     </div>
@@ -236,7 +236,7 @@ function ObjectGroup({ label, count, children }: { label: string; count: number;
     <div className="mt-1">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex h-7 w-full items-center gap-2 rounded px-1 text-left text-[12.5px] text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+        className="flex h-6 w-full items-center gap-2 rounded px-1 text-left text-[12px] text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
       >
         <Icon name={open ? "chevron-down" : "chevron-right"} size={12} className="-mr-1 text-slate-400" />
         {label}
@@ -251,7 +251,7 @@ function RoutineItem({ engine, schemaName, routine }: { engine: string; schemaNa
   const qualifiedName = qualifyName(engine, schemaName, routine.name);
   return (
     <li
-      className="flex h-7 items-center gap-2 rounded px-1 pl-[22px] text-slate-600 dark:text-slate-400"
+      className="flex h-6 items-center gap-2 rounded px-1 pl-[22px] text-slate-600 dark:text-slate-400"
       title={`${routine.kind} ${qualifiedName}`}
     >
       <Icon name={routine.kind === "procedure" ? "play" : "wand"} size={12} className="shrink-0 text-slate-400" />
@@ -264,7 +264,7 @@ function TriggerItem({ engine, schemaName, trigger }: { engine: string; schemaNa
   const qualifiedTable = qualifyName(engine, schemaName, trigger.table);
   return (
     <li
-      className="flex h-7 items-center gap-2 rounded px-1 pl-[22px] text-slate-600 dark:text-slate-400"
+      className="flex h-6 items-center gap-2 rounded px-1 pl-[22px] text-slate-600 dark:text-slate-400"
       title={`${trigger.timing} ${trigger.event} ON ${qualifiedTable}`}
     >
       <Icon name="activity" size={12} className="shrink-0 text-slate-400" />
@@ -277,6 +277,7 @@ function TriggerItem({ engine, schemaName, trigger }: { engine: string; schemaNa
 function TableItem({ engine, schemaName, table, connectionId, database, icon = "table" }: { engine: string; schemaName: string; table: TableInfo; connectionId: string; database?: string; icon?: IconName }) {
   const action = useContext(SchemaActions);
   const [copyState, setCopyState] = useState<"" | "copied" | "failed">("");
+  const [exportState, setExportState] = useState<{ status: "" | "running" | "failed"; message?: string }>({ status: "" });
   const [open, setOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const qualifiedName = qualifyName(engine, schemaName, table.name);
@@ -286,24 +287,43 @@ function TableItem({ engine, schemaName, table, connectionId, database, icon = "
       .then(() => setCopyState("copied"), () => setCopyState("failed"))
       .finally(() => window.setTimeout(() => setCopyState(""), 1500));
   };
+  const download = (format: "csv" | "json") => {
+    setExportState({ status: "running" });
+    exportTable(connectionId, { database, schema: schemaName, table: table.name, format })
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${table.name}.${format}`;
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setExportState({ status: "" });
+      })
+      .catch((error: unknown) => setExportState({ status: "failed", message: schemaError(error) }));
+  };
   return (
     <li>
-      <div className="group flex h-7 items-center rounded-md text-[13px] text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900">
+      <div className="group flex h-6 items-center rounded-md text-[12.5px] text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900">
         <button onClick={() => setOpen((o) => !o)} className="flex min-w-0 flex-1 items-center gap-2 px-1 text-left">
           <Icon name={open ? "chevron-down" : "chevron-right"} size={12} className="-mr-0.5 shrink-0 text-slate-400" />
-          <Icon name={icon} size={14} className="shrink-0 text-slate-400 group-hover:text-slate-500" />
+          <Icon name={icon} size={13} className="shrink-0 text-slate-400 group-hover:text-slate-500" />
           <span className="truncate" title={qualifiedName}>{qualifiedName}</span>
         </button>
-        {copyState && <span className={`shrink-0 pr-1 text-[11px] ${copyState === "failed" ? "text-rose-500" : "text-emerald-600"}`}>{copyState === "failed" ? "Clipboard unavailable" : "Copied"}</span>}
-        <RowMenu
-          label={`${qualifiedName} actions`}
-          className="mr-0.5 opacity-50 group-hover:opacity-100"
-          items={[
-            { label: "Open SELECT in a new tab", onSelect: () => action({ connectionId, database, sql: tableSelect(engine, schemaName, table.name, table.columns.map(c => c.name)) }) },
-            { label: `Copy name`, onSelect: copyName },
-            ...(icon === "table" ? [{ label: "Import CSV…", onSelect: () => setImporting(true) }] : []),
-          ]}
-        />
+        {exportState.status === "running" && <span className="shrink-0 pr-1 text-[11px] text-slate-400">Exporting…</span>}
+        {exportState.status === "failed" && <button type="button" onClick={() => setExportState({ status: "" })} title={exportState.message} className="shrink-0 pr-1 text-[11px] text-rose-500">Export failed</button>}
+        <span className={`shrink-0 items-center gap-0.5 pr-0.5 ${copyState ? "flex" : "hidden group-hover:flex group-focus-within:flex"}`}>
+          <RowAction icon="sql" title="Open SELECT in a new tab (does not run it)" onClick={() => action({ connectionId, database, sql: tableSelect(engine, schemaName, table.name, table.columns.map(c => c.name)) })} />
+          <RowAction icon={copyState === "copied" ? "check" : "copy"} title={copyState === "failed" ? "Clipboard unavailable" : copyState === "copied" ? "Copied" : `Copy name: ${quotedName}`} onClick={copyName} tone={copyState === "failed" ? "text-rose-500" : copyState === "copied" ? "text-emerald-600" : undefined} />
+          <RowMenu
+            label={`More actions for ${qualifiedName}`}
+            className="h-5 w-5"
+            items={[
+              { label: "Export as CSV", onSelect: () => download("csv"), disabled: exportState.status === "running" },
+              { label: "Export as JSON", onSelect: () => download("json"), disabled: exportState.status === "running" },
+              ...(icon === "table" ? [{ label: "Import CSV…", onSelect: () => setImporting(true) }] : []),
+            ]}
+          />
+        </span>
       </div>
       {importing && <CsvImportDialog connectionId={connectionId} database={database} schemaName={schemaName} table={table} onClose={() => setImporting(false)} />}
       {open && (
@@ -340,6 +360,14 @@ function TableItem({ engine, schemaName, table, connectionId, database, icon = "
         </ul>
       )}
     </li>
+  );
+}
+
+function RowAction({ icon, title, onClick, tone }: { icon: IconName; title: string; onClick: () => void; tone?: string }) {
+  return (
+    <button type="button" title={title} aria-label={title} onClick={onClick} className={`grid h-5 w-5 place-items-center rounded hover:bg-slate-200 dark:hover:bg-slate-800 ${tone ?? "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"}`}>
+      <Icon name={icon} size={12} />
+    </button>
   );
 }
 

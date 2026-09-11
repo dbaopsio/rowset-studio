@@ -153,6 +153,12 @@ export function explainQuery(connectionId: string, sql: string, options: { datab
   });
 }
 
+// Downloads a whole table; the server applies policies as for a SELECT.
+export async function exportTable(connectionId: string, request: { database?: string; schema: string; table: string; format: "csv" | "json" }) {
+  const response = await apiResponse(`/connections/${connectionId}/export`, { method: "POST", body: JSON.stringify({ ...request, database: request.database ?? "" }) });
+  return response.blob();
+}
+
 // CSV import: upload the file in chunks, then insert it in one transaction.
 export function startImport(connectionId: string) {
   return api<{ importId: string }>(`/connections/${connectionId}/imports`, { method: "POST" });
