@@ -88,7 +88,9 @@ func (m *Manager) Schema(ctx context.Context, connection Connection) (Schema, er
 	enrichmentCtx, cancelEnrichment := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelEnrichment()
 	enrichments := loadSchemaEnrichments(enrichmentCtx, db, engine)
-	for range 6 {
+	// One read per loader in loadSchemaEnrichments: primary keys, foreign
+	// keys, indexes, views, routines, triggers and sequences.
+	for range 7 {
 		enrichment := <-enrichments
 		if enrichment.err != nil {
 			result.Warnings = append(result.Warnings, metadataWarning(enrichment.name, enrichment.err))
@@ -107,6 +109,8 @@ func (m *Manager) Schema(ctx context.Context, connection Connection) (Schema, er
 			result.Routines = enrichment.routines
 		case "triggers":
 			result.Triggers = enrichment.triggers
+		case "sequences":
+			result.Sequences = enrichment.sequences
 		}
 	}
 	return result, nil
@@ -160,6 +164,7 @@ type schemaEnrichment struct {
 	views       map[string]bool
 	routines    []Routine
 	triggers    []Trigger
+	sequences   []Sequence
 	err         error
 }
 
@@ -192,6 +197,11 @@ func loadSchemaEnrichments(ctx context.Context, db *sql.DB, engine string) <-cha
 		partial := Schema{}
 		err := loadTriggers(ctx, db, engine, &partial)
 		output <- schemaEnrichment{name: "triggers", triggers: partial.Triggers, err: err}
+	}()
+	go func() {
+		partial := Schema{}
+		err := loadSequences(ctx, db, engine, &partial)
+		output <- schemaEnrichment{name: "sequences", sequences: partial.Sequences, err: err}
 	}()
 	return output
 }
@@ -345,6 +355,34 @@ func loadViews(ctx context.Context, db *sql.DB, engine string, schema *Schema) e
 			return err
 		}
 		schema.Views[tableKey(owner, name)] = true
+	}
+	return rows.Err()
+}
+
+// loadSequences lists sequence objects. MySQL has none.
+func loadSequences(ctx context.Context, db *sql.DB, engine string, schema *Schema) error {
+	var query string
+	switch engine {
+	case "postgres":
+		query = "SELECT sequence_schema,sequence_name FROM information_schema.sequences WHERE sequence_schema NOT IN ('pg_catalog','information_schema')"
+	case "mariadb":
+		query = "SELECT table_schema,table_name FROM information_schema.tables WHERE table_type='SEQUENCE' AND table_schema=DATABASE()"
+	case "mssql", "sqlserver":
+		query = "SELECT s.name,q.name FROM sys.sequences q JOIN sys.schemas s ON s.schema_id=q.schema_id"
+	default:
+		return nil
+	}
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item Sequence
+		if err := rows.Scan(&item.Schema, &item.Name); err != nil {
+			return err
+		}
+		schema.Sequences = append(schema.Sequences, item)
 	}
 	return rows.Err()
 }

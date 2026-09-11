@@ -62,6 +62,7 @@ export interface SchemaNode {
   views?: TableInfo[];
   routines?: RoutineInfo[];
   triggers?: TriggerInfo[];
+  sequences?: { name: string }[];
 }
 export interface SchemaInfo {
   schemas: SchemaNode[];
@@ -228,6 +229,7 @@ function normalizeSchema(input: SchemaInfo): SchemaInfo {
       views: (schema.views ?? []).map(normalizeTable),
       routines: schema.routines ?? [],
       triggers: schema.triggers ?? [],
+      sequences: schema.sequences ?? [],
     })),
   };
 }

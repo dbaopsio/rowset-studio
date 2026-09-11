@@ -585,6 +585,7 @@ func schemaJSON(schema engine.Schema) map[string]any {
 	type schemaNode struct {
 		Tables, Views      []map[string]any
 		Routines, Triggers []map[string]any
+		Sequences          []map[string]any
 	}
 	bySchema := map[string]*schemaNode{}
 	names := make([]string, 0)
@@ -640,6 +641,17 @@ func schemaJSON(schema engine.Schema) map[string]any {
 		}
 		bySchema[name].Triggers = append(bySchema[name].Triggers, map[string]any{"name": trigger.Name, "table": trigger.Table, "timing": trigger.Timing, "event": trigger.Event})
 	}
+	for _, sequence := range schema.Sequences {
+		name := sequence.Schema
+		if name == "" {
+			name = "default"
+		}
+		if bySchema[name] == nil {
+			bySchema[name] = &schemaNode{}
+			names = append(names, name)
+		}
+		bySchema[name].Sequences = append(bySchema[name].Sequences, map[string]any{"name": sequence.Name})
+	}
 	sort.Strings(names)
 	output := make([]map[string]any, 0, len(names))
 	for _, name := range names {
@@ -656,7 +668,10 @@ func schemaJSON(schema engine.Schema) map[string]any {
 		if node.Triggers == nil {
 			node.Triggers = []map[string]any{}
 		}
-		output = append(output, map[string]any{"name": name, "tables": node.Tables, "views": node.Views, "routines": node.Routines, "triggers": node.Triggers})
+		if node.Sequences == nil {
+			node.Sequences = []map[string]any{}
+		}
+		output = append(output, map[string]any{"name": name, "tables": node.Tables, "views": node.Views, "routines": node.Routines, "triggers": node.Triggers, "sequences": node.Sequences})
 	}
 	warnings := schema.Warnings
 	if warnings == nil {

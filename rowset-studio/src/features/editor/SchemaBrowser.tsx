@@ -133,6 +133,12 @@ export default function SchemaBrowser({
         const visibleProcedures = procedures.filter(r => matches(r.key));
         const visibleFunctions = functions.filter(r => matches(r.key));
         const visibleTriggers = triggers.filter(t => matches(t.key));
+        const sequences: { key: string; name: string }[] = [];
+        for (const schema of data.schemas ?? []) {
+          if (schemaFilter && schema.name !== schemaFilter) continue;
+          for (const sequence of schema.sequences ?? []) sequences.push({ key: qualifyName(engine, schema.name, sequence.name), name: sequence.name });
+        }
+        const visibleSequences = sequences.filter(s => matches(s.key));
         const filteredTables = tables
           .filter((item) => !needle || item.key.toLowerCase().includes(needle) || (item.table.columns ?? []).some((column) => column.name.toLowerCase().includes(needle)))
           .sort((left, right) => left.key.localeCompare(right.key));
@@ -198,6 +204,16 @@ export default function SchemaBrowser({
               <ObjectGroup label="Functions" count={visibleFunctions.length}>
                 {visibleFunctions.map((r) => (
                   <RoutineItem key={r.key} engine={engine} schemaName={r.schemaName} routine={r.routine} />
+                ))}
+              </ObjectGroup>
+            )}
+            {visibleSequences.length > 0 && (
+              <ObjectGroup label="Sequences" count={visibleSequences.length}>
+                {visibleSequences.map((s) => (
+                  <li key={s.key} className="flex h-6 items-center gap-2 rounded px-1 pl-[22px] text-slate-600 dark:text-slate-400" title={`sequence ${s.key}`}>
+                    <Icon name="sort" size={12} className="shrink-0 text-slate-400" />
+                    <span className="truncate">{s.key}</span>
+                  </li>
                 ))}
               </ObjectGroup>
             )}

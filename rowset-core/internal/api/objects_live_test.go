@@ -48,7 +48,7 @@ var objectFixtures = map[string]objectFixture{
 			{sql: "SELECT count(*) FROM obj_parent_{s} WHERE id > 0", want: "2"},
 		},
 		drop:    []string{"DROP VIEW obj_view_{s}", "DROP TABLE obj_child_{s}", "DROP TABLE obj_parent_{s}", "DROP FUNCTION obj_trg_fn_{s}()", "DROP FUNCTION obj_fn_{s}(int)", "DROP PROCEDURE obj_proc_{s}(int)", "DROP SEQUENCE obj_seq_{s}"},
-		objects: []string{"obj_view_{s}", "obj_fn_{s}", "obj_proc_{s}", "obj_trg_{s}", "obj_child_note_{s}"},
+		objects: []string{"obj_view_{s}", "obj_fn_{s}", "obj_proc_{s}", "obj_trg_{s}", "obj_child_note_{s}", "obj_seq_{s}"},
 	},
 	"mysql": {
 		create: []string{
@@ -92,7 +92,7 @@ var objectFixtures = map[string]objectFixture{
 			{sql: "SELECT count(*) FROM obj_parent_{s} WHERE id > 0", want: "2"},
 		},
 		drop:    []string{"DROP VIEW obj_view_{s}", "DROP TABLE obj_child_{s}", "DROP TABLE obj_parent_{s}", "DROP FUNCTION dbo.obj_fn_{s}", "DROP PROCEDURE dbo.obj_proc_{s}", "DROP SEQUENCE obj_seq_{s}"},
-		objects: []string{"obj_view_{s}", "obj_fn_{s}", "obj_proc_{s}", "obj_trg_{s}", "obj_child_note_{s}"},
+		objects: []string{"obj_view_{s}", "obj_fn_{s}", "obj_proc_{s}", "obj_trg_{s}", "obj_child_note_{s}", "obj_seq_{s}"},
 	},
 }
 
@@ -101,6 +101,7 @@ func init() {
 	mariadb.create = append(append([]string(nil), mariadb.create...), "CREATE SEQUENCE obj_seq_{s}")
 	mariadb.use = append(append([]objectCheck(nil), mariadb.use...), objectCheck{sql: "SELECT NEXTVAL(obj_seq_{s})", want: "1"})
 	mariadb.drop = append(append([]string(nil), mariadb.drop...), "DROP SEQUENCE obj_seq_{s}")
+	mariadb.objects = append(append([]string(nil), mariadb.objects...), "obj_seq_{s}")
 	objectFixtures["mariadb"] = mariadb
 }
 

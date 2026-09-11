@@ -5,6 +5,14 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.36 — 2026-09-12
+
+- The schema browser lists **sequences** (PostgreSQL, SQL Server, MariaDB)
+  next to views, procedures, functions and triggers. All of these groups
+  stay collapsed until you open them.
+- Expanding a database reloads its schema, so objects created since the
+  last look appear without pressing refresh.
+
 ## 0.0.35 — 2026-09-12
 
 - The row limit no longer rewrites statements. Rowset runs the SQL exactly

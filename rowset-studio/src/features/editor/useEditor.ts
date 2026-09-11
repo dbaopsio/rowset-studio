@@ -18,5 +18,8 @@ export function useSchema(connectionId: string | null, database?: string, enable
     queryKey: ["schema", connectionId, database ?? ""],
     queryFn: () => getSchema(connectionId!, database),
     enabled: !!connectionId && enabled,
+    // Objects created since the last look show up when a database is
+    // expanded again, without pressing refresh.
+    refetchOnMount: "always",
   });
 }

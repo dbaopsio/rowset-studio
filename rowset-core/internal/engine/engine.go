@@ -106,14 +106,16 @@ type Index struct {
 	Primary bool     `json:"primary"`
 }
 type Routine struct{ Schema, Name, Kind string }
+type Sequence struct{ Schema, Name string }
 type Trigger struct{ Schema, Name, Table, Timing, Event string }
 type Schema struct {
-	Tables   map[string][]Column
-	Indexes  map[string][]Index
-	Views    map[string]bool
-	Routines []Routine
-	Triggers []Trigger
-	Warnings []string
+	Tables    map[string][]Column
+	Indexes   map[string][]Index
+	Views     map[string]bool
+	Routines  []Routine
+	Triggers  []Trigger
+	Sequences []Sequence
+	Warnings  []string
 }
 
 type Manager struct {
