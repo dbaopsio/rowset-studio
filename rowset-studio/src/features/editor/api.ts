@@ -153,6 +153,33 @@ export function explainQuery(connectionId: string, sql: string, options: { datab
   });
 }
 
+// CSV import: upload the file in chunks, then insert it in one transaction.
+export function startImport(connectionId: string) {
+  return api<{ importId: string }>(`/connections/${connectionId}/imports`, { method: "POST" });
+}
+
+export function uploadImportChunk(connectionId: string, importId: string, chunk: Blob) {
+  return api<{ size: number }>(`/connections/${connectionId}/imports/${importId}`, { method: "PUT", body: chunk });
+}
+
+export interface ImportRequest {
+  schema: string;
+  table: string;
+  database: string;
+  header: boolean;
+  delimiter: string;
+  nullEmpty: boolean;
+  columns: { source: number; target: string }[];
+}
+
+export function runImport(connectionId: string, importId: string, request: ImportRequest) {
+  return api<{ rows: number; durationMs: number }>(`/connections/${connectionId}/imports/${importId}/run`, { method: "POST", body: JSON.stringify(request) });
+}
+
+export function discardImport(connectionId: string, importId: string) {
+  return api<void>(`/connections/${connectionId}/imports/${importId}`, { method: "DELETE" });
+}
+
 export function listDatabases(connectionId: string) {
   return api<{ databases: string[] | null }>(`/connections/${connectionId}/databases`).then((r) => r.databases ?? []);
 }

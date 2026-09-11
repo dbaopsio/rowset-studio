@@ -29,6 +29,7 @@ export type IconName =
   | "search"
   | "history"
   | "clock"
+  | "upload"
   | "grid"
   | "text"
   | "filter"
@@ -150,6 +151,12 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <circle cx="7" cy="7" r="4" />
       <path d="M10 10l3 3" />
+    </>
+  ),
+  upload: (
+    <>
+      <path d="M8 10.5V3M5 5.8L8 3l3 2.8" />
+      <path d="M3 10.5v2h10v-2" />
     </>
   ),
   clock: (

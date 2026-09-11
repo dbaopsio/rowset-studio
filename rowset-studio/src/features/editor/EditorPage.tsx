@@ -106,6 +106,12 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   const [explorerTree, setExplorerTree] = useState<Record<string, boolean>>(() => loadBooleanRecord(EXPLORER_TREE_KEY));
   const [selectedSql, setSelectedSql] = useState("");
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
+  // Each tab mounts its own editor; a selection or cursor from the previous
+  // tab must never decide what Run or Explain uses here.
+  useEffect(() => {
+    setSelectedSql("");
+    setCursor({ line: 1, column: 1 });
+  }, [activeTabId]);
   const [bottomHeight, setBottomHeight] = useState(() => Number(localStorage.getItem("rowset.editor.bottom")) || 280);
   const [explorerWidth, setExplorerWidth] = useState(() => Number(localStorage.getItem("rowset.editor.explorerWidth")) || 286);
   // Monotonic per-tab run counter: a stale response (tab re-run before the
@@ -332,6 +338,13 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     controllers.current[tabId] = controller;
 
     setBottomTab("results");
+    // A plan belongs to the statement it explained; a new run replaces it.
+    setPlans((current) => {
+      if (!current[tabId]) return current;
+      const next = { ...current };
+      delete next[tabId];
+      return next;
+    });
     patchRun(tabId, {
       status: "running",
       sql,

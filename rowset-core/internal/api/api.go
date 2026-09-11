@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +52,8 @@ type Server struct {
 	scheduleContext     context.Context
 	stopSchedules       context.CancelFunc
 	scheduleRuns        sync.WaitGroup
+	importMu            sync.Mutex
+	imports             map[string]*csvUpload
 }
 
 func New(cfg config.Config, data *store.Store, issuer *auth.Issuer, logger *slog.Logger) *Server {
@@ -68,6 +71,7 @@ func NewWithActivity(cfg config.Config, data *store.Store, activityStore activit
 	go server.transactionReaper(txnContext)
 	go server.topologyRefresher(topologyContext)
 	server.scheduleRunning = map[string]bool{}
+	server.imports = map[string]*csvUpload{}
 	server.scheduleContext, server.stopSchedules = context.WithCancel(context.Background())
 	// Scheduled queries write files on this computer, so only personal
 	// workspaces run them.
@@ -84,6 +88,12 @@ func (s *Server) Close() error {
 		s.stopSchedules()
 		s.scheduleRuns.Wait()
 	}
+	s.importMu.Lock()
+	for key, item := range s.imports {
+		_ = os.Remove(item.path)
+		delete(s.imports, key)
+	}
+	s.importMu.Unlock()
 	s.txnMu.Lock()
 	items := make([]*transactionEntry, 0, len(s.txns))
 	for id, item := range s.txns {
@@ -135,6 +145,10 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/connections/{id}/databases", s.authenticated(http.HandlerFunc(s.listDatabases)))
 	mux.Handle("POST /api/connections/{id}/query", s.authenticated(http.HandlerFunc(s.runQuery)))
 	mux.Handle("POST /api/connections/{id}/explain", s.authenticated(http.HandlerFunc(s.explainQuery)))
+	mux.Handle("POST /api/connections/{id}/imports", s.authenticated(http.HandlerFunc(s.startImport)))
+	mux.Handle("PUT /api/connections/{id}/imports/{importId}", s.authenticated(http.HandlerFunc(s.appendImport)))
+	mux.Handle("POST /api/connections/{id}/imports/{importId}/run", s.authenticated(http.HandlerFunc(s.runImport)))
+	mux.Handle("DELETE /api/connections/{id}/imports/{importId}", s.authenticated(http.HandlerFunc(s.discardImport)))
 	mux.Handle("POST /api/connections/{id}/txn/begin", s.authenticated(http.HandlerFunc(s.beginTransaction)))
 	mux.Handle("POST /api/connections/{id}/txn/{txn_id}/query", s.authenticated(http.HandlerFunc(s.transactionQuery)))
 	mux.Handle("POST /api/connections/{id}/txn/{txn_id}/commit", s.authenticated(http.HandlerFunc(s.commitTransaction)))

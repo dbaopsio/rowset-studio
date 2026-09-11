@@ -4,6 +4,7 @@ import { ApiError } from "../../lib/api";
 import { useSchema } from "./useEditor";
 import { ColumnInfo, RoutineInfo, TableInfo, TriggerInfo } from "./api";
 import { SchemaActions, quoteIdentifier, tableSelect } from "./schemaActions";
+import CsvImportDialog from "./CsvImportDialog";
 
 // Shorten verbose SQL type names so long ones don't crowd out the column name.
 function shortType(t: string) {
@@ -263,6 +264,7 @@ function TableItem({ engine, schemaName, table, connectionId, database, icon = "
   const action = useContext(SchemaActions);
   const [copyState, setCopyState] = useState<"" | "copied" | "failed">("");
   const [open, setOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
   const qualifiedName = qualifyName(engine, schemaName, table.name);
   const quotedName = [schemaName, table.name].map(n => quoteIdentifier(engine, n)).join(".");
   const copyName = () => {
@@ -281,8 +283,10 @@ function TableItem({ engine, schemaName, table, connectionId, database, icon = "
         <span className={`shrink-0 items-center gap-0.5 pr-1 ${copyState ? "flex" : "hidden group-hover:flex group-focus-within:flex"}`}>
           <RowAction icon="sql" title="Open SELECT in a new tab (does not run it)" onClick={() => action({ connectionId, database, sql: tableSelect(engine, schemaName, table.name, table.columns.map(c => c.name)) })} />
           <RowAction icon={copyState === "copied" ? "check" : "copy"} title={copyState === "failed" ? "Clipboard unavailable" : copyState === "copied" ? "Copied" : `Copy name: ${quotedName}`} onClick={copyName} tone={copyState === "failed" ? "text-rose-500" : copyState === "copied" ? "text-emerald-600" : undefined} />
+          {icon === "table" && <RowAction icon="upload" title="Import CSV into this table" onClick={() => setImporting(true)} />}
         </span>
       </div>
+      {importing && <CsvImportDialog connectionId={connectionId} database={database} schemaName={schemaName} table={table} onClose={() => setImporting(false)} />}
       {open && (
         <ul className="ml-[18px] border-l border-slate-200 pl-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
           {(table.columns ?? []).map((c) => (

@@ -1,0 +1,360 @@
+package api
+
+import (
+	"bufio"
+	"encoding/csv"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/dbaopsio/rowset-studio/rowset-core/internal/id"
+	"github.com/dbaopsio/rowset-studio/rowset-core/internal/policy"
+	sqlguard "github.com/dbaopsio/rowset-studio/rowset-parser"
+)
+
+const (
+	importMaxBytes     = 256 << 20
+	importBatchRows    = 500
+	importBatchBytes   = 512 << 10
+	importUploadMaxAge = time.Hour
+)
+
+// csvUpload is a CSV file being uploaded in chunks before it is imported in
+// one transaction.
+type csvUpload struct {
+	userID, connectionID, path string
+	size                       int64
+	created                    time.Time
+}
+
+type importColumn struct {
+	Source int    `json:"source"`
+	Target string `json:"target"`
+}
+
+type importInput struct {
+	Schema    string         `json:"schema"`
+	Table     string         `json:"table"`
+	Database  string         `json:"database"`
+	Header    bool           `json:"header"`
+	Delimiter string         `json:"delimiter"`
+	NullEmpty bool           `json:"nullEmpty"`
+	Columns   []importColumn `json:"columns"`
+}
+
+func importDir() string { return filepath.Join(os.TempDir(), "rowset-imports") }
+
+func (s *Server) upload(r *http.Request) (*csvUpload, bool) {
+	identity := identityFromContext(r.Context())
+	s.importMu.Lock()
+	defer s.importMu.Unlock()
+	item, ok := s.imports[r.PathValue("importId")]
+	return item, ok && item.userID == identity.UserID && item.connectionID == r.PathValue("id")
+}
+
+func (s *Server) dropUpload(importID string) {
+	s.importMu.Lock()
+	item := s.imports[importID]
+	delete(s.imports, importID)
+	s.importMu.Unlock()
+	if item != nil {
+		_ = os.Remove(item.path)
+	}
+}
+
+// startImport opens an upload; files not imported within an hour are removed.
+func (s *Server) startImport(w http.ResponseWriter, r *http.Request) {
+	connection, ok := s.authorizedConnection(w, r)
+	if !ok {
+		return
+	}
+	s.importMu.Lock()
+	for key, item := range s.imports {
+		if time.Since(item.created) > importUploadMaxAge {
+			_ = os.Remove(item.path)
+			delete(s.imports, key)
+		}
+	}
+	s.importMu.Unlock()
+	if err := os.MkdirAll(importDir(), 0o700); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "import folder unavailable")
+		return
+	}
+	file, err := os.CreateTemp(importDir(), "*.csv")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "import file unavailable")
+		return
+	}
+	_ = file.Close()
+	importID := id.New()
+	s.importMu.Lock()
+	s.imports[importID] = &csvUpload{userID: identityFromContext(r.Context()).UserID, connectionID: connection.ID, path: file.Name(), created: time.Now()}
+	s.importMu.Unlock()
+	writeJSON(w, http.StatusCreated, map[string]any{"importId": importID})
+}
+
+// appendImport adds the request body to the upload.
+func (s *Server) appendImport(w http.ResponseWriter, r *http.Request) {
+	item, ok := s.upload(r)
+	if !ok {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "import not found")
+		return
+	}
+	file, err := os.OpenFile(item.path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "import file unavailable")
+		return
+	}
+	written, err := io.Copy(file, io.LimitReader(r.Body, importMaxBytes-item.size+1))
+	closeErr := file.Close()
+	if err != nil || closeErr != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "the chunk could not be stored")
+		return
+	}
+	s.importMu.Lock()
+	item.size += written
+	size := item.size
+	s.importMu.Unlock()
+	if size > importMaxBytes {
+		s.dropUpload(r.PathValue("importId"))
+		writeError(w, http.StatusRequestEntityTooLarge, "TOO_LARGE", "CSV files are limited to 256 MB")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"size": size})
+}
+
+func (s *Server) discardImport(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.upload(r); ok {
+		s.dropUpload(r.PathValue("importId"))
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// runImport inserts the uploaded rows into an existing table in one
+// transaction: either every row is imported or none is.
+func (s *Server) runImport(w http.ResponseWriter, r *http.Request) {
+	connection, ok := s.authorizedConnection(w, r)
+	if !ok {
+		return
+	}
+	item, ok := s.upload(r)
+	if !ok {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "import not found")
+		return
+	}
+	defer s.dropUpload(r.PathValue("importId"))
+	var input importInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	delimiter, err := importDelimiter(input.Delimiter)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+		return
+	}
+	input.Schema, input.Table = strings.TrimSpace(input.Schema), strings.TrimSpace(input.Table)
+	if input.Table == "" || len(input.Columns) == 0 {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "choose a table and at least one column")
+		return
+	}
+	seen := map[string]bool{}
+	names := make([]string, 0, len(input.Columns))
+	for _, column := range input.Columns {
+		key := strings.ToLower(strings.TrimSpace(column.Target))
+		if key == "" || column.Source < 0 || seen[key] {
+			writeError(w, http.StatusBadRequest, "BAD_REQUEST", "each table column can be filled from one CSV column")
+			return
+		}
+		seen[key] = true
+		names = append(names, quoteSQLIdentifier(connection.Engine, strings.TrimSpace(column.Target)))
+	}
+	table := quoteSQLIdentifier(connection.Engine, input.Table)
+	if input.Schema != "" {
+		table = quoteSQLIdentifier(connection.Engine, input.Schema) + "." + table
+	}
+	prefix := "INSERT INTO " + table + " (" + strings.Join(names, ", ") + ") VALUES "
+	shape := prefix + "(" + strings.TrimSuffix(strings.Repeat("NULL, ", len(names)), ", ") + ")"
+	info, err := sqlguard.Parse(shape)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "PARSE_ERROR", err.Error())
+		return
+	}
+	identity := identityFromContext(r.Context())
+	role, err := s.store.UserRole(r.Context(), identity.UserID)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "role missing")
+		return
+	}
+	disabled, enabled, _, policyTimeout, err := s.resolvePolicies(r, identity, connection)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "governance rules unavailable")
+		return
+	}
+	normalized, hash := sqlguard.Normalize(info)
+	decision := policy.Evaluate(policy.Input{Statement: info, Role: role.Name, ReadOnly: role.IsReadOnly, Environment: connection.Environment, Disabled: disabled, Enabled: enabled})
+	if !s.config.Shared || !identity.IsAdmin() {
+		if decision, _, err = s.applyCustomPolicies(r, identity, connection, info, false, decision, 0); err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL", "governance rules unavailable")
+			return
+		}
+	}
+	if decision.Effect != policy.Allow {
+		s.recordActivity(r, connection.ID, shape, "blocked", 0, 0, normalized, hash, auditMeta{decision: "deny", reason: decision.Reason, policyID: decision.PolicyID})
+		writePolicyError(w, http.StatusForbidden, "POLICY_DENIED", decision, nil)
+		return
+	}
+	primary := "primary"
+	target, _, err := s.routedEngineConnection(r.Context(), identity, connection, strings.TrimSpace(input.Database), &primary, &info)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "EXEC_ERROR", err.Error())
+		return
+	}
+	file, err := os.Open(item.path)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "import file unavailable")
+		return
+	}
+	defer file.Close()
+	ctx, cancel := withConnectionTimeout(r, connection, policyTimeout, 30*time.Minute)
+	defer cancel()
+	started := time.Now()
+	transaction, err := s.engines.Begin(ctx, target)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "EXEC_ERROR", err.Error())
+		return
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = transaction.Rollback()
+		}
+	}()
+	reader := csv.NewReader(bufio.NewReader(file))
+	reader.Comma, reader.FieldsPerRecord, reader.LazyQuotes, reader.ReuseRecord = delimiter, -1, true, true
+	var rows int64
+	var batch strings.Builder
+	batchRows := 0
+	flush := func() error {
+		if batchRows == 0 {
+			return nil
+		}
+		_, err := transaction.Execute(ctx, batch.String(), 0)
+		batch.Reset()
+		batchRows = 0
+		return err
+	}
+	line := 0
+	for {
+		record, err := reader.Read()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		line++
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "BAD_CSV", fmt.Sprintf("line %d: %v", line, err))
+			return
+		}
+		if line == 1 && len(record) > 0 {
+			record[0] = strings.TrimPrefix(record[0], "\ufeff")
+		}
+		if line == 1 && input.Header {
+			continue
+		}
+		if len(record) == 1 && record[0] == "" {
+			continue
+		}
+		if batchRows == 0 {
+			batch.WriteString(prefix)
+		} else {
+			batch.WriteString(", ")
+		}
+		batch.WriteByte('(')
+		for index, column := range input.Columns {
+			if index > 0 {
+				batch.WriteString(", ")
+			}
+			value := ""
+			if column.Source < len(record) {
+				value = record[column.Source]
+			}
+			if value == "" && input.NullEmpty {
+				batch.WriteString("NULL")
+			} else {
+				batch.WriteString(importLiteral(connection.Engine, value))
+			}
+		}
+		batch.WriteByte(')')
+		batchRows++
+		rows++
+		if batchRows >= importBatchRows || batch.Len() >= importBatchBytes {
+			if err := flush(); err != nil {
+				s.recordActivity(r, connection.ID, shape, "error", 0, elapsedMilliseconds(started), normalized, hash, auditMeta{decision: "allow", errorMessage: err.Error(), command: true})
+				writeStatementError(w, fmt.Errorf("rows up to CSV line %d: %w", line, err), shape, nil)
+				return
+			}
+		}
+	}
+	if err := flush(); err == nil {
+		err = transaction.Commit()
+		if err == nil {
+			committed = true
+		}
+	} else {
+		s.recordActivity(r, connection.ID, shape, "error", 0, elapsedMilliseconds(started), normalized, hash, auditMeta{decision: "allow", errorMessage: err.Error(), command: true})
+		writeStatementError(w, fmt.Errorf("rows up to CSV line %d: %w", line, err), shape, nil)
+		return
+	}
+	if !committed {
+		writeError(w, http.StatusBadGateway, "EXEC_ERROR", "the import could not be committed")
+		return
+	}
+	duration := elapsedMilliseconds(started)
+	s.recordActivity(r, connection.ID, fmt.Sprintf("-- CSV import: %d rows\n%s", rows, shape), "success", rows, duration, normalized, hash, auditMeta{decision: "allow", command: true})
+	writeJSON(w, http.StatusOK, map[string]any{"rows": rows, "durationMs": duration})
+}
+
+func importDelimiter(value string) (rune, error) {
+	if value == "" {
+		return ',', nil
+	}
+	if value == "\\t" {
+		return '\t', nil
+	}
+	delimiter, size := utf8.DecodeRuneInString(value)
+	if size != len(value) || !strings.ContainsRune(",;\t|", delimiter) {
+		return 0, errors.New("delimiter must be comma, semicolon, tab or |")
+	}
+	return delimiter, nil
+}
+
+// quoteSQLIdentifier quotes a table or column name for the engine.
+func quoteSQLIdentifier(engine, name string) string {
+	switch strings.ToLower(engine) {
+	case "mysql", "mariadb":
+		return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+	case "mssql", "sqlserver":
+		return "[" + strings.ReplaceAll(name, "]", "]]") + "]"
+	default:
+		return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+	}
+}
+
+// importLiteral writes a CSV value as a string literal; each database converts
+// it to the column type as it would a typed value.
+func importLiteral(engine, value string) string {
+	engine = strings.ToLower(engine)
+	if engine == "mysql" || engine == "mariadb" {
+		value = strings.ReplaceAll(value, `\`, `\\`)
+	}
+	value = strings.ReplaceAll(value, "'", "''")
+	if engine == "mssql" || engine == "sqlserver" {
+		return "N'" + value + "'"
+	}
+	return "'" + value + "'"
+}

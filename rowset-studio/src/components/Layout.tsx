@@ -191,6 +191,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
         ) : (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between rounded-md px-2 py-1.5">
+              {desktop ? <span /> : (
               <div className="flex min-w-0 items-center gap-2">
                 <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-100 text-[11px] font-semibold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                   {(user?.email ?? "?").slice(0, 1)}
@@ -200,6 +201,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
                   {user?.role && <div className="text-[11px] text-slate-400">Role: {titleCase(roleLabel(user.role))}</div>}
                 </div>
               </div>
+              )}
               <button
                 onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                 className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"

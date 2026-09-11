@@ -5,6 +5,18 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.19 — 2026-09-11
+
+- **Import CSV** from a table in the schema browser: preview, delimiter
+  detection, header and empty-as-NULL options, column mapping. The file
+  uploads in chunks and is inserted in one transaction, so either every row
+  is imported or none is; policies apply as to any INSERT.
+- Fixed: after switching tabs, Run and Explain could use the selection of
+  the previous tab.
+- A new run in a tab clears its old execution plan.
+- The desktop sidebar no longer shows the account email and role, and
+  Shutdown Rowset uses the normal text colour.
+
 ## 0.0.18 — 2026-09-11
 
 - **Edit rows** in the result grid: when a result comes from one table and
