@@ -1,9 +1,8 @@
 name: CI
 
+# Run on demand (Actions → CI → Run workflow); releases run only for tags.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
