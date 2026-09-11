@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router";
 import { Button, Modal, Panel } from "../../components/ui";
 import { Icon, type IconName } from "../../components/Icon";
 import { EnvBadge, envFrame, envKind, envRail } from "../../components/EnvBadge";
+import RowMenu from "../../components/RowMenu";
 import EngineLogo, { engineLabel } from "../../components/EngineLogo";
 import { useEditorStore } from "../../stores/editorStore";
 import { listConnections } from "../connections/api";
@@ -832,6 +833,26 @@ function ColumnResizeHandle({ onResize }: { onResize: (delta: number) => void })
   );
 }
 
+type TreeProps = {
+  treeState: Record<string, boolean>;
+  onTreeStateChange: Dispatch<SetStateAction<Record<string, boolean>>>;
+};
+
+const treeGuide = "ml-[15px] border-l border-slate-200/80 pl-1.5 dark:border-slate-800";
+const shortcutLabel = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K";
+
+function CountPill({ children }: { children: React.ReactNode }) {
+  return <span className="ml-auto min-w-[20px] shrink-0 rounded-full bg-slate-100 px-1.5 text-center text-[11px] leading-5 tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">{children}</span>;
+}
+
+function TreeChevron({ open, onClick }: { open: boolean; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={open ? "Collapse" : "Expand"} className="grid h-5 w-4 shrink-0 place-items-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+      <Icon name={open ? "chevron-down" : "chevron-right"} size={12} />
+    </button>
+  );
+}
+
 function ExplorerPanel({
   connections,
   activeConnectionId,
@@ -842,96 +863,94 @@ function ExplorerPanel({
   treeState,
   onTreeStateChange,
 }: {
-  connections: { id: string; name: string; engine: string; environment: string; database: string }[];
+  connections: ExplorerConnection[];
   activeConnectionId: string | null;
   selectedDb: string;
   onSelectConnection: (id: string | null) => void;
   onSelectDatabase: (db: string) => void;
   onCollapse: () => void;
-  treeState: Record<string, boolean>;
-  onTreeStateChange: Dispatch<SetStateAction<Record<string, boolean>>>;
-}) {
-  const grouped = groupConnections(connections);
-  const otherEngines: { id: string; name: string; engine: string; count: number }[] = [];
+} & TreeProps) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const searchInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const focus = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        event.stopPropagation();
+        searchInput.current?.focus();
+        searchInput.current?.select();
+      }
+    };
+    window.addEventListener("keydown", focus, true);
+    return () => window.removeEventListener("keydown", focus, true);
+  }, []);
+  const needle = search.trim().toLowerCase();
+  // A connection stays when its name or a database name matches, or when one of
+  // its databases is expanded, since the table filter then applies inside it.
+  const visible = needle ? connections.filter((conn) =>
+    conn.name.toLowerCase().includes(needle) ||
+    (queryClient.getQueryData<string[]>(["databases", conn.id]) ?? [conn.database]).some((db) => db.toLowerCase().includes(needle)) ||
+    Object.entries(treeState).some(([key, open]) => open && key.startsWith(`database:${conn.id}:`))) : connections;
 
   return (
     <Panel className="flex min-h-0 flex-col overflow-hidden">
-      <div className="flex h-9 items-center justify-between border-b border-slate-200 px-3 dark:border-slate-800">
-        <div className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-700 dark:text-slate-200">
-          <Icon name="database" size={14} className="text-slate-400" />
-          Database Explorer
-        </div>
-        <div className="flex items-center gap-1">
-          <button onClick={onCollapse} className="grid h-6 w-6 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-900 dark:hover:text-slate-100" title="Collapse explorer">
+      <div className="flex h-11 shrink-0 items-center gap-2 px-3">
+        <Icon name="database" size={15} className="text-slate-400" />
+        <span className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">Database Explorer</span>
+        <span className="ml-auto flex items-center gap-1">
+          <button type="button" onClick={() => navigate("/connections")} title="Add a connection" aria-label="Add a connection" className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:border-slate-800 dark:hover:bg-slate-900 dark:hover:text-slate-100">
+            <Icon name="plus" size={14} />
+          </button>
+          <button type="button" onClick={onCollapse} title="Collapse explorer" aria-label="Collapse explorer" className="grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-900 dark:hover:text-slate-100">
             <Icon name="chevron-left" size={14} />
           </button>
+        </span>
+      </div>
+      <div className="shrink-0 px-2.5 pb-2.5">
+        <div className="relative">
+          <Icon name="search" size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            ref={searchInput}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Escape") setSearch(""); }}
+            placeholder="Search databases, tables, and columns…"
+            aria-label="Search databases, tables and columns"
+            className="h-8 w-full rounded-md border border-slate-200 bg-white pl-8 pr-12 text-[12.5px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+          />
+          {search ? (
+            <button type="button" onClick={() => setSearch("")} aria-label="Clear search" className="absolute right-1.5 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+              <Icon name="close" size={12} />
+            </button>
+          ) : (
+            <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-slate-200 bg-slate-50 px-1 font-sans text-[10px] text-slate-400 dark:border-slate-800 dark:bg-slate-900">{shortcutLabel}</kbd>
+          )}
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-2 text-[13px]">
-        {Object.entries(grouped).map(([engine, items]) => (
-          <EngineBranch
-            key={engine}
-            engine={engine}
-            connections={items}
-            activeConnectionId={activeConnectionId}
-            onSelectConnection={onSelectConnection}
-            selectedDb={selectedDb}
-            onSelectDatabase={onSelectDatabase}
-            treeState={treeState}
-            onTreeStateChange={onTreeStateChange}
-          />
-        ))}
-        {connections.length === 0 && <div className="px-2 py-2 text-xs text-slate-500">No configured connections.</div>}
-
-        {otherEngines.length > 0 && (
-          <ExplorerGroup
-            title="Other"
-            count={otherEngines.length}
-            open={true}
-            onToggle={() => undefined}
-          >
-            {otherEngines.map((item) => (
-              <div key={item.id} className="flex h-7 items-center gap-2 rounded px-1.5 text-slate-500 dark:text-slate-400">
-                <span className="w-4" />
-                <EngineLogo engine={item.engine} size={16} />
-                <span className="truncate">{item.name}</span>
-                <span className="ml-auto text-[11px] tabular-nums text-slate-400">{item.count}</span>
-              </div>
-            ))}
-          </ExplorerGroup>
-        )}
+      <div className="min-h-0 flex-1 overflow-auto border-t border-slate-200 px-1.5 text-[13px] dark:border-slate-800">
+        <div className="divide-y divide-slate-100 dark:divide-slate-800/70">
+          {Object.entries(groupConnections(visible)).map(([engine, items]) => (
+            <EngineBranch
+              key={engine}
+              engine={engine}
+              connections={items}
+              activeConnectionId={activeConnectionId}
+              onSelectConnection={onSelectConnection}
+              selectedDb={selectedDb}
+              onSelectDatabase={onSelectDatabase}
+              search={needle}
+              treeState={treeState}
+              onTreeStateChange={onTreeStateChange}
+            />
+          ))}
+        </div>
+        {connections.length === 0 && <div className="px-2 py-3 text-xs text-slate-500">No connections yet. Add one with +.</div>}
+        {connections.length > 0 && visible.length === 0 && <div className="px-2 py-3 text-xs text-slate-500">No connection or database matches “{search.trim()}”. Expand a database to search its tables.</div>}
       </div>
     </Panel>
-  );
-}
-
-function ExplorerGroup({
-  title,
-  count,
-  open,
-  onToggle,
-  children,
-}: {
-  title: string;
-  count: number;
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="mb-1">
-      <button
-        onClick={onToggle}
-        className="flex h-7 w-full items-center gap-1.5 rounded px-1.5 text-left font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900"
-      >
-        <Icon name={open ? "chevron-down" : "chevron-right"} size={13} className="text-slate-400" />
-        <Icon name="database" size={14} className="text-slate-400" />
-        <span className="truncate">{title}</span>
-        <span className="ml-auto text-[11px] tabular-nums text-slate-400">{count}</span>
-      </button>
-      {open && <div className="ml-2 border-l border-slate-100 pl-0.5 dark:border-slate-900">{children}</div>}
-    </div>
   );
 }
 
@@ -942,33 +961,34 @@ function EngineBranch({
   onSelectConnection,
   selectedDb,
   onSelectDatabase,
+  search,
   treeState,
   onTreeStateChange,
 }: {
   engine: string;
-  connections: { id: string; name: string; engine: string; environment: string; database: string }[];
+  connections: ExplorerConnection[];
   activeConnectionId: string | null;
   onSelectConnection: (id: string | null) => void;
   selectedDb: string;
   onSelectDatabase: (db: string) => void;
-  treeState: Record<string, boolean>;
-  onTreeStateChange: Dispatch<SetStateAction<Record<string, boolean>>>;
-}) {
+  search: string;
+} & TreeProps) {
   const treeKey = `engine:${engine}`;
-  const open = treeValue(treeState, treeKey, true);
+  const open = Boolean(search) || treeValue(treeState, treeKey, true);
   return (
-    <div>
+    <div className="py-1">
       <button
+        type="button"
         onClick={() => onTreeStateChange((current) => ({ ...current, [treeKey]: !open }))}
-        className="flex h-7 w-full items-center gap-1.5 rounded px-1.5 text-left text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900"
+        className="flex h-9 w-full items-center gap-2 rounded-md px-1 text-left text-slate-800 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-900"
       >
-        <Icon name={open ? "chevron-down" : "chevron-right"} size={13} className="text-slate-400" />
-        <EngineLogo engine={engine} size={16} />
-        <span className="truncate">{engineLabel(engine)}</span>
-        <span className="ml-auto text-[11px] tabular-nums text-slate-400">{connections.length}</span>
+        <span className="grid w-4 shrink-0 place-items-center text-slate-400"><Icon name={open ? "chevron-down" : "chevron-right"} size={12} /></span>
+        <EngineLogo engine={engine} size={18} />
+        <span className="truncate text-[13px] font-medium">{engineLabel(engine)}</span>
+        <CountPill>{connections.length}</CountPill>
       </button>
       {open && (
-        <div className="ml-2 border-l border-slate-100 pl-0.5 dark:border-slate-900">
+        <div className={treeGuide}>
           {connections.map((conn) => (
             <ConnectionBranch
               key={conn.id}
@@ -980,6 +1000,7 @@ function EngineBranch({
                 onSelectConnection(conn.id);
                 onSelectDatabase(db);
               }}
+              search={search}
               treeState={treeState}
               onTreeStateChange={onTreeStateChange}
             />
@@ -996,48 +1017,60 @@ function ConnectionBranch({
   selectedDb,
   onSelect,
   onSelectDatabase,
+  search,
   treeState,
   onTreeStateChange,
 }: {
-  conn: { id: string; name: string; engine: string; environment: string; database: string };
+  conn: ExplorerConnection;
   active: boolean;
   selectedDb: string;
   onSelect: () => void;
   onSelectDatabase: (db: string) => void;
-  treeState: Record<string, boolean>;
-  onTreeStateChange: Dispatch<SetStateAction<Record<string, boolean>>>;
-}) {
+  search: string;
+} & TreeProps) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const treeKey = `connection:${conn.id}`;
-  const open = treeValue(treeState, treeKey, true);
+  const open = Boolean(search) || treeValue(treeState, treeKey, true);
   const { data: databases = [] } = useQuery({
     queryKey: ["databases", conn.id],
     queryFn: () => listDatabases(conn.id),
     enabled: open,
   });
   const databaseNames = uniqueNames(databases.length ? databases : [conn.database || "default"]);
-  const { primary, system } = splitDatabases(conn.engine, databaseNames, conn.database || "default");
+  const nameMatches = !search || conn.name.toLowerCase().includes(search);
+  const shown = (db: string) => nameMatches || db.toLowerCase().includes(search) || treeValue(treeState, `database:${conn.id}:${db}`, false);
+  const split = splitDatabases(conn.engine, databaseNames, conn.database || "default");
+  const primary = split.primary.filter(shown);
+  const system = split.system.filter(shown);
   const activeDb = selectedDb || conn.database || "default";
   return (
     <div>
-      <div
-        className={`group flex h-8 items-center gap-1.5 rounded px-1.5 ${
-          active ? "bg-slate-100 text-slate-950 dark:bg-cyan-500/10 dark:text-slate-50" : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900"
-        }`}
-      >
-        <button
-          onClick={() => onTreeStateChange((current) => ({ ...current, [treeKey]: !open }))}
-          className="grid h-5 w-4 place-items-center text-slate-400"
-        >
-          <Icon name={open ? "chevron-down" : "chevron-right"} size={11} />
-        </button>
-        <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+      <div className={`group flex h-8 items-center gap-1.5 rounded-md px-1 ${active ? "bg-slate-100 dark:bg-slate-800/60" : "hover:bg-slate-50 dark:hover:bg-slate-900"}`}>
+        <TreeChevron open={open} onClick={() => onTreeStateChange((current) => ({ ...current, [treeKey]: !open }))} />
+        <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-2 text-left">
           <span title={`${conn.environment} connection`} className={`h-2 w-2 shrink-0 rounded-full ${envRail[envKind(conn.environment)]}`} />
-          <span className="truncate font-medium">{conn.name}</span>
+          <span className="truncate font-medium text-slate-800 dark:text-slate-100">{conn.name}</span>
         </button>
         {envKind(conn.environment) === "prod" && <EnvBadge env={conn.environment} />}
+        <RowMenu
+          label={`${conn.name} actions`}
+          className="opacity-60 group-hover:opacity-100"
+          items={[
+            { label: "Use in this tab", onSelect },
+            {
+              label: "Refresh databases and schema",
+              onSelect: () => {
+                void queryClient.invalidateQueries({ queryKey: ["databases", conn.id] });
+                void queryClient.invalidateQueries({ queryKey: ["schema", conn.id] });
+              },
+            },
+            { label: "Edit connection", onSelect: () => navigate("/connections") },
+          ]}
+        />
       </div>
       {open && (
-        <div className="ml-2 border-l border-slate-100 pl-0.5 dark:border-slate-900">
+        <div className={`${treeGuide} mt-0.5 border-t-0`}>
           {system.length > 0 && (
             <SystemDatabaseBranch
               connectionId={conn.id}
@@ -1045,6 +1078,8 @@ function ConnectionBranch({
               databaseNames={system}
               activeDb={activeDb}
               active={active}
+              forceOpen={Boolean(search) && !nameMatches}
+              search={search}
               onSelectDatabase={onSelectDatabase}
               treeState={treeState}
               onTreeStateChange={onTreeStateChange}
@@ -1057,22 +1092,12 @@ function ConnectionBranch({
               active={active && db === activeDb}
               connectionId={conn.id}
               engine={conn.engine}
+              search={search}
               treeState={treeState}
               onTreeStateChange={onTreeStateChange}
               onSelect={() => onSelectDatabase(db)}
             />
           ))}
-          {databaseNames.length === 0 && (
-            <button
-              onClick={onSelect}
-              className={`flex h-7 w-full items-center gap-1.5 rounded px-1.5 text-left ${
-                active ? "text-slate-900 dark:text-slate-100" : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-900"
-              }`}
-            >
-              <Icon name="database" size={14} className="text-slate-400" />
-              <span className="truncate">{conn.database || "default"}</span>
-            </button>
-          )}
         </div>
       )}
     </div>
@@ -1084,6 +1109,7 @@ function DatabaseBranch({
   active,
   connectionId,
   engine,
+  search,
   treeState,
   onTreeStateChange,
   onSelect,
@@ -1092,10 +1118,9 @@ function DatabaseBranch({
   active: boolean;
   connectionId: string;
   engine: string;
-  treeState: Record<string, boolean>;
-  onTreeStateChange: Dispatch<SetStateAction<Record<string, boolean>>>;
+  search: string;
   onSelect: () => void;
-}) {
+} & TreeProps) {
   const treeKey = `database:${connectionId}:${name}`;
   const open = treeValue(treeState, treeKey, false);
   const shouldLoadSchema = open || active;
@@ -1103,28 +1128,17 @@ function DatabaseBranch({
   const tableCount = schema?.schemas.reduce((count, item) => count + (item.tables?.length ?? 0), 0);
   return (
     <div>
-      <div
-        className={`flex h-7 w-full items-center gap-1.5 rounded px-1.5 ${
-          active ? "text-slate-900 dark:text-slate-100" : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-900"
-        }`}
-      >
-        <button
-          onClick={() => onTreeStateChange((current) => ({ ...current, [treeKey]: !open }))}
-          className="grid h-5 w-4 place-items-center text-slate-400"
-        >
-          <Icon name={open ? "chevron-down" : "chevron-right"} size={11} />
+      <div className={`flex h-8 items-center gap-1.5 rounded-md px-1 ${active ? "text-slate-900 dark:text-slate-100" : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900"}`}>
+        <TreeChevron open={open} onClick={() => onTreeStateChange((current) => ({ ...current, [treeKey]: !open }))} />
+        <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <Icon name="database" size={14} className={`shrink-0 ${active ? "text-slate-600 dark:text-slate-300" : "text-slate-400"}`} />
+          <span className={`truncate ${active ? "font-medium" : ""}`}>{name}</span>
         </button>
-        <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-          <Icon name="database" size={14} className="shrink-0 text-slate-400" />
-          <span className="truncate">{name}</span>
-        </button>
-        <span className="ml-auto text-[11px] tabular-nums text-slate-400">
-          {!shouldLoadSchema ? "—" : isFetching && tableCount === undefined ? "…" : tableCount ?? 0}
-        </span>
+        <CountPill>{!shouldLoadSchema ? "—" : isFetching && tableCount === undefined ? "…" : tableCount ?? 0}</CountPill>
       </div>
       {open && (
-        <div className="ml-2 border-l border-slate-100 pl-0.5 dark:border-slate-900">
-          <SchemaBrowser connectionId={connectionId} database={name} engine={engine} compact />
+        <div className={`${treeGuide} pb-2 pt-1`}>
+          <SchemaBrowser connectionId={connectionId} database={name} engine={engine} search={search} compact />
         </div>
       )}
     </div>
@@ -1137,6 +1151,8 @@ function SystemDatabaseBranch({
   databaseNames,
   activeDb,
   active,
+  forceOpen,
+  search,
   onSelectDatabase,
   treeState,
   onTreeStateChange,
@@ -1146,25 +1162,24 @@ function SystemDatabaseBranch({
   databaseNames: string[];
   activeDb: string;
   active: boolean;
+  forceOpen: boolean;
+  search: string;
   onSelectDatabase: (db: string) => void;
-  treeState: Record<string, boolean>;
-  onTreeStateChange: Dispatch<SetStateAction<Record<string, boolean>>>;
-}) {
+} & TreeProps) {
   const treeKey = `system-databases:${connectionId}`;
-  const open = treeValue(treeState, treeKey, false);
+  const open = forceOpen || treeValue(treeState, treeKey, false);
   return (
-    <div className="mt-1">
-      <button
-        onClick={() => onTreeStateChange((current) => ({ ...current, [treeKey]: !open }))}
-        className="flex h-7 w-full items-center gap-1.5 rounded px-1.5 text-left text-[12px] font-medium text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-900"
-      >
-        <Icon name={open ? "chevron-down" : "chevron-right"} size={13} className="text-slate-400" />
-        <Icon name="database" size={14} className="text-slate-400" />
-        <span className="truncate">system databases</span>
-        <span className="ml-auto text-[11px] tabular-nums text-slate-400">{databaseNames.length}</span>
-      </button>
+    <div className="border-b border-slate-100 pb-0.5 dark:border-slate-800/70">
+      <div className="flex h-8 items-center gap-1.5 rounded-md px-1 text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-900">
+        <TreeChevron open={open} onClick={() => onTreeStateChange((current) => ({ ...current, [treeKey]: !open }))} />
+        <button type="button" onClick={() => onTreeStateChange((current) => ({ ...current, [treeKey]: !open }))} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <Icon name="database" size={14} className="shrink-0 text-slate-400" />
+          <span className="truncate">system databases</span>
+        </button>
+        <CountPill>{databaseNames.length}</CountPill>
+      </div>
       {open && (
-        <div className="ml-2 border-l border-slate-100 pl-0.5 dark:border-slate-900">
+        <div className={treeGuide}>
           {databaseNames.map((db) => (
             <DatabaseBranch
               key={db}
@@ -1172,6 +1187,7 @@ function SystemDatabaseBranch({
               active={active && db === activeDb}
               connectionId={connectionId}
               engine={engine}
+              search={search}
               treeState={treeState}
               onTreeStateChange={onTreeStateChange}
               onSelect={() => onSelectDatabase(db)}

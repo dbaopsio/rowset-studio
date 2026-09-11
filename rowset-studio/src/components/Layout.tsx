@@ -234,7 +234,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
             </>)}
           </div>
         )}
-        <div className={`mt-1 text-[10px] text-slate-400 ${collapsed ? "text-center" : "px-2"}`} title={`Rowset ${appVersion}`}>
+        <div className={`mt-1.5 border-t border-slate-100 pt-1.5 text-[10px] text-slate-400 dark:border-slate-800 ${collapsed ? "text-center" : "px-2"}`} title={`Rowset ${appVersion}`}>
           {collapsed ? `v${appVersion}` : `Rowset v${appVersion}`}
         </div>
       </div>

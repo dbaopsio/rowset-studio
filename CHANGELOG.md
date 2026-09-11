@@ -5,6 +5,14 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.25 — 2026-09-11
+
+- Redesigned Database Explorer: a search box for databases, tables and
+  columns (⌘K / Ctrl K), + to add a connection, engine groups separated by
+  lines, rounded count pills, and a ⋯ menu on connections (refresh, edit)
+  and tables (open SELECT, copy name, import CSV).
+- A line separates Shutdown Rowset from the version in the sidebar.
+
 ## 0.0.24 — 2026-09-11
 
 - Redesigned the unsaved-tabs screen: each copy lists its tabs with
