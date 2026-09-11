@@ -10,6 +10,7 @@ an entry here.
 - The desktop app has no password: it signs in through its launcher every
   time it opens. Sign out and the first-use password step are gone; an
   expired session shows how to open Rowset Studio again.
+- Licensed under the Apache License 2.0; release archives include LICENSE.
 
 ## 0.0.14 — 2026-09-11
 

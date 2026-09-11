@@ -126,3 +126,7 @@ are skipped unless `ROWSET_MATRIX_POSTGRES_PASSWORD`,
 
 The version lives in `rowset-studio/package.json`; the build scripts stamp it
 into Studio, the executable and the macOS app. See [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+Rowset Studio is licensed under the [Apache License 2.0](LICENSE).
