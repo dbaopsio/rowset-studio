@@ -260,7 +260,11 @@ func (s *Server) listScheduled(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL", "scheduled queries unavailable")
 		return
 	}
-	latest, _ := s.store.LatestScheduledRuns(r.Context(), identity.UserID)
+	latest, err := s.store.LatestScheduledRuns(r.Context(), identity.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "scheduled runs could not be read")
+		return
+	}
 	out := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		var last *store.ScheduledRun

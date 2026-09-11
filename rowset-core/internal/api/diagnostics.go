@@ -59,6 +59,12 @@ func writeDatabaseError(w http.ResponseWriter, err error, sql string) {
 // failed statement so Studio never offers Commit for work already discarded.
 func writeStatementError(w http.ResponseWriter, err error, sql string, transaction *engine.Transaction) {
 	detail := databaseDiagnostic(err, sql)
+	// A deadline is Rowset's own query timeout, not a database error; say so
+	// and where to change it instead of showing "context deadline exceeded".
+	if errors.Is(err, context.DeadlineExceeded) {
+		detail["code"] = "QUERY_TIMEOUT"
+		detail["message"] = "The statement was stopped because it ran longer than the query timeout. Raise the connection's query timeout in Connections to let it run longer."
+	}
 	if transaction != nil {
 		detail["transactionState"] = string(transaction.State())
 	}

@@ -219,7 +219,12 @@ func (s *Server) runImport(w http.ResponseWriter, r *http.Request) {
 	}
 	// Binary columns take exported \x-prefixed hex as bytes, not as text.
 	hexColumns := map[int]bool{}
-	if _, _, typeRows, err := s.readRows(r.Context(), target, nil, importColumnTypesSQL(connection.Engine, input.Schema, input.Table), 4096); err == nil {
+	_, _, typeRows, typeErr := s.readRows(r.Context(), target, nil, importColumnTypesSQL(connection.Engine, input.Schema, input.Table), 4096)
+	if typeErr != nil {
+		writeError(w, http.StatusBadGateway, "EXEC_ERROR", "the column types of the table could not be read: "+typeErr.Error())
+		return
+	}
+	{
 		binary := map[string]bool{}
 		for _, row := range typeRows {
 			if len(row) >= 2 {

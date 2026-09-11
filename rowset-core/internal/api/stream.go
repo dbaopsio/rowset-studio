@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -88,7 +89,7 @@ func (s *Server) streamNDJSON(w http.ResponseWriter, r *http.Request, connection
 	if writeErr == nil {
 		tail := map[string]any{"type": "complete", "rowCount": count, "durationMs": stream.DurationMS(), "truncated": truncated}
 		if truncated {
-			tail["policyNotice"] = "Result limited by the fetch size or a query policy."
+			tail["policyNotice"] = limitNotice(annotations, limit)
 		}
 		if streamErr != nil {
 			tail["error"] = streamErr.Error()
@@ -99,4 +100,13 @@ func (s *Server) streamNDJSON(w http.ResponseWriter, r *http.Request, connection
 		flush()
 	}
 	s.recordActivity(r, connection.ID, sql, status, count, stream.DurationMS(), normalized, hash, auditMeta{decision: "allow", reference: reference, errorMessage: message})
+}
+
+// limitNotice says why a result stopped early: the editor showed the rows it
+// asked for, or a policy capped the result.
+func limitNotice(annotations Annotations, limit int) string {
+	if annotations["limitedBy"] == "fetch" {
+		return fmt.Sprintf("Showing the first %d rows", limit)
+	}
+	return fmt.Sprintf("Result limited by policy to %d rows", limit)
 }

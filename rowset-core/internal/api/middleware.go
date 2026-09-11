@@ -2,6 +2,7 @@ package api
 
 import (
 	"compress/gzip"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -34,12 +35,13 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			writeRateLimited(w)
 			return
 		}
-		if r.ContentLength > s.config.RequestBodyLimitBytes {
-			writeError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "request body is too large")
+		limit := s.bodyLimit()
+		if r.ContentLength > limit {
+			writeError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", fmt.Sprintf("request body is larger than the %d MB limit", limit>>20))
 			return
 		}
-		if s.config.RequestBodyLimitBytes > 0 {
-			r.Body = http.MaxBytesReader(w, r.Body, s.config.RequestBodyLimitBytes)
+		if limit > 0 {
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 		}
 		handler := next
 		if !isQueryExecutionPath(r.URL.Path) {
@@ -152,10 +154,35 @@ func isAPIPath(path string) bool {
 	return strings.HasPrefix(path, "/api/") || path == "/healthz" || path == "/readyz"
 }
 
+// isQueryExecutionPath reports routes whose work takes as long as the
+// database needs: queries, exports, imports, plans, schema reads and
+// restores. They are exempt from the 60-second request timeout, which would
+// otherwise cut them off and buffer whole downloads in memory.
 func isQueryExecutionPath(path string) bool {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
-	return len(parts) == 4 && parts[0] == "api" && parts[1] == "connections" && parts[3] == "query" ||
-		len(parts) == 6 && parts[0] == "api" && parts[1] == "connections" && parts[3] == "txn" && parts[5] == "query"
+	if len(parts) < 3 || parts[0] != "api" {
+		return false
+	}
+	switch {
+	case parts[1] == "connections" && len(parts) == 4:
+		return parts[3] == "query" || parts[3] == "export" || parts[3] == "explain" || parts[3] == "schema"
+	case parts[1] == "connections" && len(parts) == 6:
+		return parts[3] == "txn" && parts[5] == "query" || parts[3] == "imports" && parts[5] == "run"
+	case parts[1] == "connections" && len(parts) == 5:
+		return parts[3] == "imports"
+	case parts[1] == "row-backups" && len(parts) == 4:
+		return parts[3] == "apply"
+	}
+	return false
+}
+
+// bodyLimit caps request bodies. A personal workspace pastes long scripts,
+// so it allows at least 32 MB.
+func (s *Server) bodyLimit() int64 {
+	if limit := s.config.RequestBodyLimitBytes; s.config.Shared || limit >= 32<<20 {
+		return limit
+	}
+	return 32 << 20
 }
 
 type gzipResponseWriter struct {

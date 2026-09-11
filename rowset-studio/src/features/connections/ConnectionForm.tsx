@@ -188,7 +188,7 @@ export default function ConnectionForm({
                 required
               />
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Bu süreyi aşan sorgular iptal edilir (varsayılan 10dk, azami 24 saat).
+                Statements that run longer are stopped, with a message saying so. Default 10 minutes, up to 24 hours (1440).
               </p>
             </div>
           </Field>

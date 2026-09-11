@@ -194,6 +194,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
               <div className="flex items-center gap-1">
                 <div className="min-w-0 flex-1"><QuitButton collapsed={false} /></div>
                 {sidebarWidgets.map((Widget, index) => <Widget key={index} collapsed={false} />)}
+                <span aria-hidden className="mx-0.5 h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-800" />
                 <button
                   onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                   className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"

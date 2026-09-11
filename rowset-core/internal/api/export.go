@@ -15,7 +15,9 @@ type exportInput struct {
 	Database string `json:"database"`
 	Schema   string `json:"schema"`
 	Table    string `json:"table"`
-	Format   string `json:"format"`
+	// SQL exports the whole result of one SELECT instead of a table.
+	SQL    string `json:"sql"`
+	Format string `json:"format"`
 }
 
 // exportTable downloads a whole table as CSV or JSON. It runs SELECT * with
@@ -32,9 +34,9 @@ func (s *Server) exportTable(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	input.Table, input.Schema, input.Database = strings.TrimSpace(input.Table), strings.TrimSpace(input.Schema), strings.TrimSpace(input.Database)
-	if input.Table == "" || (input.Format != "csv" && input.Format != "json") {
-		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "table and a csv or json format are required")
+	input.Table, input.Schema, input.Database, input.SQL = strings.TrimSpace(input.Table), strings.TrimSpace(input.Schema), strings.TrimSpace(input.Database), strings.TrimSpace(input.SQL)
+	if (input.Table == "" && input.SQL == "") || (input.Format != "csv" && input.Format != "json") {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "a table or a SELECT, and a csv or json format, are required")
 		return
 	}
 	identity := identityFromContext(r.Context())
@@ -43,7 +45,10 @@ func (s *Server) exportTable(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "role missing")
 		return
 	}
-	sql := "SELECT * FROM " + qualifiedTable(connection.Engine, input.Schema, input.Table)
+	sql, name := input.SQL, "query-result"
+	if sql == "" {
+		sql, name = "SELECT * FROM "+qualifiedTable(connection.Engine, input.Schema, input.Table), fileSlug(input.Table)
+	}
 	selected, err := s.openGovernedSelect(r.Context(), r, identity, role, connection, input.Database, sql, "export", 30*time.Minute)
 	if err != nil {
 		if errors.Is(err, errSelectBlocked) {
@@ -83,7 +88,7 @@ func (s *Server) exportTable(w http.ResponseWriter, r *http.Request) {
 		contentType = "application/json"
 	}
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.%s"`, fileSlug(input.Table), input.Format))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.%s"`, name, input.Format))
 	w.Header().Set("X-Rowset-Rows", fmt.Sprint(rows))
 	_, _ = io.Copy(w, file)
 }

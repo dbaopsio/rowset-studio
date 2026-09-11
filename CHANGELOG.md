@@ -5,6 +5,26 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.31 — 2026-09-12
+
+- **Procedures, functions, triggers and events with BEGIN … END bodies**
+  (MySQL, MariaDB, SQL Server) were rejected as "multiple SQL statements",
+  and the editor split them at their semicolons. Both now keep the body in
+  one statement; END IF / END LOOP and BEGIN TRANSACTION are understood.
+- A live test now creates and uses tables with keys, indexes, views,
+  functions, procedures (CALL / EXEC), triggers and sequences on every
+  engine, and checks the schema browser lists them.
+- No hidden limits without a policy: exports, imports, plans, schema reads
+  and restores are no longer cut off after 60 seconds; the editor's row cap
+  says "Showing the first 1000 rows" with **Show up to 10,000** and
+  **Export all rows (CSV)** instead of claiming a policy; a query that hits
+  the connection's query timeout says so and where to change it (default
+  10 minutes, up to 24 hours, per connection); personal workspaces accept
+  32 MB requests, 16 MB of saved tabs and 20 manual-commit transactions.
+- Errors reading policies, scheduled runs or a table's column types are
+  reported instead of silently showing defaults.
+- A divider separates the theme switch from Shutdown Rowset.
+
 ## 0.0.30 — 2026-09-12
 
 - Long queries: a personal workspace no longer stops statements after 8–10

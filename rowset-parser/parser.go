@@ -465,18 +465,68 @@ func splitStatements(sql string) ([]string, error) {
 	}
 	var result []string
 	start := 0
-	for _, token := range tokens {
-		if token.Text == ";" && token.Depth == 0 {
+	// A procedure, function, trigger or event definition keeps the
+	// semicolons of its body: BEGIN and CASE open a block and END closes it,
+	// while END IF, END LOOP and the like close their own statements and
+	// BEGIN TRAN opens no block.
+	routine, depth, first := false, 0, true
+	for index, token := range tokens {
+		if first {
+			routine, first = routineDefinition(tokens[index:]), false
+		}
+		if routine && token.Depth == 0 {
+			switch token.Lower {
+			case "case":
+				depth++
+			case "begin":
+				if next := nextLower(tokens, index); next != "tran" && next != "transaction" && next != "distributed" && next != "work" {
+					depth++
+				}
+			case "end":
+				if next := nextLower(tokens, index); depth > 0 && next != "if" && next != "loop" && next != "while" && next != "repeat" {
+					depth--
+				}
+			}
+		}
+		if token.Text == ";" && token.Depth == 0 && (!routine || depth == 0) {
 			if part := strings.TrimSpace(sql[start:token.Start]); part != "" {
 				result = append(result, part)
 			}
 			start = token.End
+			first, depth = true, 0
 		}
 	}
 	if part := strings.TrimSpace(sql[start:]); part != "" {
 		result = append(result, part)
 	}
 	return result, nil
+}
+
+func nextLower(tokens []Token, index int) string {
+	if index+1 < len(tokens) {
+		return tokens[index+1].Lower
+	}
+	return ""
+}
+
+// routineDefinition reports whether tokens start CREATE [OR REPLACE | OR
+// ALTER] [DEFINER = ...] PROCEDURE, FUNCTION, TRIGGER or EVENT.
+func routineDefinition(tokens []Token) bool {
+	if len(tokens) == 0 || tokens[0].Lower != "create" {
+		return false
+	}
+	for _, token := range tokens[1:min(len(tokens), 16)] {
+		if token.Depth != 0 {
+			return false
+		}
+		switch token.Lower {
+		case "procedure", "proc", "function", "trigger", "event":
+			return true
+		case "table", "view", "index", "unique", "schema", "database", "sequence", "type", "user", "role", "materialized", "temporary", "temp", "extension", "as", "select":
+			return false
+		}
+	}
+	return false
 }
 
 func Lex(sql string) ([]Token, error) {

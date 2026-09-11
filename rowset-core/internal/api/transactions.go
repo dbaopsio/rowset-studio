@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -70,8 +71,12 @@ func (s *Server) beginTransaction(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.txnMu.Unlock()
-	if userCount >= 5 || connectionCount >= 50 {
-		writeError(w, 429, "TXN_LIMIT", "too many open transactions")
+	perUser := 5
+	if !s.config.Shared {
+		perUser = 20 // one per editor tab in manual commit mode
+	}
+	if userCount >= perUser || connectionCount >= 50 {
+		writeError(w, 429, "TXN_LIMIT", fmt.Sprintf("You already have %d open manual-commit transactions. Commit or roll back one in another tab first.", userCount))
 		return
 	}
 	node, err := s.routeNode(r.Context(), connection, "primary")

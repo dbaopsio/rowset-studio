@@ -15,7 +15,7 @@ import RunToolbar, { type WorkspaceStatus } from "./RunToolbar";
 import SaveToNotebookDialog from "../notebooks/SaveToNotebookDialog";
 import PlanPanel, { type PlanState } from "../plan/PlanPanel";
 import SchemaBrowser from "./SchemaBrowser";
-import { explainQuery, listDatabases, runQuery, beginTxn, txnQuery, commitTxn, rollbackTxn, type QueryResult } from "./api";
+import { explainQuery, exportTable, listDatabases, runQuery, beginTxn, txnQuery, commitTxn, rollbackTxn, type QueryResult } from "./api";
 import { buildSqlCompletions } from "./sqlCompletions";
 import { useSchema } from "./useEditor";
 import { formatSql, statementAt, splitStatements } from "./sqlText";
@@ -355,7 +355,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     else setActiveMessage("Nothing to save: the editor is empty.", true);
   }
 
-  async function execute(sql: string, script = false, skipBackup = false) {
+  async function execute(sql: string, script = false, skipBackup = false, maxRows = 1000) {
     const tabId = activeTab?.id;
     const connectionId = activeConnectionId;
     if (!mounted.current || !tabId || !connectionId || !sql.trim() || closingTabs.current.has(tabId) || transactionOperations.current.has(tabId) || controllers.current[tabId] || (!script && scripts.current[tabId])) return false;
@@ -411,7 +411,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     };
     // A restore script puts rows back; backing it up again would only add noise.
     const backup = !skipBackup && !shared && !activeTab?.restoreOf && rowBackupEnabled();
-    return (tx ? txnQuery(tx.connectionId, tx.id, sql, tx.database, controller.signal, progress, backup) : runQuery(connectionId, sql, database, nodeRole, controller.signal, progress, backup))
+    return (tx ? txnQuery(tx.connectionId, tx.id, sql, tx.database, controller.signal, progress, backup, maxRows) : runQuery(connectionId, sql, database, nodeRole, controller.signal, progress, backup, maxRows))
       .then((res) => {
         if (runSeq.current[tabId] !== seq) return false;
         patchRun(tabId, {
@@ -779,6 +779,15 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
               plan={plans[activeTabId]}
               rowEditing={rowEditing}
               onSelectResult={(index) => patchRun(activeTabId, { activeResult: index })}
+              onShowMoreRows={activeRun.sql ? () => void execute(activeRun.sql!, false, true, 10000) : undefined}
+              onExportAllRows={activeRun.sql && activeConnectionId && !transactionIDs[activeTabId] ? () => exportTable(activeConnectionId, { database: selectedDb || undefined, sql: activeRun.sql!, format: "csv" }).then((blob) => {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = "query-result.csv";
+                link.click();
+                window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+              }) : undefined}
             />
           </div>
         </div>
@@ -1324,6 +1333,8 @@ function BottomPanel({
   plan,
   rowEditing,
   onSelectResult,
+  onShowMoreRows,
+  onExportAllRows,
 }: {
   activeTab: BottomTab;
   onChange: (tab: BottomTab) => void;
@@ -1334,6 +1345,10 @@ function BottomPanel({
   plan?: PlanState;
   rowEditing?: RowEditing;
   onSelectResult?: (index: number) => void;
+  /** Runs the statement again showing up to 10,000 rows. */
+  onShowMoreRows?: () => void;
+  /** Downloads every row of the statement's result. */
+  onExportAllRows?: () => Promise<void>;
 }) {
   // Several statements ran: show one result at a time, picked from a strip.
   const results = run.results && run.results.length > 1 ? run.results : undefined;
@@ -1402,12 +1417,13 @@ function BottomPanel({
           <MessagePanel message={run.message} error={run.messageError ? run.message : ""} />
         )}
       </div>
-      <StatusBar run={shownRun} />
+      <StatusBar run={shownRun} onShowMoreRows={results ? undefined : onShowMoreRows} onExportAllRows={results ? undefined : onExportAllRows} />
     </div>
   );
 }
 
-function StatusBar({ run }: { run: TabRunState }) {
+function StatusBar({ run, onShowMoreRows, onExportAllRows }: { run: TabRunState; onShowMoreRows?: () => void; onExportAllRows?: () => Promise<void> }) {
+  const [exporting, setExporting] = useState("");
   const badges = useActiveExtensions().flatMap((item) => item.resultBadges ?? []);
   const [now, setNow] = useState(() => Date.now());
   const running = run.status === "running";
@@ -1444,12 +1460,35 @@ function StatusBar({ run }: { run: TabRunState }) {
       <span className="font-medium text-slate-600 dark:text-slate-300">{statusLabel}</span>
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {result && badges.map((Badge, index) => <Badge key={index} result={result} />)}
-        {result && result.policyNotice && (
+        {result && result.policyNotice && result.annotations?.limitedBy === "fetch" ? (
+          // Only the rows the editor asked for were fetched; nothing is hidden
+          // for good: show more, or export every row.
+          <span className="inline-flex min-w-0 items-center gap-2 text-slate-600 dark:text-slate-300">
+            <span className="truncate">{result.policyNotice}.</span>
+            {onShowMoreRows && result.rowCount < 10000 && (
+              <button type="button" onClick={onShowMoreRows} className="shrink-0 font-medium text-sky-700 hover:underline dark:text-sky-300">Show up to 10,000</button>
+            )}
+            {onExportAllRows && (
+              <button
+                type="button"
+                disabled={exporting === "running"}
+                onClick={() => {
+                  setExporting("running");
+                  onExportAllRows().then(() => setExporting(""), (err: unknown) => setExporting(err instanceof Error ? err.message : "Export failed"));
+                }}
+                title={exporting && exporting !== "running" ? exporting : "Download every row of this result as CSV"}
+                className={`shrink-0 font-medium hover:underline ${exporting && exporting !== "running" ? "text-rose-600" : "text-sky-700 dark:text-sky-300"}`}
+              >
+                {exporting === "running" ? "Exporting…" : exporting ? "Export failed" : "Export all rows (CSV)"}
+              </button>
+            )}
+          </span>
+        ) : result && result.policyNotice ? (
           <span className="inline-flex items-center gap-1 rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 font-medium text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300" title={result.policyNotice}>
             <Icon name="shield" size={11} />
             {result.policyNotice}
           </span>
-        )}
+        ) : null}
       </div>
       <div className="ml-auto min-w-[13rem] text-right font-mono tabular-nums text-slate-500 dark:text-slate-400">
         {ready ? `${rowLabel}${rowsetLabel ? ` · ${rowsetLabel}` : ""}${studioLabel ? ` · ${studioLabel}` : ""}` : studioLabel || " "}

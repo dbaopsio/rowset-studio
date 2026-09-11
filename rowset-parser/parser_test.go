@@ -122,3 +122,26 @@ func TestDialectCorpusKeepsRiskClassificationStable(t *testing.T) {
 		})
 	}
 }
+
+func TestRoutineBodiesAreOneStatement(t *testing.T) {
+	for _, sql := range []string{
+		"CREATE PROCEDURE p(IN x INT)\nBEGIN\n  IF x > 0 THEN\n    INSERT INTO t VALUES (x);\n  END IF;\n  SELECT CASE WHEN x > 1 THEN 'a' ELSE 'b' END;\nEND",
+		"CREATE DEFINER=`root`@`%` TRIGGER tr BEFORE INSERT ON t FOR EACH ROW BEGIN SET NEW.a = 1; SET NEW.b = 2; END",
+		"CREATE OR ALTER PROCEDURE dbo.p @x int AS\nBEGIN\n  BEGIN TRANSACTION;\n  UPDATE t SET a = @x WHERE id = 1;\n  COMMIT;\nEND",
+		"CREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END $$",
+	} {
+		info, err := Parse(sql)
+		if err != nil || info.Kind == Multi {
+			t.Fatalf("%q split into several statements: %v %v", sql, info.Kind, err)
+		}
+	}
+	for _, sql := range []string{
+		"CREATE PROCEDURE p() BEGIN SELECT 1; END; DROP TABLE t",
+		"CREATE TABLE function_log (id int); DROP TABLE t",
+		"SELECT 1; SELECT 2",
+	} {
+		if info, _ := Parse(sql); info.Kind != Multi {
+			t.Fatalf("%q was not treated as several statements", sql)
+		}
+	}
+}

@@ -8,7 +8,14 @@ import (
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/store"
 )
 
-const workspaceLimit = 768 * 1024
+// workspaceLimit caps the saved editor tabs. A personal workspace keeps
+// long scripts, so it allows more than a shared server.
+func (s *Server) workspaceLimit() int64 {
+	if s.config.Shared {
+		return 768 * 1024
+	}
+	return 16 << 20
+}
 
 type workspaceTab struct {
 	ID           string  `json:"id"`
@@ -70,7 +77,7 @@ func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) putWorkspace(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	r.Body = http.MaxBytesReader(w, r.Body, workspaceLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.workspaceLimit())
 	var input struct {
 		Revision *int64            `json:"revision"`
 		Document workspaceDocument `json:"document"`

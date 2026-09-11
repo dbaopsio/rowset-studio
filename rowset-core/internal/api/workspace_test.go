@@ -92,7 +92,7 @@ func TestWorkspaceValidationAndAuthentication(t *testing.T) {
 		strings.Replace(testWorkspace, `"revision":0,`, ``, 1),
 		strings.Replace(testWorkspace, `"version":1`, `"version":2`, 1),
 		strings.Replace(testWorkspace, `"activeTabId":"q1"`, `"activeTabId":"missing"`, 1),
-		strings.Replace(testWorkspace, "private-secret", strings.Repeat("x", workspaceLimit), 1),
+		strings.Replace(testWorkspace, "private-secret", strings.Repeat("x", int(s.workspaceLimit())), 1),
 	} {
 		w := workspaceRequest(s, owner, "PUT", body)
 		if w.Code < 400 {

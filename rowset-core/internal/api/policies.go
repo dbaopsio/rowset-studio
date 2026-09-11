@@ -42,7 +42,11 @@ func policyKnown(key string) (policyDefinition, bool) {
 }
 func (s *Server) listPolicies(w http.ResponseWriter, r *http.Request) {
 	identity := identityFromContext(r.Context())
-	items, _ := s.store.ListPolicyOverrides(r.Context(), identity.OrgID)
+	items, err := s.store.ListPolicyOverrides(r.Context(), identity.OrgID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "policies could not be read")
+		return
+	}
 	connectionID := strings.TrimSpace(r.URL.Query().Get("connectionId"))
 	role := strings.TrimSpace(r.URL.Query().Get("role"))
 	out := make([]map[string]any, 0, len(policyCatalog))

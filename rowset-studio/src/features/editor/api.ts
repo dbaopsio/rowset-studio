@@ -100,12 +100,12 @@ async function readResult(response: Response, onProgress?: (result: QueryResult)
   return response.headers.get("Content-Type")?.includes("application/x-ndjson") ? readQueryStream(response, onProgress) : normalizeResult(await response.json());
 }
 
-export async function runQuery(connectionId: string, sql: string, database?: string, nodeRole?: "primary" | "secondary", signal?: AbortSignal, onProgress?: (result: QueryResult) => void, backup = false) {
+export async function runQuery(connectionId: string, sql: string, database?: string, nodeRole?: "primary" | "secondary", signal?: AbortSignal, onProgress?: (result: QueryResult) => void, backup = false, maxRows = 1000) {
   const response = await apiResponse(`/connections/${connectionId}/query`, {
     method: "POST",
     signal,
     headers: { Accept: "application/x-ndjson" },
-    body: JSON.stringify({ sql, database: database ?? "", nodeRole, maxRows: 1000, backup }),
+    body: JSON.stringify({ sql, database: database ?? "", nodeRole, maxRows, backup }),
   });
   return readResult(response, onProgress);
 }
@@ -119,11 +119,11 @@ export function beginTxn(connectionId: string, database?: string) {
   });
 }
 
-export async function txnQuery(connectionId: string, txnId: string, sql: string, database?: string, signal?: AbortSignal, onProgress?: (result: QueryResult) => void, backup = false) {
+export async function txnQuery(connectionId: string, txnId: string, sql: string, database?: string, signal?: AbortSignal, onProgress?: (result: QueryResult) => void, backup = false, maxRows = 1000) {
   const response = await apiResponse(`/connections/${connectionId}/txn/${txnId}/query`, {
     method: "POST",
     headers: { Accept: "application/x-ndjson" },
-    body: JSON.stringify({ sql, database: database ?? "", maxRows: 1000, backup }),
+    body: JSON.stringify({ sql, database: database ?? "", maxRows, backup }),
     signal,
   });
   return readResult(response, onProgress);
@@ -153,8 +153,9 @@ export function explainQuery(connectionId: string, sql: string, options: { datab
   });
 }
 
-// Downloads a whole table; the server applies policies as for a SELECT.
-export async function exportTable(connectionId: string, request: { database?: string; schema: string; table: string; format: "csv" | "json" }) {
+// Downloads a whole table, or the full result of one SELECT; the server
+// applies policies as for any SELECT.
+export async function exportTable(connectionId: string, request: { database?: string; schema?: string; table?: string; sql?: string; format: "csv" | "json" }) {
   const response = await apiResponse(`/connections/${connectionId}/export`, { method: "POST", body: JSON.stringify({ ...request, database: request.database ?? "" }) });
   return response.blob();
 }

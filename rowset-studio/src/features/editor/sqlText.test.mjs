@@ -15,3 +15,11 @@ test('split ignores semicolons in strings, dollar bodies, identifiers and commen
   assert.equal(statementAt(sql, 4), "SELECT ';', $$;$$, [a;b];");
   assert.match(statementAt(sql, sql.length), /SELECT 2/);
 });
+
+test("routine bodies are not split at their semicolons", () => {
+  const mysql = "CREATE PROCEDURE p(IN x INT)\nBEGIN\n  IF x > 0 THEN\n    INSERT INTO t VALUES (x);\n  END IF;\n  SELECT CASE WHEN x > 1 THEN 'a' ELSE 'b' END;\nEND;\nSELECT 1;";
+  assert.deepEqual(splitStatements(mysql).map((s) => s.sql), [mysql.slice(0, mysql.indexOf("\nSELECT 1;")), "SELECT 1;"]);
+  const mssql = "CREATE OR ALTER TRIGGER tr ON t AFTER INSERT AS\nBEGIN\n  BEGIN TRANSACTION;\n  UPDATE t SET a = 1;\n  COMMIT;\nEND;\nSELECT 2";
+  assert.equal(splitStatements(mssql).length, 2);
+  assert.equal(splitStatements("SELECT 1; SELECT 2").length, 2);
+});

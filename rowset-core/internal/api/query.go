@@ -127,8 +127,11 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 	info = prepared
 	effectiveSQL := info.Raw
 	policyCap := false
+	// The cap comes from a policy or from how many rows the editor asked to
+	// show; the notice tells the user which.
 	if input.MaxRows > 0 && (rowLimit == 0 || input.MaxRows < rowLimit) {
 		rowLimit = input.MaxRows
+		annotations["limitedBy"] = "fetch"
 	}
 	if rowLimit > 0 {
 		limitedSQL, limitErr := rowlimit.Apply(connection.Engine, info, rowLimit+1)
@@ -278,7 +281,7 @@ func (s *Server) streamQueryResponse(w http.ResponseWriter, r *http.Request, con
 	if writeErr == nil {
 		tail := fmt.Sprintf(`],"rowCount":%d,"truncated":%t,"durationMs":%d`, rowCount, truncated, stream.DurationMS())
 		if truncated {
-			notice, _ := json.Marshal(fmt.Sprintf("Result limited by policy to %d rows", rowLimit))
+			notice, _ := json.Marshal(limitNotice(annotations, rowLimit))
 			tail += fmt.Sprintf(`,"policyNotice":%s`, notice)
 		}
 		if streamErr != nil {
