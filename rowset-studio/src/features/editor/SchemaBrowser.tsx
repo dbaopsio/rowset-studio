@@ -5,6 +5,7 @@ import { useSchema } from "./useEditor";
 import { ColumnInfo, RoutineInfo, TableInfo, TriggerInfo, exportTable, objectDDL } from "./api";
 import { SchemaActions, quoteIdentifier, tableSelect } from "./schemaActions";
 import CsvImportDialog from "./CsvImportDialog";
+import SqlCode from "./SqlCode";
 import RowMenu from "../../components/RowMenu";
 import { Button, Modal } from "../../components/ui";
 
@@ -246,7 +247,7 @@ function DDLViewer({ connectionId, database, schemaName, kind, name, onClose }: 
       {error ? (
         <p role="alert" className="text-[13px] text-rose-600 dark:text-rose-400">{error}</p>
       ) : (
-        <pre className="max-h-[60vh] overflow-auto rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-[12px] leading-5 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">{sql || "Loading…"}</pre>
+        <SqlCode sql={sql || "-- Loading…"} className="max-h-[60vh] rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900" />
       )}
       <div className="mt-4 flex justify-end gap-2">
         <button type="button" disabled={!sql} onClick={() => void navigator.clipboard.writeText(sql).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); }, () => undefined)} className="h-8 rounded-md border border-slate-200 px-3 text-[13px] text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">

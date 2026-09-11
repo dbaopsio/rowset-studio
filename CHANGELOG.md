@@ -5,6 +5,10 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.43 — 2026-09-12
+
+- The DDL of an object is shown with SQL colouring.
+
 ## 0.0.42 — 2026-09-12
 
 - SQL Server table DDL writes PRIMARY KEY and UNIQUE instead of the
