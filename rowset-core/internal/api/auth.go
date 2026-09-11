@@ -34,6 +34,10 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(request.Email))
+	// The desktop app has one owner, who signs in with the password alone.
+	if email == "" && !s.config.Shared {
+		email = strings.ToLower(s.config.LocalOwnerEmail)
+	}
 	if len(request.Password) > 1024 || s.loginLocked(r, email) {
 		if len(request.Password) > 1024 {
 			writeError(w, http.StatusUnauthorized, "BAD_CREDENTIALS", "invalid email or password")
@@ -151,5 +155,7 @@ func (s *Server) clearRefreshCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: refreshCookie, Path: "/api/auth", HttpOnly: true, Secure: s.config.SecureCookies, SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(1, 0)})
 }
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"user": identityFromContext(r.Context())})
+	identity := identityFromContext(r.Context())
+	required, _ := s.store.PasswordRequired(r.Context(), identity.UserID)
+	writeJSON(w, http.StatusOK, map[string]any{"user": identity, "passwordRequired": required})
 }

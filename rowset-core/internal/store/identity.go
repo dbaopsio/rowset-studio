@@ -106,8 +106,10 @@ func (s *Store) SetUserRole(ctx context.Context, userID, roleID string) error {
 	return tx.Commit()
 }
 
+// SetUserPassword stores a password the person chose, which also clears
+// PasswordRequired.
 func (s *Store) SetUserPassword(ctx context.Context, userID, passwordHash string) error {
-	result, err := s.db.ExecContext(ctx, "UPDATE users SET password_hash=? WHERE id=?", passwordHash, userID)
+	result, err := s.db.ExecContext(ctx, "UPDATE users SET password_hash=?, password_required=0 WHERE id=?", passwordHash, userID)
 	if err != nil {
 		return mapError(err)
 	}
@@ -131,4 +133,20 @@ func requireChanged(result sql.Result) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// RequirePassword marks an account whose password nobody chose yet.
+func (s *Store) RequirePassword(ctx context.Context, userID string) error {
+	result, err := s.db.ExecContext(ctx, "UPDATE users SET password_required=1 WHERE id=?", userID)
+	if err != nil {
+		return mapError(err)
+	}
+	return requireChanged(result)
+}
+
+// PasswordRequired reports whether the account must set a password first.
+func (s *Store) PasswordRequired(ctx context.Context, userID string) (bool, error) {
+	var required bool
+	err := s.db.QueryRowContext(ctx, "SELECT password_required FROM users WHERE id=?", userID).Scan(&required)
+	return required, mapError(err)
 }

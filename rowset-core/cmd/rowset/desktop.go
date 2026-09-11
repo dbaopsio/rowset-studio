@@ -126,6 +126,14 @@ func desktop() error {
 		if err := createInitialAdmin(context.Background(), data, cfg.LocalOwnerEmail, password); err != nil {
 			return err
 		}
+		// Nobody knows the generated password; the owner chooses one on first use.
+		owner, err := data.UserByEmail(context.Background(), cfg.LocalOwnerEmail)
+		if err != nil {
+			return err
+		}
+		if err := data.RequirePassword(context.Background(), owner.ID); err != nil {
+			return err
+		}
 	}
 	if _, err := data.UserByEmail(context.Background(), cfg.LocalOwnerEmail); err != nil {
 		return errors.New("this desktop data directory does not contain a desktop owner")

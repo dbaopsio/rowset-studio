@@ -11,7 +11,7 @@ import { extensions, type SignInCopy } from "../app/extensions";
 const vendor = import.meta.env.VITE_ROWSET_VENDOR ?? "";
 
 const personalCopy: SignInCopy = {
-  subtitle: "Sign in to your personal SQL workspace with the owner account created during setup.",
+  subtitle: "Enter your Rowset Studio password.",
   headline: "Your databases. Your workspace.",
   body: "Connect to your databases, save useful queries and work with policies you control.",
   footnote: "Encrypted credentials · Local history · Personal policies",
@@ -31,6 +31,7 @@ function useSignIn() {
 
 export default function Login() {
   const { copy } = useSignIn();
+  const shared = useShared();
   const login = useAuth((s) => s.login);
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -43,7 +44,7 @@ export default function Login() {
     setBusy(true);
     setError("");
     try {
-      await login(email, password);
+      await login(shared ? email : "", password);
       navigate("/");
     } catch (err) {
       setError(err instanceof ApiError ? err.body.message : "Login failed");
@@ -55,16 +56,23 @@ export default function Login() {
   return (
     <AuthShell title="Sign in" subtitle={copy.subtitle}>
       <form onSubmit={onSubmit} className="space-y-4">
-        <Field label="Email">
-          <Input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required />
-        </Field>
+        {shared && (
+          <Field label="Email">
+            <Input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required />
+          </Field>
+        )}
         <Field label="Password">
-          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus={!shared} required />
         </Field>
         <ErrorText>{error}</ErrorText>
         <Button type="submit" disabled={busy} className="w-full">
           {busy ? "Signing in…" : "Sign in"}
         </Button>
+        {!shared && (
+          <p className="text-[12px] leading-5 text-slate-500 dark:text-slate-400">
+            Forgot your password? Open Rowset Studio from the applications menu; it signs you in on this computer, then change it in Account.
+          </p>
+        )}
       </form>
     </AuthShell>
   );

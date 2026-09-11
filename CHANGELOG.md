@@ -5,6 +5,14 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.14 — 2026-09-11
+
+- First use asks the desktop owner to choose a password; signing in later
+  needs only that password (no email).
+- **Shutdown Rowset** sits at the bottom of the sidebar and confirms in the
+  page instead of a browser dialog.
+- Account page redesigned: profile, installation details and password change.
+
 ## 0.0.13 — 2026-09-11
 
 - Releases: `scripts/release-build.sh` builds archives for macOS (arm64,
