@@ -118,6 +118,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/connections/{id}/schema", s.authenticated(http.HandlerFunc(s.connectionSchema)))
 	mux.Handle("GET /api/connections/{id}/databases", s.authenticated(http.HandlerFunc(s.listDatabases)))
 	mux.Handle("POST /api/connections/{id}/query", s.authenticated(http.HandlerFunc(s.runQuery)))
+	mux.Handle("POST /api/connections/{id}/explain", s.authenticated(http.HandlerFunc(s.explainQuery)))
 	mux.Handle("POST /api/connections/{id}/txn/begin", s.authenticated(http.HandlerFunc(s.beginTransaction)))
 	mux.Handle("POST /api/connections/{id}/txn/{txn_id}/query", s.authenticated(http.HandlerFunc(s.transactionQuery)))
 	mux.Handle("POST /api/connections/{id}/txn/{txn_id}/commit", s.authenticated(http.HandlerFunc(s.commitTransaction)))

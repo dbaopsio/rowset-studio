@@ -5,6 +5,15 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.16 — 2026-09-11
+
+- **Explain** draws the execution plan of the statement under the cursor in
+  a new Plan tab: operators, row flow, cost heat, warnings and properties.
+  PostgreSQL, MySQL, MariaDB and SQL Server show the estimated plan without
+  running the statement; **Explain with actual rows** runs a SELECT to show
+  actual rows and timings (PostgreSQL, MySQL, MariaDB). Policies apply to
+  actual-row runs. The diagram comes from executionflow.
+
 ## 0.0.15 — 2026-09-11
 
 - The desktop app has no password: it signs in through its launcher every

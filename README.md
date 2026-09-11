@@ -15,6 +15,8 @@ install or run.
   statement in the tab (each keeps its own result). Auto-commit or manual commit
   mode with explicit Commit/Rollback, cancellation, formatting, open/download
   `.sql` files.
+- **Execution plans** — Explain draws the plan of a statement as a diagram
+  with cost heat and warnings; actual rows and timings on request.
 - **Schema browser** — schemas, tables, views, routines, triggers, columns and
   indexes, with quick actions to open a table or copy names.
 - **Notebooks** — Markdown notes and SQL cells together, encrypted and saved

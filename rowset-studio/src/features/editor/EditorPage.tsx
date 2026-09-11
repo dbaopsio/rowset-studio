@@ -12,8 +12,9 @@ import PolicyBanner from "./PolicyBanner";
 import ResultsGrid from "./ResultsGrid";
 import RunToolbar, { type WorkspaceStatus } from "./RunToolbar";
 import SaveToNotebookDialog from "../notebooks/SaveToNotebookDialog";
+import PlanPanel, { type PlanState } from "../plan/PlanPanel";
 import SchemaBrowser from "./SchemaBrowser";
-import { listDatabases, runQuery, beginTxn, txnQuery, commitTxn, rollbackTxn, type QueryResult } from "./api";
+import { explainQuery, listDatabases, runQuery, beginTxn, txnQuery, commitTxn, rollbackTxn, type QueryResult } from "./api";
 import { buildSqlCompletions } from "./sqlCompletions";
 import { useSchema } from "./useEditor";
 import { formatSql, statementAt, splitStatements } from "./sqlText";
@@ -24,7 +25,7 @@ import { useActiveExtensions, type DenialContext } from "../../app/extensions";
 import WorkspaceGate, { exportWorkspace, useWorkspacePersistence } from "./WorkspaceGate";
 import { mergeWorkspace, type WorkspaceDocument, type WorkspaceSnapshot, type WorkspaceTab } from "./workspace";
 
-type BottomTab = "results" | "history" | "messages";
+type BottomTab = "results" | "history" | "messages" | "plan";
 
 type QueryTab = WorkspaceTab;
 
@@ -64,6 +65,7 @@ export default function EditorPage() {
 function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; initial: WorkspaceDocument }) {
   const { activeConnectionId: rememberedConnectionId, setActiveConnection } = useEditorStore();
   const [tabs, setTabs] = useState<QueryTab[]>(initial.tabs);
+  const [plans, setPlans] = useState<Record<string, PlanState>>({});
   const [activeTabId, setActiveTabId] = useState(initial.activeTabId);
   // Activity's "Open in editor" navigates here with the SQL; open it once as
   // a new tab, then drop the navigation state so reloads do not repeat it.
@@ -416,6 +418,24 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     else void execute(selected);
   }
 
+  // Explain the first selected statement, or the statement at the cursor.
+  async function onExplain(analyze: boolean) {
+    const tabId = activeTabId;
+    const connectionId = activeConnectionId;
+    const selected = selectedSql.trim();
+    const offset = currentSql.split("\n").slice(0, cursor.line - 1).reduce((n, line) => n + line.length + 1, 0) + cursor.column - 1;
+    const sql = (selected ? splitStatements(selected)[0]?.sql ?? selected : statementAt(currentSql, offset)).trim();
+    if (!connectionId || !sql) return;
+    setBottomTab("plan");
+    setPlans((current) => ({ ...current, [tabId]: { status: "loading", sql, analyze } }));
+    try {
+      const result = await explainQuery(connectionId, sql, { database: selectedDb || undefined, nodeRole: selectedNodeRole, analyze });
+      setPlans((current) => ({ ...current, [tabId]: { status: "ready", sql, analyze, result } }));
+    } catch (err) {
+      setPlans((current) => ({ ...current, [tabId]: { status: "error", sql, analyze, error: err instanceof Error ? err : new Error("Could not get the plan") } }));
+    }
+  }
+
   function onRunAll() {
     void runStatements(splitStatements(currentSql));
   }
@@ -593,6 +613,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
           onExportWorkspace={() => exportWorkspace(workspace)}
           onImportWorkspace={() => workspaceFileInput.current?.click()}
           onRunAll={onRunAll}
+          onExplain={(analyze) => void onExplain(analyze)}
           onStop={() => {
             if (transactions.current[activeTabId] && !window.confirm("Stopping a statement inside a transaction ends the transaction and discards its uncommitted changes. Stop anyway?")) return;
             scripts.current[activeTabId] = false; controllers.current[activeTabId]?.abort();
@@ -653,6 +674,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
                 setBottomTab("results");
               }}
               denialContext={denialContext}
+              plan={plans[activeTabId]}
               onSelectResult={(index) => patchRun(activeTabId, { activeResult: index })}
             />
           </div>
@@ -1181,6 +1203,7 @@ function BottomPanel({
   connectionId,
   onPickHistory,
   denialContext,
+  plan,
   onSelectResult,
 }: {
   activeTab: BottomTab;
@@ -1189,6 +1212,7 @@ function BottomPanel({
   connectionId: string | null;
   onPickHistory: (sql: string) => void;
   denialContext?: DenialContext;
+  plan?: PlanState;
   onSelectResult?: (index: number) => void;
 }) {
   // Several statements ran: show one result at a time, picked from a strip.
@@ -1200,11 +1224,12 @@ function BottomPanel({
     results: { label: "Results", icon: "grid" },
     messages: { label: "Messages", icon: "text" },
     history: { label: "History", icon: "history" },
+    plan: { label: "Plan", icon: "explain" },
   };
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-8 items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 text-xs dark:border-slate-800 dark:bg-slate-950">
-        {(["results", "messages", "history"] as BottomTab[]).map((tab) => (
+        {(["results", "messages", "history", "plan"] as BottomTab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => onChange(tab)}
@@ -1252,6 +1277,7 @@ function BottomPanel({
           </>
         )}
         {activeTab === "history" && <HistoryPanel connectionId={connectionId} onPick={onPickHistory} />}
+        {activeTab === "plan" && <PlanPanel plan={plan} />}
         {activeTab === "messages" && (
           <MessagePanel message={run.message} error={run.messageError ? run.message : ""} />
         )}

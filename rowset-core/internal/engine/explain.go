@@ -1,0 +1,125 @@
+package engine
+
+import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
+	"errors"
+	"fmt"
+	"strings"
+)
+
+// Plan formats returned by Explain.
+const (
+	PlanJSON = "json"
+	PlanXML  = "xml"
+	PlanText = "text"
+)
+
+// ErrActualPlanUnsupported reports an engine without actual-plan support.
+var ErrActualPlanUnsupported = errors.New("actual execution plans are not available for this database yet")
+
+// Explain returns the database's execution plan for one statement: JSON for
+// PostgreSQL, MySQL and MariaDB, ShowPlanXML for SQL Server. Analyze runs the
+// statement to report actual rows and timings (MySQL returns them as text).
+func (m *Manager) Explain(ctx context.Context, connection Connection, statement string, analyze bool) (string, string, error) {
+	db, err := m.database(connection)
+	if err != nil {
+		return "", "", err
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	defer conn.Close()
+	statement = strings.TrimRight(strings.TrimSpace(statement), "; \t\r\n")
+	var query, format string
+	switch strings.ToLower(connection.Engine) {
+	case "postgres":
+		query, format = "EXPLAIN (FORMAT JSON) "+statement, PlanJSON
+		if analyze {
+			query = "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + statement
+		}
+	case "mysql":
+		query, format = "EXPLAIN FORMAT=JSON "+statement, PlanJSON
+		if analyze {
+			query, format = "EXPLAIN ANALYZE "+statement, PlanText
+		}
+	case "mariadb":
+		query, format = "EXPLAIN FORMAT=JSON "+statement, PlanJSON
+		if analyze {
+			query = "ANALYZE FORMAT=JSON " + statement
+		}
+	case "mssql", "sqlserver":
+		if analyze {
+			return "", "", ErrActualPlanUnsupported
+		}
+		return sqlServerPlan(ctx, conn, statement)
+	default:
+		return "", "", fmt.Errorf("execution plans are not supported for %s", connection.Engine)
+	}
+	plan, err := readPlan(ctx, conn, query)
+	return plan, format, err
+}
+
+// sqlServerPlan reads the estimated plan. SHOWPLAN_XML is session state, so a
+// connection that cannot switch it off again is discarded instead of being
+// returned to the pool, where it would answer queries with plans.
+func sqlServerPlan(ctx context.Context, conn *sql.Conn, statement string) (string, string, error) {
+	if _, err := conn.ExecContext(ctx, "SET SHOWPLAN_XML ON"); err != nil {
+		return "", "", err
+	}
+	defer func() {
+		if _, err := conn.ExecContext(context.Background(), "SET SHOWPLAN_XML OFF"); err != nil {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+	}()
+	plan, err := readPlan(ctx, conn, statement)
+	return plan, PlanXML, err
+}
+
+// readPlan joins the first column of every row of every result set.
+func readPlan(ctx context.Context, conn *sql.Conn, query string) (string, error) {
+	rows, err := conn.QueryContext(ctx, query)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	var parts []string
+	for {
+		columns, err := rows.Columns()
+		if err != nil {
+			return "", err
+		}
+		for rows.Next() {
+			values := make([]any, len(columns))
+			targets := make([]any, len(columns))
+			for index := range values {
+				targets[index] = &values[index]
+			}
+			if err := rows.Scan(targets...); err != nil {
+				return "", err
+			}
+			if len(values) == 0 {
+				continue
+			}
+			switch value := values[0].(type) {
+			case []byte:
+				parts = append(parts, string(value))
+			case nil:
+			default:
+				parts = append(parts, fmt.Sprint(value))
+			}
+		}
+		if !rows.NextResultSet() {
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if len(parts) == 0 {
+		return "", errors.New("the database returned no execution plan")
+	}
+	return strings.Join(parts, "\n"), nil
+}

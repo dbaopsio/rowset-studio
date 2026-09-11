@@ -134,6 +134,22 @@ export function rollbackTxn(connectionId: string, txnId: string) {
   return api<void>(`/connections/${connectionId}/txn/${txnId}/rollback`, { method: "POST" });
 }
 
+export interface PlanResult {
+  engine: string;
+  format: "json" | "xml" | "text";
+  analyzed: boolean;
+  plan: string;
+}
+
+// Returns the execution plan of one statement. analyze runs a SELECT to
+// measure actual rows and timings.
+export function explainQuery(connectionId: string, sql: string, options: { database?: string; nodeRole?: "primary" | "secondary"; analyze: boolean }) {
+  return api<PlanResult>(`/connections/${connectionId}/explain`, {
+    method: "POST",
+    body: JSON.stringify({ sql, database: options.database ?? "", nodeRole: options.nodeRole, analyze: options.analyze }),
+  });
+}
+
 export function listDatabases(connectionId: string) {
   return api<{ databases: string[] | null }>(`/connections/${connectionId}/databases`).then((r) => r.databases ?? []);
 }

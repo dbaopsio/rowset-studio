@@ -16,6 +16,7 @@ export default function RunToolbar({
   onConnectionChange,
   onRun,
   onRunAll,
+  onExplain,
   onOpenFile,
   onSaveFile,
   onExportWorkspace,
@@ -41,6 +42,8 @@ export default function RunToolbar({
   onConnectionChange: (id: string | null) => void;
   onRun: () => void;
   onRunAll: () => void;
+  /** Explain the current statement; analyze runs it to measure actual rows. */
+  onExplain: (analyze: boolean) => void;
   onOpenFile: () => void;
   onSaveFile: () => void;
   onExportWorkspace: () => void;
@@ -136,10 +139,12 @@ export default function RunToolbar({
           <button onClick={() => onTransaction("rollback")} disabled={running || transactionBusy} className={secondaryButton} title="Discard the pending changes">Rollback</button>
         </>}
         <span className="h-5 w-px bg-slate-200 dark:bg-slate-800" />
+        <ToolbarButton onClick={() => onExplain(false)} disabled={!connectionId || running || transactionBusy} icon="explain" label="Explain" />
         <ToolbarButton onClick={onFormat} icon="wand" label="Format" />
         <ToolbarButton onClick={onSave} icon="save" label="Save" />
         <MoreMenu items={[
           { label: "Run all statements", hint: "⇧⌘↵ · stops at the first error", onSelect: onRunAll, disabled: !connectionId || running || transactionBusy },
+          { label: "Explain with actual rows", hint: "Runs the SELECT to measure it", onSelect: () => onExplain(true), disabled: !connectionId || running || transactionBusy },
           { label: "Open .sql file…", onSelect: onOpenFile },
           { label: "Download as .sql", onSelect: onSaveFile },
           { label: "Export workspace (JSON)", onSelect: onExportWorkspace, hint: "All open tabs, not encrypted" },
