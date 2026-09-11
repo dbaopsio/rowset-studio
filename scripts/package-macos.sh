@@ -2,7 +2,7 @@
 set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 sh "$ROOT_DIR/scripts/build-local-binary.sh"
-APP="$ROOT_DIR/dists/desktop/Rowset Community.app"
+APP="$ROOT_DIR/dists/desktop/Rowset Studio.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$ROOT_DIR/dists/local/rowset" "$APP/Contents/Resources/rowset"
 cp "$ROOT_DIR/deploy/desktop/Info.plist" "$APP/Contents/Info.plist"

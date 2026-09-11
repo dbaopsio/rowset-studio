@@ -1,0 +1,133 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # macOS builds every platform and is the only host that can build the app.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: rowset-core/go.mod
+          cache-dependency-path: |
+            rowset-core/go.sum
+            rowset-parser/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: rowset-studio/package-lock.json
+      - name: Install Studio dependencies
+        run: npm ci
+        working-directory: rowset-studio
+      - name: Tag matches the Studio version
+        run: test "v$(node -p "require('./rowset-studio/package.json').version")" = "$GITHUB_REF_NAME"
+      - name: Test
+        run: |
+          (cd rowset-parser && go test ./...)
+          (cd rowset-core && go vet ./... && go test ./...)
+          (cd rowset-studio && npm run lint && npm test)
+      - name: Build release assets
+        run: sh scripts/release-build.sh "${GITHUB_REF_NAME#v}" release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: release/
+
+  # The installers run against the built assets on real Windows and Linux
+  # hosts before anything is published.
+  verify-windows:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+      - name: Install, start, stop and uninstall
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = Start-Process python -ArgumentList '-m', 'http.server', '8765', '--bind', '127.0.0.1', '--directory', 'release' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          $env:ROWSET_DOWNLOAD_BASE = 'http://127.0.0.1:8765'
+          & ./install.ps1
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\Rowset Studio\rowset.exe'
+          & $exe --version
+          if (-not (Test-Path (Join-Path ([Environment]::GetFolderPath('Programs')) 'Rowset Studio.lnk'))) { throw 'Start menu shortcut missing' }
+          $env:ROWSET_DESKTOP_NO_BROWSER = '1'
+          $desktop = Start-Process $exe -ArgumentList 'desktop' -PassThru -WindowStyle Hidden
+          $state = Join-Path $env:APPDATA 'Rowset\Community\instance.json'
+          $ready = $false
+          for ($i = 0; $i -lt 150 -and -not $ready; $i++) {
+            Start-Sleep -Milliseconds 200
+            if (Test-Path $state) {
+              $port = (Get-Content $state -Raw | ConvertFrom-Json).port
+              try { Invoke-RestMethod "http://127.0.0.1:$port/readyz" | Out-Null; $ready = $true } catch { }
+            }
+          }
+          if (-not $ready) { throw 'Rowset Studio never became ready' }
+          $page = Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing
+          if ($page.Content -notmatch '<title>Rowset Studio</title>') { throw 'Studio page missing' }
+          & $exe desktop-stop
+          if (-not $desktop.WaitForExit(15000)) { throw 'Rowset Studio did not stop' }
+          $env:ROWSET_UNINSTALL = '1'
+          & ./install.ps1
+          if (Test-Path $exe) { throw 'Uninstall left rowset.exe behind' }
+          Stop-Process -Id $server.Id
+
+  verify-linux:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+      - name: Install, start, stop and uninstall
+        run: |
+          (cd release && python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          sleep 2
+          export ROWSET_DOWNLOAD_BASE=http://127.0.0.1:8765
+          sh install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          rowset --version
+          test -f "$HOME/.local/share/applications/rowset-studio.desktop"
+          ROWSET_DESKTOP_NO_BROWSER=1 rowset desktop &
+          state="$HOME/.config/Rowset/Community/instance.json"
+          for i in $(seq 1 150); do
+            if [ -f "$state" ]; then
+              port=$(sed 's/.*"port":\([0-9]*\).*/\1/' "$state")
+              curl -fsS "http://127.0.0.1:$port/readyz" >/dev/null 2>&1 && break
+            fi
+            sleep 0.2
+          done
+          curl -fsS "http://127.0.0.1:$port/" | grep -q '<title>Rowset Studio</title>'
+          rowset desktop-stop
+          sh install.sh --uninstall
+          test ! -e "$HOME/.local/bin/rowset"
+
+  publish:
+    needs: [verify-windows, verify-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+      - name: Release notes from CHANGELOG.md
+        run: awk -v version="${GITHUB_REF_NAME#v}" '/^## / { found = index($0, "## " version " ") == 1 } found' CHANGELOG.md > release-notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/* --title "Rowset Studio ${GITHUB_REF_NAME#v}" --notes-file release-notes.md

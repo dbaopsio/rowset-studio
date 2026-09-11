@@ -23,6 +23,7 @@ export type IconName =
   | "sun"
   | "moon"
   | "logout"
+  | "power"
   | "close"
   | "plus"
   | "search"
@@ -134,6 +135,12 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <path d="M9.5 3H3.5v10h6" />
       <path d="M7 8h6M11 5.5L13.5 8 11 10.5" />
+    </>
+  ),
+  power: (
+    <>
+      <path d="M8 2.5V8" />
+      <path d="M4.8 4.5a4.8 4.8 0 106.4 0" />
     </>
   ),
   close: <path d="M4 4l8 8M12 4l-8 8" />,

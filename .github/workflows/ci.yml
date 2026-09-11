@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: rowset-core/go.mod
+          cache-dependency-path: |
+            rowset-core/go.sum
+            rowset-parser/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: rowset-studio/package-lock.json
+      - name: Install Studio dependencies
+        run: npm ci
+        working-directory: rowset-studio
+      - name: Go
+        run: |
+          (cd rowset-parser && go test ./...)
+          (cd rowset-core && go vet ./... && go test ./...)
+      - name: Studio
+        working-directory: rowset-studio
+        run: npm run build && npm run lint && npm test
+      - name: Windows build compiles
+        working-directory: rowset-core
+        run: GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/rowset

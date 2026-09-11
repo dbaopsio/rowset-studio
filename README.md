@@ -31,28 +31,45 @@ install or run.
 
 Credentials, notebooks and workspaces are encrypted in a local SQLite database.
 
+## Install
+
+**macOS and Linux**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dbaopsio/rowset-studio/main/install.sh | sh
+```
+
+**Windows** (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/dbaopsio/rowset-studio/main/install.ps1 | iex
+```
+
+The installer downloads the latest release, verifies its SHA-256 checksum and
+installs for the current user only; no administrator rights are needed.
+
+| System | Installed to |
+| --- | --- |
+| macOS | `~/Applications/Rowset Studio.app` (menu-bar app) and `~/.local/bin/rowset` |
+| Linux | `~/.local/bin/rowset` and an applications-menu entry |
+| Windows | `%LOCALAPPDATA%\Programs\Rowset Studio`, a Start menu entry and the user `PATH` |
+
+Run the same command again to update. `ROWSET_VERSION=0.0.13` installs a
+specific release. To uninstall, run `sh -s -- --uninstall` instead of `sh` on
+macOS/Linux, or set `$env:ROWSET_UNINSTALL = 1` before the PowerShell command;
+your connections and notebooks are kept.
+
+Prefer to download yourself? Every [release](https://github.com/dbaopsio/rowset-studio/releases)
+has archives for macOS (Apple silicon, Intel and a universal app), Windows and
+Linux (x64 and ARM64) plus `SHA256SUMS`. Releases are not code-signed yet, so a
+file downloaded with a browser triggers Gatekeeper or SmartScreen; on macOS,
+`xattr -dr com.apple.quarantine "Rowset Studio.app"` clears it.
+
 ## Run
 
-### macOS app
-
-```sh
-sh scripts/package-macos.sh
-```
-
-Open `dists/desktop/Rowset Community.app`. It lives in the menu bar, starts the
-local server, creates its private configuration on first launch and signs you in
-with a one-use local ticket. **Open Rowset** reopens the browser tab; **Quit**
-asks to roll back open transactions. This local build is ad-hoc signed, not
-notarized.
-
-### Single executable (macOS, Windows, Linux)
-
-```sh
-sh scripts/build-local-binary.sh                        # this computer
-GOOS=windows GOARCH=amd64 sh scripts/build-local-binary.sh   # Windows, rowset.exe
-```
-
-Then run `dists/local/rowset` (`rowset.exe` on Windows):
+Open **Rowset Studio** from the applications menu, or run `rowset`. It starts
+the local server, creates its private configuration on first launch, signs you
+in with a one-use local ticket and opens your browser.
 
 | Command | Effect |
 | --- | --- |
@@ -60,11 +77,27 @@ Then run `dists/local/rowset` (`rowset.exe` on Windows):
 | `rowset desktop-stop` | stop the running Rowset Studio |
 | `rowset --version` | print the version |
 
+**Quit Rowset** at the bottom of the sidebar stops the server. On macOS the
+menu-bar icon also offers **Open Rowset** and **Quit**; quitting asks to roll
+back open transactions.
+
 Data lives in `Rowset/Community` under the user configuration directory
 (`~/Library/Application Support` on macOS, `%AppData%` on Windows,
 `~/.config` on Linux). Set `ROWSET_DESKTOP_DIR` to use another directory, for
 example a disposable test workspace. The directory holds the encryption keys; do
 not share it. Exported workspace JSON is **not** encrypted.
+
+## Build from source
+
+```sh
+sh scripts/build-local-binary.sh                             # this computer
+GOOS=windows GOARCH=amd64 sh scripts/build-local-binary.sh   # Windows, rowset.exe
+sh scripts/package-macos.sh                                  # macOS menu-bar app
+sh scripts/release-build.sh 0.0.13 release                   # every release asset
+```
+
+Pushing a `vX.Y.Z` tag that matches `rowset-studio/package.json` runs the
+release workflow, which tests, builds and publishes the assets.
 
 ## Build requirements
 

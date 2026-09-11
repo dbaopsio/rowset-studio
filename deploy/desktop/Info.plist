@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleName</key><string>Rowset Community</string>
-<key>CFBundleDisplayName</key><string>Rowset Community</string>
+<key>CFBundleName</key><string>Rowset Studio</string>
+<key>CFBundleDisplayName</key><string>Rowset Studio</string>
 <key>CFBundleIdentifier</key><string>io.dbaops.rowset.community</string>
 <key>CFBundleExecutable</key><string>Rowset</string>
 <key>CFBundlePackageType</key><string>APPL</string>

@@ -3,6 +3,7 @@ import { NavLink, Navigate, Outlet, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "./Icon";
 import RowsetLogo from "./RowsetLogo";
+import QuitButton from "./QuitButton";
 import { useAuth } from "../lib/auth";
 import { InstanceBoundary, useShared } from "../lib/instance";
 import { extensions, type NavGroup } from "../app/extensions";
@@ -175,6 +176,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
             >
               <Icon name={theme === "dark" ? "sun" : "moon"} size={16} />
             </button>
+            <QuitButton collapsed />
             <button
               onClick={signOut}
               className="grid h-8 w-8 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
@@ -204,6 +206,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
               </button>
               {sidebarWidgets.map((Widget, index) => <Widget key={index} collapsed={false} />)}
             </div>
+            <QuitButton collapsed={false} />
             <button
               onClick={signOut}
               className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100"

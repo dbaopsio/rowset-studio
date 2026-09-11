@@ -5,6 +5,18 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.13 — 2026-09-11
+
+- Releases: `scripts/release-build.sh` builds archives for macOS (arm64,
+  amd64), Linux and Windows (amd64, arm64), a universal macOS app and
+  `SHA256SUMS`; pushing a version tag publishes them through GitHub Actions.
+- One-line installers for the current user: `install.sh` (macOS, Linux) and
+  `install.ps1` (Windows), with checksum verification, update and uninstall.
+- **Quit Rowset** in the sidebar stops the local server, rolling back open
+  transactions after confirmation.
+- The macOS app is named Rowset Studio.
+- CI runs the Go and Studio tests on every push and pull request.
+
 ## 0.0.12 — 2026-09-11
 
 First public snapshot of Rowset Studio.
