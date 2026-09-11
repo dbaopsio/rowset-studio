@@ -31,7 +31,7 @@ export default function ResultsGrid({ result, editing }: { result: QueryResult; 
   const [reviewing, setReviewing] = useState(false);
   const changeCount = [...edits.values()].reduce((count, row) => count + row.size, 0);
   const statements = useMemo(
-    () => (editing && target ? updateStatements(editing.engine, target, [...edits.entries()].map(([row, values]) => ({ row: result.rows[row], values }))) : []),
+    () => (editing && target ? updateStatements(editing.engine, target, [...edits.entries()].map(([row, values]) => ({ row: result.rows[row], values })), result.columnTypes) : []),
     [editing, target, edits, result.rows],
   );
 

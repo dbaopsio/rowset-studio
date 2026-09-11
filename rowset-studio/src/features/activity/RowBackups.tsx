@@ -27,6 +27,10 @@ function restoreScript(id: string) {
   return api<{ sql: string; connectionId: string; database: string; table: string }>(`/row-backups/${id}/restore`);
 }
 
+function applyRowBackup(id: string) {
+  return api<{ rows: number }>(`/row-backups/${id}/apply`, { method: "POST" });
+}
+
 function deleteRowBackup(id: string) {
   return api<void>(`/row-backups/${id}`, { method: "DELETE" });
 }
@@ -36,12 +40,19 @@ export default function RowBackups({ connections, search }: { connections: Conne
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [removing, setRemoving] = useState<RowBackup | null>(null);
+  const [restoring, setRestoring] = useState<RowBackup | null>(null);
+  const [restored, setRestored] = useState("");
   const [opening, setOpening] = useState("");
   const [error, setError] = useState("");
   const backups = useQuery({ queryKey: ["row-backups"], queryFn: listRowBackups });
   const remove = useMutation({
     mutationFn: (id: string) => deleteRowBackup(id),
     onSuccess: () => { setRemoving(null); void queryClient.invalidateQueries({ queryKey: ["row-backups"] }); },
+  });
+  const apply = useMutation({
+    mutationFn: (item: RowBackup) => applyRowBackup(item.id),
+    onSuccess: (result, item) => { setRestoring(null); setRestored(`${result.rows} row(s) of ${item.table} restored.`); },
+    onError: (err) => { setRestoring(null); setError(err instanceof Error ? err.message : "The restore failed; nothing was changed."); },
   });
   const byId = new Map(connections.map((connection) => [connection.id, connection]));
   const needle = search.trim().toLowerCase();
@@ -62,6 +73,7 @@ export default function RowBackups({ connections, search }: { connections: Conne
 
   return (
     <Panel className="overflow-hidden">
+      {restored && <p role="status" className="border-b border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">{restored}</p>}
       {error && <p role="alert" className="border-b border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">{error}</p>}
       {backups.isLoading ? (
         <p className="p-6 text-sm text-slate-500">Loading backups…</p>
@@ -104,8 +116,11 @@ export default function RowBackups({ connections, search }: { connections: Conne
                     <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-500">{item.rows}</td>
                     <td className="whitespace-nowrap px-2 py-2">
                       <span className="flex justify-end gap-1">
-                        <button type="button" disabled={!connection || opening === item.id} onClick={() => void openRestore(item)} title={connection ? "Open the restore script in a new editor tab" : "The connection was removed"} className="inline-flex h-6 items-center gap-1 rounded px-2 text-[12px] text-slate-600 hover:bg-slate-200 hover:text-slate-900 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800">
-                          <Icon name="sql" size={12} />{opening === item.id ? "Opening…" : "Restore script"}
+                        <button type="button" disabled={!connection} onClick={() => { setError(""); setRestored(""); setRestoring(item); }} title={connection ? "Put these rows back now, in one transaction" : "The connection was removed"} className="inline-flex h-6 items-center gap-1 rounded border border-slate-200 bg-white px-2 text-[12px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                          <Icon name="history" size={12} />Restore
+                        </button>
+                        <button type="button" disabled={!connection || opening === item.id} onClick={() => void openRestore(item)} title={connection ? "Open the restore statements in a new editor tab to review or edit" : "The connection was removed"} className="inline-flex h-6 items-center gap-1 rounded px-2 text-[12px] text-slate-600 hover:bg-slate-200 hover:text-slate-900 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800">
+                          <Icon name="sql" size={12} />{opening === item.id ? "Opening…" : "Script"}
                         </button>
                         <button type="button" onClick={() => setRemoving(item)} title="Delete backup" aria-label="Delete backup" className="grid h-6 w-6 place-items-center rounded text-slate-400 opacity-60 hover:bg-slate-200 hover:text-rose-600 group-hover:opacity-100 dark:hover:bg-slate-800">
                           <Icon name="close" size={12} />
@@ -118,6 +133,20 @@ export default function RowBackups({ connections, search }: { connections: Conne
             </tbody>
           </table>
         </div>
+      )}
+      {restoring && (
+      <Modal onClose={() => setRestoring(null)} title="Restore these rows?">
+        <p className="text-[13px] text-slate-600 dark:text-slate-300">
+          {restoring.kind === "delete"
+            ? `The ${restoring.rows} deleted row(s) are inserted back into ${restoring.table}.`
+            : `The ${restoring.rows} row(s) of ${restoring.table} get the values they had before the UPDATE; changes made to them since then are overwritten.`}
+        </p>
+        <p className="mt-2 text-[13px] text-slate-600 dark:text-slate-300">It runs in one transaction: if any statement fails, nothing changes. Policies apply as in the editor.</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" onClick={() => setRestoring(null)} className="h-8 rounded-md px-3 text-[13px] text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">Cancel</button>
+          <Button disabled={apply.isPending} onClick={() => apply.mutate(restoring)}>{apply.isPending ? "Restoring…" : "Restore rows"}</Button>
+        </div>
+      </Modal>
       )}
       {removing && (
       <Modal onClose={() => setRemoving(null)} title="Delete row backup?">

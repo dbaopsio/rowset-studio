@@ -70,7 +70,7 @@ func (s *RowStream) Close() (result error) {
 func (s *RowStream) Next() ([]any, bool, error) {
 	values, ok, err := s.NextRaw()
 	if ok {
-		normalizeValues(values)
+		normalizeValues(values, s.types)
 	}
 	return values, ok, err
 }
@@ -649,6 +649,14 @@ func readRows(rows *sql.Rows, maxRows int) (Result, error) {
 		return Result{}, err
 	}
 	result := Result{Columns: columns, Rows: make([][]any, 0)}
+	types := make([]string, len(columns))
+	if columnTypes, err := rows.ColumnTypes(); err == nil {
+		for index, columnType := range columnTypes {
+			if index < len(types) {
+				types[index] = strings.ToUpper(columnType.DatabaseTypeName())
+			}
+		}
+	}
 	for rows.Next() {
 		values := make([]any, len(columns))
 		pointers := make([]any, len(columns))
@@ -658,7 +666,7 @@ func readRows(rows *sql.Rows, maxRows int) (Result, error) {
 		if err := rows.Scan(pointers...); err != nil {
 			return Result{}, err
 		}
-		normalizeValues(values)
+		normalizeValues(values, types)
 		if maxRows > 0 && len(result.Rows) >= maxRows {
 			result.Truncated = true
 			break
@@ -668,15 +676,63 @@ func readRows(rows *sql.Rows, maxRows int) (Result, error) {
 	return result, rows.Err()
 }
 
-func normalizeValues(values []any) {
+// normalizeValues turns driver values into what results, exports and
+// generated SQL show: text as strings, binary as \x-prefixed hex, SQL Server
+// GUIDs in their usual form, and dates and times as literals every engine
+// reads back into the same column type.
+func normalizeValues(values []any, types []string) {
 	for index, value := range values {
-		if raw, ok := value.([]byte); ok {
-			if utf8.Valid(raw) {
-				values[index] = string(raw)
-			} else {
-				values[index] = "\\x" + hex.EncodeToString(raw)
-			}
+		kind := ""
+		if index < len(types) {
+			kind = types[index]
 		}
+		switch v := value.(type) {
+		case []byte:
+			switch {
+			case kind == "UNIQUEIDENTIFIER" && len(v) == 16:
+				values[index] = formatGUID(v)
+			case !binaryDisplayType(kind) && utf8.Valid(v):
+				values[index] = string(v)
+			default:
+				values[index] = "\\x" + hex.EncodeToString(v)
+			}
+		case time.Time:
+			values[index] = FormatTime(v, kind)
+		}
+	}
+}
+
+func binaryDisplayType(kind string) bool {
+	if kind == "BIT" {
+		return true
+	}
+	for _, name := range []string{"BINARY", "BYTEA", "BLOB", "IMAGE", "GEOMETRY"} {
+		if strings.Contains(kind, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// formatGUID renders SQL Server's uniqueidentifier bytes, whose first three
+// groups are stored little-endian.
+func formatGUID(b []byte) string {
+	return fmt.Sprintf("%02X%02X%02X%02X-%02X%02X-%02X%02X-%X-%X", b[3], b[2], b[1], b[0], b[5], b[4], b[7], b[6], b[8:10], b[10:16])
+}
+
+// FormatTime renders a date or time the way its column type reads it back.
+func FormatTime(value time.Time, databaseType string) string {
+	switch kind := strings.ToUpper(databaseType); {
+	case kind == "DATE":
+		return value.Format("2006-01-02")
+	case kind == "TIME":
+		return value.Format("15:04:05.999999999")
+	case strings.Contains(kind, "OFFSET"), kind == "TIMESTAMPTZ", kind == "TIMETZ":
+		return value.Format("2006-01-02 15:04:05.999999999-07:00")
+	case kind == "":
+		return value.Format(time.RFC3339Nano)
+	default:
+		return value.Format("2006-01-02 15:04:05.999999999")
 	}
 }
 

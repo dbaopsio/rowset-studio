@@ -174,6 +174,7 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("GET /api/scheduled-queries/{id}/runs", s.authenticated(http.HandlerFunc(s.listScheduledRuns)))
 		mux.Handle("GET /api/row-backups", s.authenticated(http.HandlerFunc(s.listRowBackups)))
 		mux.Handle("GET /api/row-backups/{id}/restore", s.authenticated(http.HandlerFunc(s.rowBackupRestore)))
+		mux.Handle("POST /api/row-backups/{id}/apply", s.authenticated(http.HandlerFunc(s.applyRowBackup)))
 		mux.Handle("DELETE /api/row-backups/{id}", s.authenticated(http.HandlerFunc(s.deleteRowBackup)))
 	}
 	mux.Handle("POST /api/saved-queries", s.authenticated(http.HandlerFunc(s.createSavedQuery)))

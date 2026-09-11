@@ -3,6 +3,7 @@ package api
 import (
 	"bufio"
 	"encoding/csv"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -215,6 +216,19 @@ func (s *Server) runImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "EXEC_ERROR", err.Error())
 		return
 	}
+	// Binary columns take exported \x-prefixed hex as bytes, not as text.
+	hexColumns := map[int]bool{}
+	if _, _, typeRows, err := s.readRows(r.Context(), target, nil, importColumnTypesSQL(connection.Engine, input.Schema, input.Table), 4096); err == nil {
+		binary := map[string]bool{}
+		for _, row := range typeRows {
+			if len(row) >= 2 {
+				binary[strings.ToLower(encodeBackupValue(row[0], "").Value)] = importBinaryType(encodeBackupValue(row[1], "").Value)
+			}
+		}
+		for index, column := range input.Columns {
+			hexColumns[index] = binary[strings.ToLower(strings.TrimSpace(column.Target))]
+		}
+	}
 	file, err := os.Open(item.path)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL", "import file unavailable")
@@ -285,6 +299,8 @@ func (s *Server) runImport(w http.ResponseWriter, r *http.Request) {
 			}
 			if value == "" && input.NullEmpty {
 				batch.WriteString("NULL")
+			} else if hexColumns[index] && hexText(value) {
+				batch.WriteString(hexLiteral(connection.Engine, value[2:]))
 			} else {
 				batch.WriteString(importLiteral(connection.Engine, value))
 			}
@@ -317,6 +333,54 @@ func (s *Server) runImport(w http.ResponseWriter, r *http.Request) {
 	duration := elapsedMilliseconds(started)
 	s.recordActivity(r, connection.ID, fmt.Sprintf("-- CSV import: %d rows\n%s", rows, shape), "success", rows, duration, normalized, hash, auditMeta{decision: "allow", command: true})
 	writeJSON(w, http.StatusOK, map[string]any{"rows": rows, "durationMs": duration})
+}
+
+// importColumnTypesSQL lists the data type of each column of the target table.
+func importColumnTypesSQL(engineName, schema, table string) string {
+	schemaSQL := "current_schema()"
+	switch strings.ToLower(engineName) {
+	case "mysql", "mariadb":
+		schemaSQL = "DATABASE()"
+	case "mssql", "sqlserver":
+		schemaSQL = "SCHEMA_NAME()"
+	}
+	if schema != "" {
+		schemaSQL = importLiteral(engineName, schema)
+	}
+	return "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = " + schemaSQL + " AND table_name = " + importLiteral(engineName, table)
+}
+
+func importBinaryType(dataType string) bool {
+	dataType = strings.ToUpper(dataType)
+	if dataType == "BIT" {
+		return true
+	}
+	for _, name := range []string{"BINARY", "BYTEA", "BLOB", "IMAGE", "GEOMETRY", "POINT", "POLYGON", "LINESTRING"} {
+		if strings.Contains(dataType, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// hexText reports whether value is \x followed by whole bytes of hex.
+func hexText(value string) bool {
+	if !strings.HasPrefix(value, `\x`) || len(value)%2 != 0 {
+		return false
+	}
+	_, err := hex.DecodeString(value[2:])
+	return err == nil
+}
+
+func hexLiteral(engineName, digits string) string {
+	switch strings.ToLower(engineName) {
+	case "mysql", "mariadb":
+		return "X'" + digits + "'"
+	case "mssql", "sqlserver":
+		return "0x" + digits
+	default:
+		return `'\x` + digits + `'`
+	}
 }
 
 func importDelimiter(value string) (rune, error) {

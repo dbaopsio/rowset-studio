@@ -15,6 +15,7 @@ import (
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/domain"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/engine"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/id"
+	"github.com/dbaopsio/rowset-studio/rowset-core/internal/policy"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/rowlimit"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/store"
 	sqlguard "github.com/dbaopsio/rowset-studio/rowset-parser"
@@ -105,6 +106,24 @@ func primaryKeySQL(engineName, schema, table string) string {
 	}
 }
 
+// columnKindsSQL lists the columns a restore must treat specially: generated
+// and computed columns (and SQL Server rowversion), which are never written,
+// and identity columns, which need an override to take an explicit value.
+func columnKindsSQL(engineName, schema, table string) string {
+	switch strings.ToLower(engineName) {
+	case "mysql", "mariadb":
+		schemaSQL := "DATABASE()"
+		if schema != "" {
+			schemaSQL = importLiteral(engineName, schema)
+		}
+		return "SELECT column_name, 'generated' FROM information_schema.columns WHERE table_schema = " + schemaSQL + " AND table_name = " + importLiteral(engineName, table) + " AND extra IN ('STORED GENERATED', 'VIRTUAL GENERATED')"
+	case "mssql", "sqlserver":
+		return "SELECT c.name, CASE WHEN c.is_computed = 1 OR t.name = 'timestamp' THEN 'generated' ELSE 'identity' END FROM sys.columns c JOIN sys.types t ON t.user_type_id = c.user_type_id WHERE c.object_id = OBJECT_ID(" + importLiteral(engineName, qualifiedTable(engineName, schema, table)) + ") AND (c.is_identity = 1 OR c.is_computed = 1 OR t.name = 'timestamp')"
+	default:
+		return "SELECT attname, CASE WHEN attgenerated <> '' THEN 'generated' WHEN attidentity = 'a' THEN 'identity_always' ELSE 'identity' END FROM pg_attribute WHERE attrelid = to_regclass(" + importLiteral(engineName, qualifiedTable(engineName, schema, table)) + ") AND attnum > 0 AND NOT attisdropped AND (attgenerated <> '' OR attidentity <> '')"
+	}
+}
+
 // readRows runs a read on the pinned transaction or a pooled connection.
 func (s *Server) readRows(ctx context.Context, target engine.Connection, transaction *engine.Transaction, query string, max int) ([]string, []string, [][]any, error) {
 	var stream *engine.RowStream
@@ -169,11 +188,10 @@ func encodeBackupValue(value any, databaseType string) backupValue {
 	case time.Time:
 		// Zone-aware types keep the offset; the others take the wall-clock
 		// value, which every engine reads back into the same column type.
-		upper := strings.ToUpper(databaseType)
-		if strings.Contains(upper, "OFFSET") || strings.Contains(upper, "TIMESTAMPTZ") {
-			return backupValue{Kind: "time", Value: v.Format("2006-01-02 15:04:05.999999999-07:00")}
+		if databaseType == "" {
+			return backupValue{Kind: "time", Value: v.Format("2006-01-02 15:04:05.999999999")}
 		}
-		return backupValue{Kind: "time", Value: v.Format("2006-01-02 15:04:05.999999999")}
+		return backupValue{Kind: "time", Value: engine.FormatTime(v, databaseType)}
 	case []byte:
 		if !isBinaryType(databaseType) && utf8.Valid(v) {
 			return backupValue{Kind: "text", Value: string(v)}
@@ -223,6 +241,12 @@ type rowBackupPayload struct {
 	Columns   []string        `json:"columns"`
 	Key       []string        `json:"key"`
 	Rows      [][]backupValue `json:"rows"`
+	// Generated columns are derived by the database and never written back.
+	Generated []string `json:"generated,omitempty"`
+	// Identity columns need OVERRIDING SYSTEM VALUE (PostgreSQL, when
+	// IdentityAlways) or IDENTITY_INSERT (SQL Server) to take their old value.
+	Identity       []string `json:"identity,omitempty"`
+	IdentityAlways bool     `json:"identityAlways,omitempty"`
 }
 
 // captureRowBackup saves the rows a simple UPDATE or DELETE is about to change
@@ -254,9 +278,12 @@ func (s *Server) captureRowBackup(ctx context.Context, identity domain.Identity,
 		}
 	}
 	columns, types, rows, readErr := s.readRows(ctx, target, transaction, limited, rowBackupLimit+1)
-	var keyRows [][]any
+	var keyRows, kindRows [][]any
 	if readErr == nil {
 		_, _, keyRows, readErr = s.readRows(ctx, target, transaction, primaryKeySQL(connection.Engine, plan.schema, plan.table), 64)
+	}
+	if readErr == nil {
+		_, _, kindRows, readErr = s.readRows(ctx, target, transaction, columnKindsSQL(connection.Engine, plan.schema, plan.table), 4096)
 	}
 	if savepoint {
 		release := "RELEASE SAVEPOINT rowset_backup"
@@ -290,6 +317,21 @@ func (s *Server) captureRowBackup(ctx context.Context, identity domain.Identity,
 		statement = strings.TrimSpace(info.Raw[info.Tokens[0].Start:])
 	}
 	payload := rowBackupPayload{BackupID: id.New(), UserID: identity.UserID, Statement: statement, Columns: columns, Key: key, Rows: make([][]backupValue, len(rows))}
+	for _, row := range kindRows {
+		if len(row) < 2 {
+			continue
+		}
+		name, kind := encodeBackupValue(row[0], "").Value, encodeBackupValue(row[1], "").Value
+		switch kind {
+		case "generated":
+			payload.Generated = append(payload.Generated, name)
+		case "identity_always":
+			payload.IdentityAlways = true
+			payload.Identity = append(payload.Identity, name)
+		default:
+			payload.Identity = append(payload.Identity, name)
+		}
+	}
 	for index, row := range rows {
 		payload.Rows[index] = make([]backupValue, len(row))
 		for column, value := range row {
@@ -340,64 +382,203 @@ func (s *Server) openRowBackup(item store.RowBackup) (rowBackupPayload, error) {
 	return payload, nil
 }
 
-// restoreSQL returns statements that put the backed-up rows back: the old
-// values for an UPDATE, the deleted rows for a DELETE.
+func nameSet(names []string) map[string]bool {
+	set := make(map[string]bool, len(names))
+	for _, name := range names {
+		set[strings.ToLower(name)] = true
+	}
+	return set
+}
+
+// restorePlan returns the statements that put the backed-up rows back: the
+// old values for an UPDATE, the deleted rows for a DELETE. identityInsert
+// means SQL Server must allow explicit identity values while they run.
+func restorePlan(engineName string, item store.RowBackup, payload rowBackupPayload) (statements []string, identityInsert bool) {
+	table := qualifiedTable(engineName, item.Schema, item.Table)
+	generated, identity, key := nameSet(payload.Generated), nameSet(payload.Identity), nameSet(payload.Key)
+	var writable []int
+	for index, column := range payload.Columns {
+		if !generated[strings.ToLower(column)] {
+			writable = append(writable, index)
+		}
+	}
+	quoted := func(index int) string { return quoteSQLIdentifier(engineName, payload.Columns[index]) }
+	value := func(row []backupValue, index int) string {
+		if index >= len(row) {
+			return "NULL"
+		}
+		return restoreLiteral(engineName, row[index])
+	}
+	if item.Kind == "delete" {
+		names := make([]string, len(writable))
+		usesIdentity := false
+		for position, index := range writable {
+			names[position] = quoted(index)
+			usesIdentity = usesIdentity || identity[strings.ToLower(payload.Columns[index])]
+		}
+		prefix := "INSERT INTO " + table + " (" + strings.Join(names, ", ") + ")"
+		if usesIdentity && payload.IdentityAlways && strings.EqualFold(engineName, "postgres") {
+			prefix += " OVERRIDING SYSTEM VALUE"
+		}
+		identityInsert = usesIdentity && (strings.EqualFold(engineName, "mssql") || strings.EqualFold(engineName, "sqlserver"))
+		for start := 0; start < len(payload.Rows); start += 100 {
+			var statement strings.Builder
+			statement.WriteString(prefix + " VALUES\n")
+			for offset, row := range payload.Rows[start:min(start+100, len(payload.Rows))] {
+				if offset > 0 {
+					statement.WriteString(",\n")
+				}
+				values := make([]string, len(writable))
+				for position, index := range writable {
+					values[position] = value(row, index)
+				}
+				statement.WriteString("  (" + strings.Join(values, ", ") + ")")
+			}
+			statements = append(statements, statement.String())
+		}
+		return statements, identityInsert
+	}
+	for _, row := range payload.Rows {
+		var assignments, conditions []string
+		for _, index := range writable {
+			name := strings.ToLower(payload.Columns[index])
+			switch {
+			case key[name]:
+				if index < len(row) && row[index].Kind == "null" {
+					conditions = append(conditions, quoted(index)+" IS NULL")
+				} else {
+					conditions = append(conditions, quoted(index)+" = "+value(row, index))
+				}
+			case !identity[name]:
+				assignments = append(assignments, quoted(index)+" = "+value(row, index))
+			}
+		}
+		if len(assignments) > 0 && len(conditions) > 0 {
+			statements = append(statements, "UPDATE "+table+" SET "+strings.Join(assignments, ", ")+" WHERE "+strings.Join(conditions, " AND "))
+		}
+	}
+	return statements, false
+}
+
+// restoreSQL is the restore as a script to review in the editor.
 func restoreSQL(engineName string, item store.RowBackup, payload rowBackupPayload) string {
 	table := qualifiedTable(engineName, item.Schema, item.Table)
+	statements, identityInsert := restorePlan(engineName, item, payload)
 	var out strings.Builder
 	fmt.Fprintf(&out, "-- Restores %d row(s) of %s backed up before this %s:\n", item.Rows, table, strings.ToUpper(item.Kind))
 	for _, line := range strings.Split(strings.TrimSpace(payload.Statement), "\n") {
 		out.WriteString("--   " + line + "\n")
 	}
+	if identityInsert {
+		out.WriteString("-- " + table + " has an identity column, so these INSERTs need IDENTITY_INSERT, which the editor cannot turn on.\n-- Use Restore in Activity → Row backups instead; it runs them in one transaction.\n")
+	}
 	out.WriteString("-- Review before running. In manual commit mode nothing is saved until you press Commit.\n\n")
-	columns := make([]string, len(payload.Columns))
-	for index, column := range payload.Columns {
-		columns[index] = quoteSQLIdentifier(engineName, column)
-	}
-	if item.Kind == "delete" {
-		for start := 0; start < len(payload.Rows); start += 100 {
-			end := min(start+100, len(payload.Rows))
-			out.WriteString("INSERT INTO " + table + " (" + strings.Join(columns, ", ") + ") VALUES\n")
-			for index, row := range payload.Rows[start:end] {
-				values := make([]string, len(row))
-				for column, value := range row {
-					values[column] = restoreLiteral(engineName, value)
-				}
-				separator := ",\n"
-				if index == end-start-1 {
-					separator = ";\n"
-				}
-				out.WriteString("  (" + strings.Join(values, ", ") + ")" + separator)
-			}
-		}
-		return out.String()
-	}
-	keyIndex := map[string]bool{}
-	for _, name := range payload.Key {
-		keyIndex[strings.ToLower(name)] = true
-	}
-	for _, row := range payload.Rows {
-		var assignments, conditions []string
-		for column, value := range row {
-			if column >= len(payload.Columns) {
-				continue
-			}
-			name := payload.Columns[column]
-			if keyIndex[strings.ToLower(name)] {
-				if value.Kind == "null" {
-					conditions = append(conditions, columns[column]+" IS NULL")
-				} else {
-					conditions = append(conditions, columns[column]+" = "+restoreLiteral(engineName, value))
-				}
-				continue
-			}
-			assignments = append(assignments, columns[column]+" = "+restoreLiteral(engineName, value))
-		}
-		if len(assignments) > 0 && len(conditions) > 0 {
-			out.WriteString("UPDATE " + table + " SET " + strings.Join(assignments, ", ") + " WHERE " + strings.Join(conditions, " AND ") + ";\n")
-		}
+	for _, statement := range statements {
+		out.WriteString(statement + ";\n")
 	}
 	return out.String()
+}
+
+// applyRowBackup puts the backed-up rows back in one transaction. Each
+// statement passes the same policies as in the editor.
+func (s *Server) applyRowBackup(w http.ResponseWriter, r *http.Request) {
+	identity := identityFromContext(r.Context())
+	item, err := s.store.RowBackup(r.Context(), r.PathValue("id"), identity.UserID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "row backup not found")
+		return
+	}
+	payload, err := s.openRowBackup(item)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "the backup could not be read")
+		return
+	}
+	connection, err := s.store.Connection(r.Context(), item.ConnectionID)
+	if err != nil || connection.OrgID != identity.OrgID {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "the connection no longer exists")
+		return
+	}
+	role, err := s.store.UserRole(r.Context(), identity.UserID)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "role missing")
+		return
+	}
+	if !s.canUseConnection(r, identity, role.ID, connection) {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "you no longer have access to this connection")
+		return
+	}
+	statements, identityInsert := restorePlan(connection.Engine, item, payload)
+	if len(statements) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"rows": 0})
+		return
+	}
+	disabled, enabled, _, policyTimeout, err := s.resolvePolicies(r, identity, connection)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "governance rules unavailable")
+		return
+	}
+	var first sqlguard.Info
+	for index, statement := range statements {
+		info, err := sqlguard.Parse(statement)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "PARSE_ERROR", err.Error())
+			return
+		}
+		if index == 0 {
+			first = info
+		}
+		decision := policy.Evaluate(policy.Input{Statement: info, Role: role.Name, ReadOnly: role.IsReadOnly, Environment: connection.Environment, Disabled: disabled, Enabled: enabled})
+		if !s.config.Shared || !identity.IsAdmin() {
+			if decision, _, err = s.applyCustomPolicies(r, identity, connection, info, false, decision, 0); err != nil {
+				writeError(w, http.StatusInternalServerError, "INTERNAL", "governance rules unavailable")
+				return
+			}
+		}
+		if decision.Effect != policy.Allow {
+			normalized, hash := sqlguard.Normalize(info)
+			s.recordActivity(r, connection.ID, statement, "blocked", 0, 0, normalized, hash, auditMeta{decision: "deny", reason: decision.Reason, policyID: decision.PolicyID})
+			writePolicyError(w, http.StatusForbidden, "POLICY_DENIED", decision, nil)
+			return
+		}
+	}
+	primary := "primary"
+	target, _, err := s.routedEngineConnection(r.Context(), identity, connection, item.Database, &primary, &first)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "EXEC_ERROR", err.Error())
+		return
+	}
+	ctx, cancel := withConnectionTimeout(r, connection, policyTimeout, 10*time.Minute)
+	defer cancel()
+	started := time.Now()
+	transaction, err := s.engines.Begin(ctx, target)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "EXEC_ERROR", err.Error())
+		return
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = transaction.Rollback()
+		}
+	}()
+	table := qualifiedTable(connection.Engine, item.Schema, item.Table)
+	if identityInsert {
+		statements = append(append([]string{"SET IDENTITY_INSERT " + table + " ON"}, statements...), "SET IDENTITY_INSERT "+table+" OFF")
+	}
+	for _, statement := range statements {
+		if _, err := transaction.Execute(ctx, statement, 0); err != nil {
+			writeStatementError(w, err, statement, nil)
+			return
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		writeError(w, http.StatusBadGateway, "EXEC_ERROR", "the restore could not be committed: "+err.Error())
+		return
+	}
+	committed = true
+	normalized, hash := sqlguard.Normalize(first)
+	s.recordActivity(r, connection.ID, fmt.Sprintf("-- Row backup restore: %d row(s) of %s\n%s", item.Rows, table, first.Raw), "success", item.Rows, elapsedMilliseconds(started), normalized, hash, auditMeta{decision: "allow", command: true})
+	writeJSON(w, http.StatusOK, map[string]any{"rows": item.Rows})
 }
 
 func (s *Server) listRowBackups(w http.ResponseWriter, r *http.Request) {

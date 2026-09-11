@@ -5,6 +5,26 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.29 — 2026-09-11
+
+Every data feature was run against a table of all common column types on
+PostgreSQL, MySQL, MariaDB and SQL Server (full, edge-value and NULL rows),
+plus a 20,000-row table. Fixed what that found:
+
+- Row backups: restoring skips generated and computed columns (and SQL
+  Server rowversion), leaves identity columns out of UPDATEs, and inserts
+  deleted rows with `OVERRIDING SYSTEM VALUE` on PostgreSQL identity tables.
+- **Restore** in Activity → Row backups now puts rows back in one
+  transaction, with policies applied; on SQL Server identity tables it turns
+  IDENTITY_INSERT on for it. The script stays available as **Script**.
+- Results show dates as `2024-02-29`, times as `13:45:10.123` and
+  timestamps without the ISO `T…Z` form, so exports import back into MySQL
+  and generated SQL works on every engine.
+- SQL Server uniqueidentifier values show as GUIDs instead of hex, and
+  binary columns always show as hex.
+- CSV import writes hex (`\x…`) into binary columns as bytes, and editing
+  a binary cell in the grid generates a hex literal.
+
 ## 0.0.28 — 2026-09-11
 
 - The browser's Back button asks before leaving the SQL editor, even when
