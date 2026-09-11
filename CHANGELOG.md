@@ -5,6 +5,12 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.28 — 2026-09-11
+
+- The browser's Back button asks before leaving the SQL editor, even when
+  nothing is running; links in the app ask only when a query runs or a
+  transaction is open.
+
 ## 0.0.27 — 2026-09-11
 
 - Autocomplete offers database names on MySQL, MariaDB and SQL Server, and
