@@ -281,7 +281,12 @@ func (s *Server) captureRowBackup(ctx context.Context, identity domain.Identity,
 	if plan.kind == "update" && len(key) == 0 {
 		return skipped("the table has no primary key, so the old values could not be put back")
 	}
-	payload := rowBackupPayload{BackupID: id.New(), UserID: identity.UserID, Statement: info.Raw, Columns: columns, Key: key, Rows: make([][]backupValue, len(rows))}
+	// Leading comments are left out of the saved statement.
+	statement := info.Raw
+	if len(info.Tokens) > 0 {
+		statement = strings.TrimSpace(info.Raw[info.Tokens[0].Start:])
+	}
+	payload := rowBackupPayload{BackupID: id.New(), UserID: identity.UserID, Statement: statement, Columns: columns, Key: key, Rows: make([][]backupValue, len(rows))}
 	for index, row := range rows {
 		payload.Rows[index] = make([]backupValue, len(row))
 		for column, value := range row {

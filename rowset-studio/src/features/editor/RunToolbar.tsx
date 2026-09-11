@@ -142,23 +142,6 @@ export default function RunToolbar({
           disabled={!connectionId || running || transactionBusy || nodeRole === "secondary"}
           onChange={onManualCommitChange}
         />
-        {backupRows !== undefined && (
-          <button
-            type="button"
-            role="switch"
-            aria-checked={backupRows}
-            onClick={() => onBackupRowsChange(!backupRows)}
-            title={backupRows
-              ? "Row backup on: before an UPDATE or DELETE on one table with a WHERE clause, the rows it changes are saved (up to 10,000).\nRestore them from Activity → Row backups. Click to turn off."
-              : "Row backup off: UPDATE and DELETE run without saving the rows first. Click to turn on."}
-            className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 text-[12px] text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"
-          >
-            <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${backupRows ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-700"}`}>
-              <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${backupRows ? "left-3.5" : "left-0.5"}`} />
-            </span>
-            Row backup
-          </button>
-        )}
         {transactionOpen && <>
           <button onClick={() => onTransaction("commit")} disabled={running || transactionBusy || transactionAborted} className={secondaryButton} title={transactionAborted ? "The database aborted this transaction; Commit would apply nothing" : "Make the pending changes permanent"}>Commit</button>
           <button onClick={() => onTransaction("rollback")} disabled={running || transactionBusy} className={secondaryButton} title="Discard the pending changes">Rollback</button>
@@ -170,6 +153,7 @@ export default function RunToolbar({
         <MoreMenu items={[
           { label: "Run all statements", hint: "⇧⌘↵ · stops at the first error", onSelect: onRunAll, disabled: !connectionId || running || transactionBusy },
           { label: "Explain with actual rows", hint: "Runs the SELECT to measure it", onSelect: () => onExplain(true), disabled: !connectionId || running || transactionBusy },
+          ...(backupRows !== undefined ? [{ label: "Back up rows before UPDATE/DELETE", hint: "Restore them from Activity → Row backups", checked: backupRows, onSelect: () => onBackupRowsChange(!backupRows) }] : []),
           ...(onSchedule ? [{ label: "Schedule this query…", hint: "Save its result to a file on a schedule", onSelect: onSchedule, disabled: !connectionId }] : []),
           { label: "Open .sql file…", onSelect: onOpenFile },
           { label: "Download as .sql", onSelect: onSaveFile },
@@ -221,7 +205,7 @@ function CommitModeSwitch({ manual, open, aborted, pending, disabled, onChange }
   );
 }
 
-function MoreMenu({ items }: { items: { label: string; hint?: string; disabled?: boolean; onSelect: () => void }[] }) {
+function MoreMenu({ items }: { items: { label: string; hint?: string; disabled?: boolean; checked?: boolean; onSelect: () => void }[] }) {
   const [open, setOpen] = useState(false);
   const container = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -241,9 +225,12 @@ function MoreMenu({ items }: { items: { label: string; hint?: string; disabled?:
       {open && (
         <div role="menu" className="absolute right-0 z-30 mt-1 w-60 rounded-md border border-slate-200 bg-white py-1 text-[12px] shadow-lg dark:border-slate-800 dark:bg-slate-900">
           {items.map(item => (
-            <button key={item.label} role="menuitem" type="button" disabled={item.disabled} onClick={() => { setOpen(false); item.onSelect(); }} className="block w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-800">
-              {item.label}
-              {item.hint && <span className="block text-[10px] text-slate-400">{item.hint}</span>}
+            <button key={item.label} role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"} aria-checked={item.checked} type="button" disabled={item.disabled} onClick={() => { setOpen(false); item.onSelect(); }} className="flex w-full items-start gap-2 px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-800">
+              <span className="min-w-0 flex-1">
+                {item.label}
+                {item.hint && <span className="block text-[10px] text-slate-400">{item.hint}</span>}
+              </span>
+              {item.checked !== undefined && <Icon name="check" size={13} className={`mt-0.5 shrink-0 ${item.checked ? "text-emerald-600" : "invisible"}`} />}
             </button>
           ))}
         </div>

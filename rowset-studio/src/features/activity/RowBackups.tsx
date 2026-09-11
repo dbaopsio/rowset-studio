@@ -52,7 +52,7 @@ export default function RowBackups({ connections, search }: { connections: Conne
     setError("");
     try {
       const script = await restoreScript(item.id);
-      navigate("/editor", { state: { openSql: script.sql, connectionId: script.connectionId, database: script.database || undefined, title: `Restore ${script.table}` } });
+      navigate("/editor", { state: { openSql: script.sql, connectionId: script.connectionId, database: script.database || undefined, title: `Restore ${script.table}`, restoreOf: item.id } });
     } catch (err) {
       setError(err instanceof Error ? err.message : "The restore script could not be built.");
     } finally {
@@ -88,7 +88,8 @@ export default function RowBackups({ connections, search }: { connections: Conne
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {rows.map((item) => {
                 const connection = byId.get(item.connectionId);
-                const table = [item.database, item.schema, item.table].filter(Boolean).join(".");
+                // MySQL names the database as the schema; show it once.
+                const table = [item.database, item.schema === item.database ? "" : item.schema, item.table].filter(Boolean).join(".");
                 return (
                   <tr key={item.id} className="group hover:bg-slate-50 dark:hover:bg-slate-900/40">
                     <td className="whitespace-nowrap px-3 py-2 text-[12px] text-slate-500" title={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</td>

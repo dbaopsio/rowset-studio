@@ -1,6 +1,8 @@
 export interface WorkspaceTab {
   id: string; title: string; sql: string; connectionId?: string | null;
   database?: string; nodeRole?: "primary" | "secondary";
+  /** Row backup this tab restores; its statements are not backed up again. */
+  restoreOf?: string;
 }
 export interface WorkspaceDocument { version: 1; tabs: WorkspaceTab[]; activeTabId: string }
 export interface WorkspaceSnapshot { revision: number; document: WorkspaceDocument | null }
@@ -15,7 +17,8 @@ export function validWorkspace(value: unknown): value is WorkspaceDocument {
       typeof tab.title !== "string" || tab.title.length > 512 || typeof tab.sql !== "string" ||
       (tab.database !== undefined && (typeof tab.database !== "string" || tab.database.length > 512)) ||
       (tab.connectionId != null && (typeof tab.connectionId !== "string" || tab.connectionId.length > 128)) ||
-      (tab.nodeRole !== undefined && !["primary", "secondary"].includes(tab.nodeRole))) return false;
+      (tab.nodeRole !== undefined && !["primary", "secondary"].includes(tab.nodeRole)) ||
+      (tab.restoreOf !== undefined && (typeof tab.restoreOf !== "string" || tab.restoreOf.length > 128))) return false;
     ids.add(tab.id);
   }
   return ids.has(doc.activeTabId);

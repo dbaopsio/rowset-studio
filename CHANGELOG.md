@@ -5,6 +5,14 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.22 — 2026-09-11
+
+- Running a restore script no longer makes a new row backup of its own.
+- The row backup option moved from the toolbar to the ⋯ menu
+  (“Back up rows before UPDATE/DELETE”).
+- Row backups list the statement without its leading comments, and MySQL
+  tables no longer show the database name twice.
+
 ## 0.0.21 — 2026-09-11
 
 - Row backups are optional: the **Row backup** switch in the editor toolbar

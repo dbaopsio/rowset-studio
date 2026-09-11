@@ -98,12 +98,12 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   const shared = useShared();
   const openedFromNavigation = useRef<string | null>(null);
   useEffect(() => {
-    const state = location.state as { openSql?: string; connectionId?: string | null; database?: string; title?: string } | null;
+    const state = location.state as { openSql?: string; connectionId?: string | null; database?: string; title?: string; restoreOf?: string } | null;
     if (!state?.openSql || openedFromNavigation.current === location.key) return;
     openedFromNavigation.current = location.key;
     const id = crypto.randomUUID();
     const sql = state.openSql;
-    setTabs((docs) => [...docs, { id, title: state.title?.slice(0, 80) || "From activity", sql, connectionId: state.connectionId ?? null, database: state.database ?? "" }]);
+    setTabs((docs) => [...docs, { id, title: state.title?.slice(0, 80) || "From activity", sql, connectionId: state.connectionId ?? null, database: state.database ?? "", ...(state.restoreOf ? { restoreOf: state.restoreOf } : {}) }]);
     setActiveTabId(id);
     navigate(location.pathname, { replace: true, state: null });
   }, [location, navigate]);
@@ -394,7 +394,8 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     const progress = (data: QueryResult) => {
       if (runSeq.current[tabId] === seq) patchRun(tabId, { data, message: `Receiving rows… ${data.rowCount}` });
     };
-    const backup = backupRows && !shared;
+    // A restore script puts rows back; backing it up again would only add noise.
+    const backup = backupRows && !shared && !activeTab?.restoreOf;
     return (tx ? txnQuery(tx.connectionId, tx.id, sql, tx.database, controller.signal, progress, backup) : runQuery(connectionId, sql, database, nodeRole, controller.signal, progress, backup))
       .then((res) => {
         if (runSeq.current[tabId] !== seq) return false;
@@ -682,7 +683,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
             if (transactions.current[activeTabId] && !window.confirm("Stopping a statement inside a transaction ends the transaction and discards its uncommitted changes. Stop anyway?")) return;
             scripts.current[activeTabId] = false; controllers.current[activeTabId]?.abort();
           }}
-          backupRows={shared ? undefined : backupRows}
+          backupRows={shared || activeTab?.restoreOf ? undefined : backupRows}
           onBackupRowsChange={setBackupRows}
           manualCommit={Boolean(manualCommitTabs[activeTabId])}
           onManualCommitChange={setCommitMode}
