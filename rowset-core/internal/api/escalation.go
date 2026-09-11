@@ -8,7 +8,6 @@ import (
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/domain"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/engine"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/policy"
-	"github.com/dbaopsio/rowset-studio/rowset-core/internal/rowlimit"
 	sqlguard "github.com/dbaopsio/rowset-studio/rowset-parser"
 )
 
@@ -96,12 +95,8 @@ func (s *Server) ExecuteDeferred(r *http.Request, statement DeferredStatement) D
 	if err != nil {
 		return deferredError(err.Error())
 	}
+	// The statement runs as written; a row cap is applied while reading.
 	sql := prepared.Raw
-	if rowLimit > 0 && info.Kind == sqlguard.Select {
-		if sql, err = rowlimit.Apply(connection.Engine, prepared, rowLimit+1); err != nil {
-			return deferredError(err.Error())
-		}
-	}
 	primary := "primary"
 	target, _, err := s.routedEngineConnection(r.Context(), caller, connection, "", &primary, &info)
 	if err != nil {

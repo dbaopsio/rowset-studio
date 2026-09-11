@@ -5,6 +5,14 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.35 — 2026-09-12
+
+- The row limit no longer rewrites statements. Rowset runs the SQL exactly
+  as written and stops reading once the cap is reached, then cancels the
+  rest, so no statement can be made invalid by a LIMIT or TOP that the user
+  did not write. Exports and scheduled files follow the same rule, and an
+  export that stops at the cap says so.
+
 ## 0.0.34 — 2026-09-12
 
 - **Results are capped at 10,000 rows by default**, by the "Limit result

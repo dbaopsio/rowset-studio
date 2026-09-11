@@ -17,7 +17,6 @@ import (
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/engine"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/id"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/policy"
-	"github.com/dbaopsio/rowset-studio/rowset-core/internal/rowlimit"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/store"
 	sqlguard "github.com/dbaopsio/rowset-studio/rowset-parser"
 )
@@ -284,12 +283,7 @@ func (s *Server) captureRowBackup(ctx context.Context, identity domain.Identity,
 	skipped := func(reason string) Annotations { return Annotations{"backupSkipped": reason} }
 	table := qualifiedTable(connection.Engine, plan.schema, plan.table)
 	selectSQL := "SELECT * FROM " + table + " WHERE " + plan.where
-	parsed, err := sqlguard.Parse(selectSQL)
-	if err != nil {
-		return skipped("the changed rows could not be selected")
-	}
-	limited, err := rowlimit.Apply(connection.Engine, parsed, rowBackupLimit+1)
-	if err != nil {
+	if _, err := sqlguard.Parse(selectSQL); err != nil {
 		return skipped("the changed rows could not be selected")
 	}
 	savepoint := transaction != nil && connection.Engine == "postgres"
@@ -298,7 +292,7 @@ func (s *Server) captureRowBackup(ctx context.Context, identity domain.Identity,
 			return skipped("the transaction does not allow a backup")
 		}
 	}
-	columns, types, rows, readErr := s.readRows(ctx, target, transaction, limited, rowBackupLimit+1)
+	columns, types, rows, readErr := s.readRows(ctx, target, transaction, selectSQL, rowBackupLimit+1)
 	var keyRows, kindRows [][]any
 	if readErr == nil {
 		_, _, keyRows, readErr = s.readRows(ctx, target, transaction, primaryKeySQL(connection.Engine, plan.schema, plan.table), 64)

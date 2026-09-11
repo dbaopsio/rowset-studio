@@ -17,7 +17,6 @@ import (
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/engine"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/id"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/policy"
-	"github.com/dbaopsio/rowset-studio/rowset-core/internal/rowlimit"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/store"
 	sqlguard "github.com/dbaopsio/rowset-studio/rowset-parser"
 )
@@ -145,7 +144,7 @@ func (s *Server) executeScheduled(ctx context.Context, item store.ScheduledQuery
 		return 0, "", err
 	}
 	defer selected.Close()
-	rows, path, err := writeScheduledResult(item, selected.stream, selected.transforms)
+	rows, path, err := writeScheduledResult(item, selected.stream, selected.transforms, selected.limit)
 	selected.finish(rows, err)
 	return rows, path, err
 }
@@ -158,8 +157,10 @@ var errSelectBlocked = errors.New("blocked by policy")
 type governedSelect struct {
 	stream     *engine.RowStream
 	transforms ResultTransforms
-	cancel     context.CancelFunc
-	finish     func(rows int64, err error)
+	// limit is the policy's row cap, or 0 when a policy sets none.
+	limit  int
+	cancel context.CancelFunc
+	finish func(rows int64, err error)
 }
 
 func (g *governedSelect) Close() {
@@ -197,11 +198,6 @@ func (s *Server) openGovernedSelect(ctx context.Context, r *http.Request, identi
 		return nil, err
 	}
 	effectiveSQL := prepared.Raw
-	if rowLimit > 0 {
-		if effectiveSQL, err = rowlimit.Apply(connection.Engine, prepared, rowLimit); err != nil {
-			return nil, err
-		}
-	}
 	target, _, err := s.routedEngineConnection(ctx, identity, connection, database, nil, &prepared)
 	if err != nil {
 		return nil, err
@@ -226,12 +222,12 @@ func (s *Server) openGovernedSelect(ctx context.Context, r *http.Request, identi
 		}
 		s.recordClientActivity(ctx, identity, connection, sql, normalized, hash, source, "", "", rows, stream.DurationMS(), false, status, decision, "allow", "", message)
 	}
-	return &governedSelect{stream: stream, transforms: transforms, cancel: cancel, finish: finish}, nil
+	return &governedSelect{stream: stream, transforms: transforms, limit: rowLimit, cancel: cancel, finish: finish}, nil
 }
 
 // writeScheduledResult streams rows into "<name>_<local time>.<format>". The
 // file appears under its final name only once it is complete.
-func writeScheduledResult(item store.ScheduledQuery, stream queryRowStream, transforms ResultTransforms) (int64, string, error) {
+func writeScheduledResult(item store.ScheduledQuery, stream queryRowStream, transforms ResultTransforms, limit int) (int64, string, error) {
 	if err := os.MkdirAll(item.OutputDir, 0o755); err != nil {
 		return 0, "", fmt.Errorf("output folder: %w", err)
 	}
@@ -249,7 +245,7 @@ func writeScheduledResult(item store.ScheduledQuery, stream queryRowStream, tran
 		return 0, "", fmt.Errorf("output file: %w", err)
 	}
 	buffered := bufio.NewWriter(file)
-	rows, writeErr := writeRows(buffered, item.OutputFormat, stream, transforms)
+	rows, _, writeErr := writeRows(buffered, item.OutputFormat, stream, transforms, limit)
 	if writeErr == nil {
 		writeErr = buffered.Flush()
 	}
@@ -267,17 +263,24 @@ func writeScheduledResult(item store.ScheduledQuery, stream queryRowStream, tran
 	return rows, path, nil
 }
 
-func writeRows(out *bufio.Writer, format string, stream queryRowStream, transforms ResultTransforms) (int64, error) {
+// writeRows writes every row, or limit rows when a policy caps the result.
+// It reports whether rows were left behind.
+func writeRows(out *bufio.Writer, format string, stream queryRowStream, transforms ResultTransforms, limit int) (int64, bool, error) {
 	columns := stream.Columns()
 	var rows int64
+	truncated := false
 	if format == "json" {
 		if _, err := out.WriteString("[\n"); err != nil {
-			return 0, err
+			return 0, truncated, err
 		}
 		for {
+			if limit > 0 && rows >= int64(limit) {
+				truncated = true
+				break
+			}
 			row, ok, err := stream.Next()
 			if err != nil {
-				return rows, err
+				return rows, truncated, err
 			}
 			if !ok {
 				break
@@ -291,30 +294,34 @@ func writeRows(out *bufio.Writer, format string, stream queryRowStream, transfor
 			}
 			encoded, err := json.Marshal(object)
 			if err != nil {
-				return rows, err
+				return rows, truncated, err
 			}
 			if rows > 0 {
 				if _, err := out.WriteString(",\n"); err != nil {
-					return rows, err
+					return rows, truncated, err
 				}
 			}
 			if _, err := out.Write(encoded); err != nil {
-				return rows, err
+				return rows, truncated, err
 			}
 			rows++
 		}
 		_, err := out.WriteString("\n]\n")
-		return rows, err
+		return rows, truncated, err
 	}
 	writer := csv.NewWriter(out)
 	if err := writer.Write(columns); err != nil {
-		return 0, err
+		return 0, truncated, err
 	}
 	record := make([]string, len(columns))
 	for {
+		if limit > 0 && rows >= int64(limit) {
+			truncated = true
+			break
+		}
 		row, ok, err := stream.Next()
 		if err != nil {
-			return rows, err
+			return rows, truncated, err
 		}
 		if !ok {
 			break
@@ -327,12 +334,12 @@ func writeRows(out *bufio.Writer, format string, stream queryRowStream, transfor
 			}
 		}
 		if err := writer.Write(record); err != nil {
-			return rows, err
+			return rows, truncated, err
 		}
 		rows++
 	}
 	writer.Flush()
-	return rows, writer.Error()
+	return rows, truncated, writer.Error()
 }
 
 func fileValue(value any) any {

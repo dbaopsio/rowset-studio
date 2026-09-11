@@ -14,7 +14,6 @@ import (
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/engine"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/id"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/policy"
-	"github.com/dbaopsio/rowset-studio/rowset-core/internal/rowlimit"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/store"
 	sqlguard "github.com/dbaopsio/rowset-studio/rowset-parser"
 )
@@ -125,23 +124,17 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 		return
 	}
 	info = prepared
+	// The statement runs exactly as written. A row cap stops the reading
+	// after that many rows instead of rewriting the SQL, so no statement
+	// becomes invalid and nothing is executed that the user did not write.
 	effectiveSQL := info.Raw
-	policyCap := false
 	// Only a policy caps a result on its own; maxRows is what a client asks
 	// for, and it can only make the cap smaller.
 	if input.MaxRows > 0 && (rowLimit == 0 || input.MaxRows < rowLimit) {
 		rowLimit = input.MaxRows
 		annotations["limitedBy"] = "request"
 	}
-	if rowLimit > 0 {
-		limitedSQL, limitErr := rowlimit.Apply(connection.Engine, info, rowLimit+1)
-		policyCap = true
-		effectiveSQL, err = limitedSQL, limitErr
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "ROW_LIMIT_ERROR", err.Error())
-			return
-		}
-	}
+	policyCap := rowLimit > 0
 
 	defer s.holdAwake()()
 	ctx, cancel := withConnectionTimeout(r, connection, policyTimeout, s.defaultStatementTimeout(10*time.Minute))
@@ -200,6 +193,9 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 			return
 		}
 		s.streamQueryResponse(w, r, connection, input.SQL, normalized, queryHash, reference, stream, transforms, annotations.merge(resultNotes), policyCap, rowLimit)
+		// Ending a capped read leaves the database still producing rows;
+		// cancelling first lets the driver abort instead of draining them.
+		stopStream()
 		return
 	}
 	var result engine.Result

@@ -70,7 +70,7 @@ func (s *Server) exportTable(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(file.Name())
 	}()
 	buffered := bufio.NewWriter(file)
-	rows, err := writeRows(buffered, input.Format, selected.stream, selected.transforms)
+	rows, truncated, err := writeRows(buffered, input.Format, selected.stream, selected.transforms, selected.limit)
 	if err == nil {
 		err = buffered.Flush()
 	}
@@ -90,5 +90,8 @@ func (s *Server) exportTable(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.%s"`, name, input.Format))
 	w.Header().Set("X-Rowset-Rows", fmt.Sprint(rows))
+	if truncated {
+		w.Header().Set("X-Rowset-Truncated", "true")
+	}
 	_, _ = io.Copy(w, file)
 }
