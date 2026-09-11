@@ -23,6 +23,7 @@ import (
 )
 
 type Server struct {
+	awake               awake
 	localMu             sync.Mutex
 	localTickets        map[string]time.Time
 	config              config.Config

@@ -14,7 +14,15 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const transactionIdleTimeout = 5 * time.Minute
+// transactionIdleTimeout is how long a manual transaction may sit unused
+// before it is rolled back and its locks released. A personal workspace
+// allows a longer break than a shared server.
+func (s *Server) transactionIdleTimeout() time.Duration {
+	if s.config.Shared {
+		return 5 * time.Minute
+	}
+	return time.Hour
+}
 
 const errTxnRolledBack = "Commit applied nothing: the database aborted this transaction after an earlier error and rolled back all of its changes."
 
@@ -23,6 +31,9 @@ type transactionEntry struct {
 	transaction          *engine.Transaction
 	userID, connectionID string
 	lastUsed             time.Time
+	// running counts statements in progress; a transaction is never idle
+	// while one runs, however long it takes.
+	running int
 }
 type beginTransactionInput struct {
 	Database string `json:"database"`
@@ -93,7 +104,7 @@ func (s *Server) transactionEntry(w http.ResponseWriter, r *http.Request, connec
 	s.txnMu.Lock()
 	item := s.txns[txnID]
 	authorized := item != nil && item.userID == identity.UserID && item.connectionID == connection.ID
-	expired := authorized && time.Since(item.lastUsed) > transactionIdleTimeout
+	expired := authorized && item.running == 0 && time.Since(item.lastUsed) > s.transactionIdleTimeout()
 	if expired {
 		delete(s.txns, txnID)
 	} else if authorized {
@@ -130,6 +141,15 @@ func (s *Server) transactionQuery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "BAD_REQUEST", "sql is required")
 		return
 	}
+	s.txnMu.Lock()
+	item.running++
+	s.txnMu.Unlock()
+	defer func() {
+		s.txnMu.Lock()
+		item.running--
+		item.lastUsed = time.Now()
+		s.txnMu.Unlock()
+	}()
 	item.mu.Lock()
 	defer item.mu.Unlock()
 	s.executeQuery(w, r, connection, input, item.transaction)
@@ -201,7 +221,7 @@ func (s *Server) reapIdleTransactions() {
 	var expired []*transactionEntry
 	s.txnMu.Lock()
 	for txnID, item := range s.txns {
-		if now.Sub(item.lastUsed) > transactionIdleTimeout {
+		if item.running == 0 && now.Sub(item.lastUsed) > s.transactionIdleTimeout() {
 			delete(s.txns, txnID)
 			expired = append(expired, item)
 		}

@@ -140,7 +140,8 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 		}
 	}
 
-	ctx, cancel := withConnectionTimeout(r, connection, policyTimeout, 10*time.Minute)
+	defer s.holdAwake()()
+	ctx, cancel := withConnectionTimeout(r, connection, policyTimeout, s.defaultStatementTimeout(10*time.Minute))
 	defer cancel()
 	var target engine.Connection
 	if transaction == nil {
@@ -170,6 +171,9 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 		streamTimeout := time.Duration(s.config.QueryStreamTimeoutSecs) * time.Second
 		if streamTimeout <= 0 {
 			streamTimeout = 8 * time.Minute
+		}
+		if !s.config.Shared {
+			streamTimeout = s.defaultStatementTimeout(streamTimeout)
 		}
 		streamCtx, stopStream := context.WithTimeout(ctx, streamTimeout)
 		defer stopStream()

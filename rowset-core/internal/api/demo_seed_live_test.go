@@ -50,12 +50,11 @@ func TestLiveSeedDemoTables(t *testing.T) {
 			if engine.engine == "postgres" {
 				run("DROP TYPE mood_demo", true)
 			}
-			for _, statement := range fixture.setup {
-				run(fmt.Sprintf(statement, "all_types", "demo"), false)
+			for _, statement := range fixture.statements("all_types", "demo") {
+				run(statement, false)
 			}
-			run(fmt.Sprintf(fixture.ddl, "all_types", "demo"), false)
 			writable := strings.Join(fixture.writable(), ", ")
-			for _, row := range []string{fixture.rows[0], fixture.rows[1], nulls(len(fixture.writable())), fixture.rows[0]} {
+			for _, row := range fixture.rowValues() {
 				run(fmt.Sprintf("INSERT INTO all_types (%s) VALUES (%s)", writable, row), false)
 			}
 			run("CREATE TABLE big_orders (id int PRIMARY KEY, customer_id int, status varchar(20), total decimal(12,2), note varchar(100))", false)

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"strconv"
@@ -698,15 +699,37 @@ func normalizeValues(values []any, types []string) {
 			}
 		case time.Time:
 			values[index] = FormatTime(v, kind)
+		case float64:
+			if special, ok := specialFloat(v); ok {
+				values[index] = special
+			}
+		case float32:
+			if special, ok := specialFloat(float64(v)); ok {
+				values[index] = special
+			}
 		}
 	}
+}
+
+// specialFloat names NaN and the infinities, which JSON cannot carry as
+// numbers; PostgreSQL reads these names back as the same values.
+func specialFloat(value float64) (string, bool) {
+	switch {
+	case math.IsNaN(value):
+		return "NaN", true
+	case math.IsInf(value, 1):
+		return "Infinity", true
+	case math.IsInf(value, -1):
+		return "-Infinity", true
+	}
+	return "", false
 }
 
 func binaryDisplayType(kind string) bool {
 	if kind == "BIT" {
 		return true
 	}
-	for _, name := range []string{"BINARY", "BYTEA", "BLOB", "IMAGE", "GEOMETRY"} {
+	for _, name := range []string{"BINARY", "BYTEA", "BLOB", "IMAGE", "GEOMETRY", "GEOGRAPHY", "HIERARCHYID"} {
 		if strings.Contains(kind, name) {
 			return true
 		}

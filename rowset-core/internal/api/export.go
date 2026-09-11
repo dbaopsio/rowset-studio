@@ -23,6 +23,7 @@ type exportInput struct {
 // The file is written to a temporary file first, so a failure part way is
 // reported as an error instead of a truncated download.
 func (s *Server) exportTable(w http.ResponseWriter, r *http.Request) {
+	defer s.holdAwake()()
 	connection, ok := s.authorizedConnection(w, r)
 	if !ok {
 		return

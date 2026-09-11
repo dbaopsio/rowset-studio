@@ -31,7 +31,7 @@ export function quoteIdentifier(engine: string, name: string): string {
 // Column types whose values are shown as \x-prefixed hex.
 function binaryType(type: string | undefined) {
   const kind = (type ?? "").toUpperCase();
-  return kind === "BIT" || ["BINARY", "BYTEA", "BLOB", "IMAGE", "GEOMETRY"].some((name) => kind.includes(name));
+  return kind === "BIT" || ["BINARY", "BYTEA", "BLOB", "IMAGE", "GEOMETRY", "GEOGRAPHY", "HIERARCHYID"].some((name) => kind.includes(name));
 }
 
 export function sqlLiteral(engine: string, value: unknown, type?: string): string {

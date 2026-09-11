@@ -79,7 +79,7 @@ func TestRateLimiterClientMapHasHardMemoryBound(t *testing.T) {
 }
 
 func TestRateLimiterSeparatesAuthenticatedUsersBehindOneProxy(t *testing.T) {
-	server := &Server{config: config.Config{RateLimitPerMinute: 2}, rateClients: make(map[string]*rateWindow)}
+	server := &Server{config: config.Config{Shared: true, RateLimitPerMinute: 2}, rateClients: make(map[string]*rateWindow)}
 	for _, userID := range []string{"user-a", "user-b"} {
 		first := server.allowIdentity(userID)
 		second := server.allowIdentity(userID)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -161,7 +162,7 @@ type backupValue struct {
 // written back as hex even when they happen to be valid text.
 func isBinaryType(databaseType string) bool {
 	databaseType = strings.ToUpper(databaseType)
-	for _, kind := range []string{"BINARY", "BYTEA", "BLOB", "IMAGE", "UNIQUEIDENTIFIER", "BIT"} {
+	for _, kind := range []string{"BINARY", "BYTEA", "BLOB", "IMAGE", "UNIQUEIDENTIFIER", "BIT", "GEOMETRY", "GEOGRAPHY", "HIERARCHYID"} {
 		if strings.Contains(databaseType, kind) {
 			return true
 		}
@@ -182,8 +183,14 @@ func encodeBackupValue(value any, databaseType string) backupValue {
 	case int:
 		return backupValue{Kind: "num", Value: strconv.Itoa(v)}
 	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return backupValue{Kind: "text", Value: specialFloatName(v)}
+		}
 		return backupValue{Kind: "num", Value: strconv.FormatFloat(v, 'g', -1, 64)}
 	case float32:
+		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+			return backupValue{Kind: "text", Value: specialFloatName(float64(v))}
+		}
 		return backupValue{Kind: "num", Value: strconv.FormatFloat(float64(v), 'g', -1, 32)}
 	case time.Time:
 		// Zone-aware types keep the offset; the others take the wall-clock
@@ -201,6 +208,18 @@ func encodeBackupValue(value any, databaseType string) backupValue {
 		return backupValue{Kind: "text", Value: v}
 	default:
 		return backupValue{Kind: "text", Value: fmt.Sprint(v)}
+	}
+}
+
+// specialFloatName is how PostgreSQL spells NaN and the infinities.
+func specialFloatName(value float64) string {
+	switch {
+	case math.IsNaN(value):
+		return "NaN"
+	case math.IsInf(value, 1):
+		return "Infinity"
+	default:
+		return "-Infinity"
 	}
 }
 
@@ -247,6 +266,8 @@ type rowBackupPayload struct {
 	// IdentityAlways) or IDENTITY_INSERT (SQL Server) to take their old value.
 	Identity       []string `json:"identity,omitempty"`
 	IdentityAlways bool     `json:"identityAlways,omitempty"`
+	// Types are the database types of Columns, as the driver names them.
+	Types []string `json:"types,omitempty"`
 }
 
 // captureRowBackup saves the rows a simple UPDATE or DELETE is about to change
@@ -316,7 +337,7 @@ func (s *Server) captureRowBackup(ctx context.Context, identity domain.Identity,
 	if len(info.Tokens) > 0 {
 		statement = strings.TrimSpace(info.Raw[info.Tokens[0].Start:])
 	}
-	payload := rowBackupPayload{BackupID: id.New(), UserID: identity.UserID, Statement: statement, Columns: columns, Key: key, Rows: make([][]backupValue, len(rows))}
+	payload := rowBackupPayload{BackupID: id.New(), UserID: identity.UserID, Statement: statement, Columns: columns, Types: types, Key: key, Rows: make([][]backupValue, len(rows))}
 	for _, row := range kindRows {
 		if len(row) < 2 {
 			continue
@@ -403,11 +424,18 @@ func restorePlan(engineName string, item store.RowBackup, payload rowBackupPaylo
 		}
 	}
 	quoted := func(index int) string { return quoteSQLIdentifier(engineName, payload.Columns[index]) }
+	sqlServer := strings.EqualFold(engineName, "mssql") || strings.EqualFold(engineName, "sqlserver")
 	value := func(row []backupValue, index int) string {
 		if index >= len(row) {
 			return "NULL"
 		}
-		return restoreLiteral(engineName, row[index])
+		literal := restoreLiteral(engineName, row[index])
+		// A multi-row VALUES list gives each column one type, which would turn
+		// every sql_variant value into the first row's type.
+		if sqlServer && row[index].Kind != "null" && index < len(payload.Types) && payload.Types[index] == "SQL_VARIANT" {
+			return "CAST(" + literal + " AS sql_variant)"
+		}
+		return literal
 	}
 	if item.Kind == "delete" {
 		names := make([]string, len(writable))
@@ -482,6 +510,7 @@ func restoreSQL(engineName string, item store.RowBackup, payload rowBackupPayloa
 // applyRowBackup puts the backed-up rows back in one transaction. Each
 // statement passes the same policies as in the editor.
 func (s *Server) applyRowBackup(w http.ResponseWriter, r *http.Request) {
+	defer s.holdAwake()()
 	identity := identityFromContext(r.Context())
 	item, err := s.store.RowBackup(r.Context(), r.PathValue("id"), identity.UserID)
 	if err != nil {

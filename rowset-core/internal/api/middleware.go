@@ -101,6 +101,11 @@ func (s *Server) allowRequest(r *http.Request) bool {
 }
 
 func (s *Server) allowIdentity(userID string) bool {
+	// A personal workspace has one signed-in owner; limiting them only makes
+	// a busy editor (autosave, schema loads, long scripts) fail at random.
+	if !s.config.Shared {
+		return true
+	}
 	return s.allowRateKey("user:" + userID)
 }
 

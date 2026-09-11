@@ -115,6 +115,7 @@ func (s *Server) runScheduled(ctx context.Context, item store.ScheduledQuery, tr
 // the editor (access, policies, statement and result hooks) and writes the
 // result to a new file in the output folder.
 func (s *Server) executeScheduled(ctx context.Context, item store.ScheduledQuery) (int64, string, error) {
+	defer s.holdAwake()()
 	sql, err := s.openScheduledSQL(item)
 	if err != nil {
 		return 0, "", err

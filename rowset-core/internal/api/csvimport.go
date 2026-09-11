@@ -140,6 +140,7 @@ func (s *Server) discardImport(w http.ResponseWriter, r *http.Request) {
 // runImport inserts the uploaded rows into an existing table in one
 // transaction: either every row is imported or none is.
 func (s *Server) runImport(w http.ResponseWriter, r *http.Request) {
+	defer s.holdAwake()()
 	connection, ok := s.authorizedConnection(w, r)
 	if !ok {
 		return
@@ -355,7 +356,7 @@ func importBinaryType(dataType string) bool {
 	if dataType == "BIT" {
 		return true
 	}
-	for _, name := range []string{"BINARY", "BYTEA", "BLOB", "IMAGE", "GEOMETRY", "POINT", "POLYGON", "LINESTRING"} {
+	for _, name := range []string{"BINARY", "BYTEA", "BLOB", "IMAGE", "GEOMETRY", "GEOGRAPHY", "HIERARCHYID", "POINT", "POLYGON", "LINESTRING", "MULTIPOINT", "COLLECTION"} {
 		if strings.Contains(dataType, name) {
 			return true
 		}

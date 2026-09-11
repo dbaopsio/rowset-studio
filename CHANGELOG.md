@@ -5,6 +5,27 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.30 — 2026-09-12
+
+- Long queries: a personal workspace no longer stops statements after 8–10
+  minutes (a connection's own query timeout and policy timeouts still
+  apply), a manual transaction is never rolled back as idle while one of
+  its statements is running, idle transactions are kept for an hour
+  instead of 5 minutes, and the desktop app keeps the computer from idle
+  sleep while statements, exports, imports or restores run.
+- The personal owner is no longer rate limited, which could make a busy
+  editor fail with "too many requests".
+- NaN and Infinity values (PostgreSQL float and numeric) no longer break
+  the result; they show and restore as `NaN`, `Infinity` and `-Infinity`.
+- Restoring SQL Server `sql_variant` values keeps each value's own type.
+- The all-types test now covers far more types (PostgreSQL ranges,
+  geometric types, tsvector, arrays, special numbers; MySQL/MariaDB text
+  and blob sizes, bit(64), decimal(65,30), spatial types, inet4/inet6/uuid;
+  SQL Server text/ntext/image, max types, time(7), sql_variant,
+  hierarchyid, geography, geometry) and runs over the HTTP API. With
+  ROWSET_E2E_DESKTOP_DIR it runs against a running desktop instance, so
+  its work shows in that instance's Activity and Row backups.
+
 ## 0.0.29 — 2026-09-11
 
 Every data feature was run against a table of all common column types on

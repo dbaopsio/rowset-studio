@@ -362,6 +362,16 @@ func (s *Server) poolSize(engineName string) int {
 	}
 }
 
+// defaultStatementTimeout is how long a statement may run when neither the
+// connection nor a policy sets a limit. A personal workspace runs long
+// reports; a shared server keeps statements short.
+func (s *Server) defaultStatementTimeout(shared time.Duration) time.Duration {
+	if s.config.Shared {
+		return shared
+	}
+	return 24 * time.Hour
+}
+
 func withConnectionTimeout(r *http.Request, connection domain.Connection, policySeconds int, fallback time.Duration) (context.Context, context.CancelFunc) {
 	timeout := fallback
 	if connection.QueryTimeoutSeconds > 0 {
