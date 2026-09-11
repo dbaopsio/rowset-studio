@@ -35,8 +35,8 @@ export default function QuitButton({ collapsed }: { collapsed: boolean }) {
         title="Shutdown Rowset"
         className={
           collapsed
-            ? "grid h-8 w-8 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
-            : "flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+            ? "grid h-8 w-8 place-items-center rounded-md text-rose-700/80 transition hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300/80 dark:hover:bg-rose-950/40 dark:hover:text-rose-200"
+            : "flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] text-rose-700/80 transition hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300/80 dark:hover:bg-rose-950/40 dark:hover:text-rose-200"
         }
       >
         <Icon name="power" size={collapsed ? 16 : 15} className="shrink-0" />

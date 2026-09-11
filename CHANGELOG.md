@@ -5,6 +5,13 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.38 — 2026-09-12
+
+- The navigation shows only its icons in the SQL editor, where the explorer
+  needs the width, and stays open on the other pages. Using the collapse
+  button fixes your choice everywhere until you use it again.
+- Shutdown Rowset is tinted red.
+
 ## 0.0.37 — 2026-09-12
 
 - The row limit policy no longer describes itself as rewriting statements,

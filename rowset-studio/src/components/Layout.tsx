@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useState } from "react";
-import { NavLink, Navigate, Outlet, useNavigate } from "react-router";
+import { NavLink, Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "./Icon";
 import RowsetLogo from "./RowsetLogo";
@@ -16,10 +16,16 @@ export default function ProtectedLayout() {
   const showPasswordAdvice = useAuth((s) => s.showPasswordAdvice);
   const dismissPasswordAdvice = useAuth((s) => s.dismissPasswordAdvice);
   const navigate = useNavigate();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("rowset.sidebar") === "collapsed");
+  // "auto" keeps the navigation out of the way in the SQL editor, where the
+  // explorer needs the width, and open everywhere else. Using the toggle
+  // fixes the choice until it is used again.
+  const location = useLocation();
+  const [sidebarMode, setSidebarMode] = useState(() => localStorage.getItem("rowset.sidebar") ?? "auto");
+  const editing = location.pathname.startsWith("/editor");
+  const sidebarCollapsed = sidebarMode === "auto" ? editing : sidebarMode === "collapsed";
 
   useEffect(() => {
-    localStorage.setItem("rowset.sidebar", sidebarCollapsed ? "collapsed" : "expanded");
+    localStorage.setItem("rowset.sidebar", sidebarMode);
   }, [sidebarCollapsed]);
 
   // Session restore (refresh-cookie exchange) is still in flight; don't bounce
@@ -34,7 +40,7 @@ export default function ProtectedLayout() {
   if (!token) return <Navigate to="/login" replace />;
   return (
     <div className="flex h-screen bg-paper text-ink dark:bg-[#121317] dark:text-slate-100">
-      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((value) => !value)} />
+      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarMode(sidebarCollapsed ? "expanded" : "collapsed")} />
       <main className="flex-1 overflow-auto p-3">
         {showPasswordAdvice && (
           <div className="mb-3 flex items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
