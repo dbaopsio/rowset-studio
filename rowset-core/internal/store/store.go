@@ -329,14 +329,22 @@ func mapError(err error) error {
 
 func NowString() string { return time.Now().UTC().Format(time.RFC3339) }
 
-var defaultPolicyKeys = []string{
-	"deny_select_without_where", "deny_delete_without_where", "deny_update_without_where",
-	"deny_drop", "deny_truncate", "deny_unclassified",
+// defaultPolicies are on in a new workspace. limit_rows keeps a stray
+// SELECT from pulling a whole table into the editor; every one of them can
+// be changed or turned off in My policies.
+var defaultPolicies = []struct{ key, config string }{
+	{key: "deny_select_without_where"}, {key: "deny_delete_without_where"}, {key: "deny_update_without_where"},
+	{key: "deny_drop"}, {key: "deny_truncate"}, {key: "deny_unclassified"},
+	{key: "limit_rows", config: "10000"},
 }
 
 func seedDefaultPolicies(ctx context.Context, tx *sql.Tx, orgID string) error {
-	for _, key := range defaultPolicyKeys {
-		if _, err := tx.ExecContext(ctx, "INSERT INTO policies(id,org_id,name,rule_type,effect,enabled,config) VALUES(lower(hex(randomblob(16))),?,?,?,'deny',1,NULL) ON CONFLICT(org_id,rule_type) DO NOTHING", orgID, key, key); err != nil {
+	for _, policy := range defaultPolicies {
+		var config any
+		if policy.config != "" {
+			config = policy.config
+		}
+		if _, err := tx.ExecContext(ctx, "INSERT INTO policies(id,org_id,name,rule_type,effect,enabled,config) VALUES(lower(hex(randomblob(16))),?,?,?,'deny',1,?) ON CONFLICT(org_id,rule_type) DO NOTHING", orgID, policy.key, policy.key, config); err != nil {
 			return mapError(err)
 		}
 	}

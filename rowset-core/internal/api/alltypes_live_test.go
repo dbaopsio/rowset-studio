@@ -30,6 +30,7 @@ func TestLiveAllTypes(t *testing.T) {
 			connectionID := c.connection(t, engine, password)
 			c.setPolicy(t, "deny_select_without_where", false)
 			c.setPolicy(t, "deny_drop", false)
+			c.setPolicy(t, "limit_rows", false)
 			base := "/api/connections/" + connectionID
 
 			call := func(sql string, extra map[string]any) (int, map[string]any, string) {
@@ -219,6 +220,19 @@ func TestLiveAllTypes(t *testing.T) {
 				if code, rows, complete := c.stream(t, connectionID, map[string]any{"sql": "SELECT * FROM " + big + " WHERE id > 0", "database": "rowset_e2e"}); code != http.StatusOK || rows != 20000 || complete["truncated"] != false {
 					t.Errorf("ndjson stream: %d rows=%d %v", code, rows, complete)
 				}
+				// Every shape of SELECT still runs with the row limit on.
+				shapes := []string{
+					"SELECT DISTINCT v FROM " + big + " WHERE id > 0",
+					"SELECT * FROM " + big + " WHERE id > 0 ORDER BY id DESC",
+					"WITH picked AS (SELECT id FROM " + big + " WHERE id > 0) SELECT * FROM picked",
+					"SELECT id FROM " + big + " WHERE id = 1 UNION SELECT id FROM " + big + " WHERE id = 2",
+				}
+				if engine.engine == "mysql" || engine.engine == "mariadb" {
+					shapes = append(shapes, "SELECT * FROM "+big+" WHERE id > 0 LIMIT 100, 400")
+				}
+				if engine.engine != "sqlserver" {
+					shapes = append(shapes, "SELECT * FROM "+big+" WHERE id > 0 FOR UPDATE")
+				}
 				// With the row-limit policy on, the cap applies and says so.
 				if code, _, body := c.do(t, "PATCH", "/api/policies/limit_rows", map[string]any{"enabled": true, "value": "50"}); code >= 300 {
 					t.Fatalf("limit_rows: %d %s", code, body)
@@ -229,6 +243,16 @@ func TestLiveAllTypes(t *testing.T) {
 				// An export follows the same policy.
 				if code, headers, body := export(big, "csv"); code != http.StatusOK || headers.Get("X-Rowset-Rows") != "50" {
 					t.Errorf("policy-capped export: %d %v %.200s", code, headers, body)
+				}
+				for _, shape := range shapes {
+					code, out, raw := call(shape, nil)
+					if code != http.StatusOK {
+						t.Errorf("%s: %d %.300s", shape, code, raw)
+						continue
+					}
+					if rows := out["rows"].([]any); len(rows) > 50 {
+						t.Errorf("%s returned %d rows with a 50-row policy", shape, len(rows))
+					}
 				}
 				if code, _, body := c.do(t, "PATCH", "/api/policies/limit_rows", map[string]any{"enabled": false}); code >= 300 {
 					t.Fatalf("limit_rows off: %d %s", code, body)

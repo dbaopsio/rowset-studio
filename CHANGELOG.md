@@ -5,6 +5,17 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.34 — 2026-09-12
+
+- **Results are capped at 10,000 rows by default**, by the "Limit result
+  rows" policy, which existing workspaces also get. It rewrites the
+  statement (LIMIT, or TOP on SQL Server), says so under the result and
+  offers Export all rows. Change the number or turn it off in My policies.
+- That rewriting now handles more statements: SELECT DISTINCT and CTEs on
+  SQL Server, MySQL's `LIMIT offset, count`, `FETCH FIRST n ROWS ONLY`, and
+  statements ending in FOR UPDATE or LOCK IN SHARE MODE, which used to
+  produce invalid SQL or an error.
+
 ## 0.0.33 — 2026-09-12
 
 Performance of large results, now that nothing caps them:

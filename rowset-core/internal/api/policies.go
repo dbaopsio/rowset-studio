@@ -27,7 +27,7 @@ var policyCatalog = []policyDefinition{
 	{"deny_update_without_where", "Block UPDATE statements without a WHERE clause", "critical", "Blocks UPDATEs with no effective WHERE clause.", false, true, false},
 	{"deny_drop", "Block DROP statements", "critical", "Blocks DROP on any object.", false, true, false},
 	{"deny_truncate", "Block TRUNCATE statements", "high", "Blocks full-table TRUNCATE operations.", false, true, false},
-	{"limit_rows", "Limit result rows by rewriting SELECT statements before execution", "low", "Caps SELECT row counts in the database.", true, false, false},
+	{"limit_rows", "Limit result rows by rewriting SELECT statements before execution", "low", "Caps SELECT row counts in the database. New workspaces cap results at 10,000 rows.", true, true, false},
 	{"query_timeout_seconds", "Stop queries after a fixed number of seconds", "medium", "Applies the shortest of this policy, the saved connection timeout and the server stream timeout.", true, false, false},
 	{"deny_unclassified", "Block SQL statements the parser cannot classify", "high", "Fails closed on unusual SQL syntax.", false, false, false},
 }
