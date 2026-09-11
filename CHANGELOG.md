@@ -5,6 +5,18 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.33 — 2026-09-12
+
+Performance of large results, now that nothing caps them:
+
+- Streaming a result no longer copies every row already received on each
+  progress update, which made a long result slower the longer it ran.
+  Progress is reported less often as a result grows.
+- Row batches are also flushed by size, so a table with large values cannot
+  produce one enormous line for the browser to parse.
+- Saving the editor's tabs waits longer between saves for large workspaces
+  instead of encrypting everything on each keystroke.
+
 ## 0.0.32 — 2026-09-12
 
 - The editor no longer caps results at 1000 rows. A result is capped only

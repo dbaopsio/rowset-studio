@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -108,6 +109,53 @@ func (c *e2eClient) send(t *testing.T, method, path string, body any, authorizat
 func (c *e2eClient) do(t *testing.T, method, path string, body any) (int, http.Header, []byte) {
 	t.Helper()
 	return c.send(t, method, path, body, "Bearer "+c.token)
+}
+
+// stream runs a query the way Studio does, over NDJSON, and returns the
+// number of rows and the completion event.
+func (c *e2eClient) stream(t *testing.T, connectionID string, payload map[string]any) (int, int, map[string]any) {
+	t.Helper()
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest("POST", c.base+"/api/connections/"+connectionID+"/query", strings.NewReader(string(encoded)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/x-ndjson")
+	request.Header.Set("Authorization", "Bearer "+c.token)
+	response, err := c.client.Do(request)
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	defer response.Body.Close()
+	rows, complete, biggest := 0, map[string]any{}, 0
+	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(make([]byte, 0, 64<<10), 32<<20)
+	for scanner.Scan() {
+		if len(scanner.Bytes()) > biggest {
+			biggest = len(scanner.Bytes())
+		}
+		var event map[string]any
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+			t.Fatalf("stream event: %v", err)
+		}
+		switch event["type"] {
+		case "rows":
+			rows += len(event["rows"].([]any))
+		case "complete":
+			complete = event
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("stream body: %v", err)
+	}
+	if biggest > 16<<20 {
+		t.Errorf("one NDJSON line was %d bytes, more than a browser will parse", biggest)
+	}
+	return response.StatusCode, rows, complete
 }
 
 // setPolicy turns a built-in policy on or off. On a desktop instance the

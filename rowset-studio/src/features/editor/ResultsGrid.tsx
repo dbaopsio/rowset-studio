@@ -143,7 +143,8 @@ function GridView({ result, editable, edits, onEdit }: { result: QueryResult; ed
     if (!sort) return indexes;
     const { col, dir } = sort;
     return indexes.sort((a, b) => compareCells(result.rows[a][col], result.rows[b][col], result.columnTypes?.[col], dir));
-  }, [result.rows, result.columnTypes, sort]);
+    // rowCount grows while a result streams in; the array itself is reused.
+  }, [result.rows, result.rowCount, result.columnTypes, sort]);
 
   useEffect(() => {
     const el = scrollerRef.current;

@@ -215,6 +215,10 @@ func TestLiveAllTypes(t *testing.T) {
 				if code, headers, body := export(big, "csv"); code != http.StatusOK || headers.Get("X-Rowset-Rows") != "20000" {
 					t.Errorf("large export: %d %.200s", code, body)
 				}
+				// Studio reads results over NDJSON: every row arrives there too.
+				if code, rows, complete := c.stream(t, connectionID, map[string]any{"sql": "SELECT * FROM " + big + " WHERE id > 0", "database": "rowset_e2e"}); code != http.StatusOK || rows != 20000 || complete["truncated"] != false {
+					t.Errorf("ndjson stream: %d rows=%d %v", code, rows, complete)
+				}
 				// With the row-limit policy on, the cap applies and says so.
 				if code, _, body := c.do(t, "PATCH", "/api/policies/limit_rows", map[string]any{"enabled": true, "value": "50"}); code >= 300 {
 					t.Fatalf("limit_rows: %d %s", code, body)

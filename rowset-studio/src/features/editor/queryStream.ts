@@ -16,6 +16,12 @@ export function resultAnnotations(source: Record<string, unknown>): Record<strin
   return annotations;
 }
 
+// Long results report progress less often, so rendering never costs more
+// than receiving.
+function progressInterval(rows: number) {
+  return rows > 200_000 ? 2000 : rows > 20_000 ? 500 : 100;
+}
+
 export async function readQueryStream(response: Response, onProgress?: (result: StreamResult) => void): Promise<StreamResult> {
   if (!response.body) throw new Error("Missing query response body");
   const result: StreamResult = { columns: [], rows: [], rowCount: 0, durationMs: 0 };
@@ -35,8 +41,12 @@ export async function readQueryStream(response: Response, onProgress?: (result: 
       result.annotations = resultAnnotations(event);
     } else if (event.type === "rows") {
       if (!receivedColumns || !Array.isArray(event.rows) || !event.rows.every((row: unknown) => Array.isArray(row) && row.length === result.columns.length)) throw new Error("Invalid query row batch");
-      result.rows.push(...event.rows); result.rowCount = result.rows.length;
-      if (Date.now() - lastProgress > 100) { onProgress?.({ ...result, rows: [...result.rows] }); lastProgress = Date.now(); }
+      for (const row of event.rows) result.rows.push(row);
+      result.rowCount = result.rows.length;
+      // Report progress without copying the rows: copying them on every
+      // update would cost more the longer a large result streams. The grid
+      // reads the growing array and re-renders on the new wrapper object.
+      if (Date.now() - lastProgress > progressInterval(result.rowCount)) { onProgress?.({ ...result }); lastProgress = Date.now(); }
     } else if (event.type === "complete") {
       complete = true;
       if (event.error) throw new Error(event.error);

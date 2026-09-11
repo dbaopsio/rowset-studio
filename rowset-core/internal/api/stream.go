@@ -49,7 +49,10 @@ func (s *Server) streamNDJSON(w http.ResponseWriter, r *http.Request, connection
 	count := int64(0)
 	truncated := false
 	batch := make([][]any, 0, 128)
-	last := time.Now()
+	// Rows with large values would make one huge NDJSON line, which a client
+	// has to hold in memory before it can parse it, so batches are also
+	// flushed by size.
+	batchBytes, last := 0, time.Now()
 	for writeErr == nil {
 		row, ok, err := stream.Next()
 		if err != nil {
@@ -65,12 +68,13 @@ func (s *Server) streamNDJSON(w http.ResponseWriter, r *http.Request, connection
 		}
 		transforms.apply(row)
 		batch = append(batch, browserRow(row))
+		batchBytes += rowBytes(row)
 		count++
-		if len(batch) >= 128 || time.Since(last) > 100*time.Millisecond {
+		if len(batch) >= 128 || batchBytes >= 512<<10 || time.Since(last) > 100*time.Millisecond {
 			writeErr = encoder.Encode(map[string]any{"type": "rows", "rows": batch})
 			flush()
 			batch = make([][]any, 0, 128)
-			last = time.Now()
+			batchBytes, last = 0, time.Now()
 		}
 	}
 	if writeErr == nil && len(batch) > 0 {
@@ -109,4 +113,21 @@ func limitNotice(annotations Annotations, limit int) string {
 		return fmt.Sprintf("Showing the first %d rows this client asked for", limit)
 	}
 	return fmt.Sprintf("Result limited by policy to %d rows", limit)
+}
+
+// rowBytes estimates a row's size in the stream, to keep batches small
+// enough for a browser to parse comfortably.
+func rowBytes(row []any) int {
+	size := 16
+	for _, value := range row {
+		switch v := value.(type) {
+		case string:
+			size += len(v) + 3
+		case []byte:
+			size += len(v)*2 + 5
+		default:
+			size += 12
+		}
+	}
+	return size
 }

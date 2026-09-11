@@ -177,8 +177,12 @@ export function useWorkspacePersistence(snapshot: WorkspaceSnapshot, initial: Wo
     return () => { alive.current = false; backupRef.current(); void writer.flush().then(() => backupRef.current()); window.removeEventListener("beforeunload", leave); window.removeEventListener("pagehide", hide); };
   }, [writer]);
   useEffect(() => {
-    const backupTimer = setTimeout(() => backupRef.current(), 100);
-    const timer = setTimeout(() => { void writer.flush().then(() => backupRef.current()); }, 400);
+    // Saving encrypts every tab, so large workspaces wait longer between
+    // saves instead of encrypting megabytes on each keystroke.
+    const size = current.tabs.reduce((total, tab) => total + tab.sql.length, 0);
+    const delay = size > 4_000_000 ? 5000 : size > 512_000 ? 2000 : 400;
+    const backupTimer = setTimeout(() => backupRef.current(), Math.min(delay, 100));
+    const timer = setTimeout(() => { void writer.flush().then(() => backupRef.current()); }, delay);
     return () => { clearTimeout(timer); clearTimeout(backupTimer); };
   }, [current.tabs, current.activeTabId, writer]);
   return { dirty: writer.dirty, error: writer.error?.message, storageError, retry: () => { void writer.retry().then(() => backupRef.current()); } };
