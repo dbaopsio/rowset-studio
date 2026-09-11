@@ -1,0 +1,27 @@
+# Changelog
+
+The version lives in `rowset-studio/package.json`. `scripts/build-local-binary.sh`
+and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
+executable and the macOS app. Every change set bumps the patch version and adds
+an entry here.
+
+## 0.0.12 — 2026-09-11
+
+First public snapshot of Rowset Studio.
+
+- Local server with a one-use loopback sign-in; single executable for macOS,
+  Windows and Linux, plus a macOS menu-bar app.
+- Connections for PostgreSQL, MySQL, MariaDB and SQL Server with TLS modes
+  (`disable`, `require`, `verify-ca`, `verify-full`), CA and client
+  certificates, and multi-node topology with primary/secondary routing.
+- SQL editor: run statement, selection or all statements with a result per
+  statement, auto-commit or manual commit mode, cancellation, `.sql` open and
+  download, workspace export and import.
+- Transactions report whether they are active, aborted or lost; a lost
+  transaction is cleaned up and reported instead of failing silently.
+- Schema browser with table actions and compact search.
+- Notebooks with Markdown notes and SQL cells, encrypted autosave, Markdown and
+  SQL export; saved queries from earlier builds are imported once.
+- Activity page with your statements across all connections.
+- Default and custom policies enforced before a statement reaches the database.
+- Workspace autosave with revision checks against concurrent windows.

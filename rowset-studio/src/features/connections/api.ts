@@ -1,0 +1,91 @@
+import { api } from "../../lib/api";
+
+export type Engine = "postgres" | "mysql" | "mariadb" | "sqlserver";
+
+/** libpq semantics on every engine: require encrypts without verifying the server. */
+export type TlsMode = "disable" | "require" | "verify-ca" | "verify-full";
+
+export interface Connection {
+  id: string;
+  name: string;
+  alias: string;
+  engine: Engine;
+  host: string;
+  port: number;
+  database: string;
+  environment: string;
+  tlsRequired: boolean;
+  tlsMode: TlsMode;
+  tlsServerName: string;
+  tlsCaPem: string;
+  tlsClientCertPem: string;
+  tlsClientKeyConfigured: boolean;
+  connectionUsername: string;
+  createdAt: string;
+  queryTimeoutSeconds: number;
+  nodes: ConnectionNode[];
+  nodePolicy?: "primary_only" | "secondary_only" | "user_selectable";
+  defaultNodeRole?: "primary" | "secondary";
+}
+
+export interface ConnectionNode {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  detectedRole: "primary" | "secondary" | "unknown";
+  health: "healthy" | "unreachable" | "unknown";
+  readOnly: boolean;
+  lastCheckedAt: string | null;
+  lastError: string | null;
+}
+
+export interface ConnectionNodeInput { id?: string; name: string; host: string; port: number }
+
+export interface ConnectionInput {
+  name: string;
+  alias: string;
+  engine: Engine;
+  host: string;
+  port: number;
+  database: string;
+  environment: string;
+  tlsMode: TlsMode;
+  tlsServerName: string;
+  tlsCaPem: string;
+  tlsClientCertPem: string;
+  /** Write-only. Omit to keep the stored key; "" removes it. */
+  tlsClientKey?: string;
+  connectionUsername: string;
+  password: string;
+  queryTimeoutSeconds: number;
+  nodes: ConnectionNodeInput[];
+}
+
+export interface TestResult {
+  ok: boolean;
+  latencyMs: number;
+  error?: string;
+}
+
+export function listConnections() {
+  return api<{ connections: Connection[] | null }>("/connections").then(
+    (r) => r.connections ?? [],
+  );
+}
+
+export function createConnection(input: ConnectionInput) {
+  return api<Connection>("/connections", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateConnection(id: string, input: ConnectionInput) {
+  return api<Connection>(`/connections/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function deleteConnection(id: string) {
+  return api<void>(`/connections/${id}`, { method: "DELETE" });
+}
+
+export function testConnection(id: string) {
+  return api<TestResult>(`/connections/${id}/test`, { method: "POST" });
+}

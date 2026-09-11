@@ -1,0 +1,29 @@
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.duckdb
+*.duckdb.wal
+
+# Node
+node_modules/
+dist/
+!/rowset-core/internal/web/dist/
+/rowset-core/internal/web/dist/*
+!/rowset-core/internal/web/dist/index.html
+/dists/
+.wrangler/
+*.tsbuildinfo
+*.local
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+/rowset-core/rowset.env
+rowset.env
+rowset-community.env

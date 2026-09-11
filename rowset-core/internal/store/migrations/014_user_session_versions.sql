@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS user_session_versions (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL DEFAULT 0
+);

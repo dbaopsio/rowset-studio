@@ -1,0 +1,232 @@
+import { Suspense, useEffect, useState } from "react";
+import { NavLink, Navigate, Outlet, useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { Icon } from "./Icon";
+import RowsetLogo from "./RowsetLogo";
+import { useAuth } from "../lib/auth";
+import { InstanceBoundary, useShared } from "../lib/instance";
+import { extensions, type NavGroup } from "../app/extensions";
+
+// ProtectedLayout guards the app shell: unauthenticated users are redirected to
+// login; authenticated users get the sidebar + topbar + routed content.
+export default function ProtectedLayout() {
+  const token = useAuth((s) => s.token);
+  const status = useAuth((s) => s.status);
+  const showPasswordAdvice = useAuth((s) => s.showPasswordAdvice);
+  const dismissPasswordAdvice = useAuth((s) => s.dismissPasswordAdvice);
+  const navigate = useNavigate();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("rowset.sidebar") === "collapsed");
+
+  useEffect(() => {
+    localStorage.setItem("rowset.sidebar", sidebarCollapsed ? "collapsed" : "expanded");
+  }, [sidebarCollapsed]);
+
+  // Session restore (refresh-cookie exchange) is still in flight; don't bounce
+  // to /login before it settles.
+  if (!token && status === "restoring") {
+    return (
+      <div className="flex h-screen items-center justify-center bg-paper text-sm text-slate-400 dark:bg-[#121317]">
+        Restoring session…
+      </div>
+    );
+  }
+  if (!token) return <Navigate to="/login" replace />;
+  return (
+    <div className="flex h-screen bg-paper text-ink dark:bg-[#121317] dark:text-slate-100">
+      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((value) => !value)} />
+      <main className="flex-1 overflow-auto p-3">
+        {showPasswordAdvice && (
+          <div className="mb-3 flex items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+            <Icon name="key" size={17} className="shrink-0" />
+            <p className="flex-1">Change the temporary installation password for the bootstrap administrator.</p>
+            <button
+              type="button"
+              onClick={() => navigate("/account")}
+              className="rounded-md bg-amber-900 px-3 py-1.5 font-medium text-white hover:bg-amber-800 dark:bg-amber-300 dark:text-amber-950 dark:hover:bg-amber-200"
+            >
+              Review password
+            </button>
+            <button type="button" onClick={dismissPasswordAdvice} className="p-1 text-amber-700 hover:text-amber-950 dark:text-amber-300 dark:hover:text-white" title="Dismiss">
+              <Icon name="close" size={15} />
+            </button>
+          </div>
+        )}
+        <Suspense fallback={<div className="p-5 text-sm text-slate-400">Loading…</div>}>
+		  <InstanceBoundary><Outlet /></InstanceBoundary>
+        </Suspense>
+      </main>
+    </div>
+  );
+}
+
+const personalGroups: NavGroup[] = [
+  { title: "Personal workspace", items: [
+    { to: "/editor", label: "SQL", icon: "sql" },
+    { to: "/notebooks", label: "Notebooks", icon: "notebook" },
+    { to: "/connections", label: "Connections", icon: "plug" },
+    { to: "/activity", label: "Activity", icon: "activity" },
+    { to: "/policies", label: "My policies", icon: "shield" },
+    { to: "/account", label: "Account", icon: "key" },
+  ] },
+];
+const extensionGroups = extensions.flatMap((item) => item.navGroups ?? []);
+const sidebarWidgets = extensions.flatMap((item) => item.sidebarWidgets ?? []);
+const productLabel = extensions.find((item) => item.productLabel)?.productLabel ?? "Community";
+
+const appVersion = import.meta.env.VITE_ROWSET_VERSION || "dev";
+const vendor = import.meta.env.VITE_ROWSET_VENDOR ?? "";
+
+function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const shared = useShared();
+  const groups: NavGroup[] = shared && extensionGroups.length ? extensionGroups : personalGroups;
+  const user = useAuth((s) => s.user);
+  const logout = useAuth((s) => s.logout);
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  // Drop all cached server state on sign-out so the next user never sees the
+  // previous session's data.
+  const signOut = () => {
+    logout();
+    qc.clear();
+    navigate("/login");
+  };
+  const isAdmin = user?.role === "admin";
+  const [theme, setTheme] = useState(() => localStorage.getItem("rowset.theme") || "light");
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    localStorage.setItem("rowset.theme", theme);
+    window.dispatchEvent(new CustomEvent("rowset:theme", { detail: theme }));
+  }, [theme]);
+
+  return (
+    <aside className={`flex h-full shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] duration-150 dark:border-slate-800 dark:bg-slate-950 ${collapsed ? "w-14" : "w-[248px]"}`}>
+      <div className={`flex h-12 items-center border-b border-slate-200 dark:border-slate-800 ${collapsed ? "justify-center px-0" : "justify-between px-3"}`}>
+        {!collapsed && (
+          <div className="flex min-w-0 items-center gap-2">
+            <RowsetLogo size={28} className="shrink-0" />
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold leading-tight tracking-wide text-slate-900 dark:text-slate-100">Rowset Studio</div>
+              <div className="text-[10px] tracking-wide text-slate-500">{shared ? productLabel : "Community"}{vendor ? ` · by ${vendor}` : ""}</div>
+            </div>
+          </div>
+        )}
+        <button
+          onClick={onToggle}
+          className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+          title={collapsed ? "Expand navigation" : "Collapse navigation"}
+        >
+          <Icon name={collapsed ? "chevron-right" : "chevron-left"} size={14} />
+        </button>
+      </div>
+      <nav className="flex-1 space-y-3 overflow-y-auto p-2">
+        {groups.map((group) => {
+          if (group.adminOnly && !isAdmin) return null;
+          return (
+            <div key={group.title} className="space-y-1">
+              {!collapsed && (
+                <div className="px-2 text-[11px] font-semibold tracking-wide text-slate-500">
+                  {group.title}
+                </div>
+              )}
+              <div className="space-y-0.5">
+                {group.items.filter((n) => !n.adminOnly || isAdmin).map((n) => (
+                  <NavLink
+                    key={n.to}
+                    to={n.to}
+                    end={Boolean(n.end)}
+                    title={n.label}
+                    className={({ isActive }) =>
+                      `group flex h-8 items-center ${collapsed ? "justify-center px-0" : "justify-between px-2"} rounded-md border border-transparent text-[13px] transition ${
+                        isActive
+                          ? "border-brand-100 bg-brand-50 font-medium text-brand-900 dark:border-brand-400/20 dark:bg-brand-500/10 dark:text-slate-50"
+                          : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900"
+                      }`
+                    }
+                  >
+                    {({ isActive }) => (
+                      <>
+                        <span className="flex min-w-0 items-center gap-2.5">
+                          <Icon
+                            name={n.icon}
+                            size={16}
+                            className={isActive ? "text-brand-600 dark:text-brand-300" : "text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300"}
+                          />
+                          {!collapsed && <span className="truncate">{n.label}</span>}
+                        </span>
+                      </>
+                    )}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </nav>
+
+      <div className="shrink-0 border-t border-slate-200 p-2 dark:border-slate-800">
+        {collapsed ? (
+          <div className="flex flex-col items-center gap-1">
+            {sidebarWidgets.map((Widget, index) => <Widget key={index} collapsed />)}
+            <button
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              className="grid h-8 w-8 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+              title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+            >
+              <Icon name={theme === "dark" ? "sun" : "moon"} size={16} />
+            </button>
+            <button
+              onClick={signOut}
+              className="grid h-8 w-8 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+              title="Sign out"
+            >
+              <Icon name="logout" size={16} />
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between rounded-md px-2 py-1.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-100 text-[11px] font-semibold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  {(user?.email ?? "?").slice(0, 1)}
+                </span>
+                <div className="min-w-0">
+                  <div className="truncate text-[13px] font-medium text-slate-800 dark:text-slate-200">{user?.email}</div>
+                  {user?.role && <div className="text-[11px] text-slate-400">Role: {titleCase(roleLabel(user.role))}</div>}
+                </div>
+              </div>
+              <button
+                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+                title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+              >
+                <Icon name={theme === "dark" ? "sun" : "moon"} size={15} />
+              </button>
+              {sidebarWidgets.map((Widget, index) => <Widget key={index} collapsed={false} />)}
+            </div>
+            <button
+              onClick={signOut}
+              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+            >
+              <Icon name="logout" size={15} className="text-slate-400" />
+              Sign out
+            </button>
+          </div>
+        )}
+        <div className={`mt-1 text-[10px] text-slate-400 ${collapsed ? "text-center" : "px-2"}`} title={`Rowset ${appVersion}`}>
+          {collapsed ? `v${appVersion}` : `Rowset v${appVersion}`}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function roleLabel(role: string) {
+  if (role === "viewer") return "developer";
+  if (role === "editor") return "support";
+  return role;
+}
+
+function titleCase(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}

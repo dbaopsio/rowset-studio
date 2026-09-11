@@ -1,0 +1,37 @@
+{
+  "name": "rowset-studio",
+  "private": true,
+  "version": "0.0.12",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "test": "node --experimental-strip-types --test src/features/editor/*.test.mjs src/features/notifications/*.test.mjs src/features/connections/*.test.mjs src/features/notebooks/*.test.mjs",
+    "audit:prod": "node scripts/audit-production.mjs",
+    "preview": "vite preview",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "@tanstack/react-query": "^5.59.0",
+    "monaco-editor": "^0.53.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router": "8.3.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.0",
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.62.1",
+    "vite": "^6.0.0"
+  }
+}

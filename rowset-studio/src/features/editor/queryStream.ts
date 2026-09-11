@@ -1,0 +1,62 @@
+export interface StreamResult {
+  columns: string[]; columnTypes?: string[]; rows: unknown[][]; rowCount: number;
+  durationMs: number; truncated?: boolean; policyNotice?: string;
+  /** Fields the server added on behalf of its extensions. */
+  annotations?: Record<string, unknown>;
+}
+
+const RESULT_FIELDS = new Set(["type", "columns", "columnTypes", "rows", "rowCount", "rowsAffected", "durationMs", "truncated", "policyNotice", "error", "status", "message"]);
+
+/** Returns the fields of a result message that the result format does not define. */
+export function resultAnnotations(source: Record<string, unknown>): Record<string, unknown> {
+  const annotations: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(source)) if (!RESULT_FIELDS.has(key)) annotations[key] = value;
+  return annotations;
+}
+
+export async function readQueryStream(response: Response, onProgress?: (result: StreamResult) => void): Promise<StreamResult> {
+  if (!response.body) throw new Error("Missing query response body");
+  const result: StreamResult = { columns: [], rows: [], rowCount: 0, durationMs: 0 };
+  const reader = response.body.getReader(), decoder = new TextDecoder();
+  let buffer = "", complete = false, receivedColumns = false;
+  let receivedBytes = 0;
+  let lastProgress = 0;
+  function accept(line: string) {
+    if (line.length > 16 * 1024 * 1024) throw new Error("A query batch exceeds the 16 MB display limit");
+    if (!line.trim()) return;
+    if (complete) throw new Error("Unexpected data after query completion");
+    const event = JSON.parse(line);
+    if (event.type === "columns") {
+      if (receivedColumns || !Array.isArray(event.columns) || !event.columns.every((column: unknown) => typeof column === "string")) throw new Error("Invalid query metadata");
+      receivedColumns = true;
+      result.columns = event.columns; result.columnTypes = event.columnTypes;
+      result.annotations = resultAnnotations(event);
+    } else if (event.type === "rows") {
+      if (!receivedColumns || !Array.isArray(event.rows) || !event.rows.every((row: unknown) => Array.isArray(row) && row.length === result.columns.length)) throw new Error("Invalid query row batch");
+      if (result.rows.length + event.rows.length > 10000) throw new Error("Query exceeded the 10,000-row client limit");
+      result.rows.push(...event.rows); result.rowCount = result.rows.length;
+      if (Date.now() - lastProgress > 100) { onProgress?.({ ...result, rows: [...result.rows] }); lastProgress = Date.now(); }
+    } else if (event.type === "complete") {
+      complete = true;
+      if (event.error) throw new Error(event.error);
+      if (!receivedColumns || event.rowCount !== result.rows.length || !Number.isFinite(event.durationMs) || event.durationMs < 0) throw new Error("Invalid query completion metadata");
+      result.rowCount = event.rowCount; result.durationMs = event.durationMs;
+      result.truncated = event.truncated; result.policyNotice = event.policyNotice;
+    } else throw new Error("Unknown query stream event");
+  }
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      receivedBytes += value?.byteLength ?? 0;
+      if (receivedBytes > 32 * 1024 * 1024) throw new Error("Query exceeded the 32 MB display limit. Select fewer rows or columns.");
+      buffer += decoder.decode(value, { stream: !done });
+      let newline: number;
+      while ((newline = buffer.indexOf("\n")) >= 0) { accept(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1); }
+      if (buffer.length > 16 * 1024 * 1024) throw new Error("A query row exceeds the 16 MB display limit");
+      if (done) break;
+    }
+    if (buffer.trim()) accept(buffer);
+    if (!complete || !receivedColumns) throw new Error("Query response interrupted before completion");
+    return result;
+  } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
+}

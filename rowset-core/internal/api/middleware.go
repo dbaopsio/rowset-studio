@@ -1,0 +1,176 @@
+package api
+
+import (
+	"compress/gzip"
+	"net"
+	"net/http"
+	"strings"
+	"time"
+)
+
+const (
+	apiCSP    = "default-src 'none'; frame-ancestors 'none'"
+	studioCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+)
+
+type rateWindow struct {
+	started time.Time
+	count   uint32
+}
+
+func (s *Server) middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		s.setSecurityHeaders(w, r.URL.Path)
+		if s.handleCORS(w, r) {
+			return
+		}
+		// Static assets and authenticated API traffic must not share one IP
+		// bucket. Besides making a single Studio page load surprisingly costly,
+		// an IP-only API limiter combines every user behind the same reverse
+		// proxy. Authenticated routes apply the same bound per verified user in
+		// authenticated(); this outer bucket protects only public API traffic.
+		if anonymousAPIRateLimitApplies(r) && !s.allowRequest(r) {
+			writeRateLimited(w)
+			return
+		}
+		if r.ContentLength > s.config.RequestBodyLimitBytes {
+			writeError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "request body is too large")
+			return
+		}
+		if s.config.RequestBodyLimitBytes > 0 {
+			r.Body = http.MaxBytesReader(w, r.Body, s.config.RequestBodyLimitBytes)
+		}
+		handler := next
+		if !isQueryExecutionPath(r.URL.Path) {
+			handler = http.TimeoutHandler(handler, 60*time.Second, `{"error":{"code":"REQUEST_TIMEOUT","message":"request exceeded the maximum duration"}}`)
+		}
+		writer := http.ResponseWriter(w)
+		var gz *gzip.Writer
+		if r.Method != http.MethodHead && strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			w.Header().Set("Content-Encoding", "gzip")
+			w.Header().Add("Vary", "Accept-Encoding")
+			gz = gzip.NewWriter(w)
+			defer gz.Close()
+			writer = gzipResponseWriter{ResponseWriter: w, gzipWriter: gz}
+		}
+		handler.ServeHTTP(writer, r)
+		s.logger.Debug("http request", "method", r.Method, "path", r.URL.Path, "latency_ms", time.Since(started).Milliseconds())
+	})
+}
+
+func (s *Server) setSecurityHeaders(w http.ResponseWriter, path string) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+	if isAPIPath(path) {
+		w.Header().Set("Content-Security-Policy", apiCSP)
+	} else {
+		w.Header().Set("Content-Security-Policy", studioCSP)
+	}
+}
+
+func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {
+	origin := strings.TrimSuffix(strings.TrimSpace(s.config.StudioOrigin), "/")
+	requestOrigin := strings.TrimSuffix(strings.TrimSpace(r.Header.Get("Origin")), "/")
+	if origin == "" || requestOrigin != origin {
+		return false
+	}
+	w.Header().Set("Access-Control-Allow-Origin", requestOrigin)
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Add("Vary", "Origin")
+	if r.Method != http.MethodOptions {
+		return false
+	}
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+	w.WriteHeader(http.StatusNoContent)
+	return true
+}
+
+func (s *Server) allowRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if host == "" {
+		host = "unknown"
+	}
+	return s.allowRateKey("ip:" + host)
+}
+
+func (s *Server) allowIdentity(userID string) bool {
+	return s.allowRateKey("user:" + userID)
+}
+
+func (s *Server) allowRateKey(key string) bool {
+	limit := s.config.RateLimitPerMinute
+	if limit == 0 {
+		return true
+	}
+	now := time.Now()
+	s.rateMu.Lock()
+	defer s.rateMu.Unlock()
+	window := s.rateClients[key]
+	if window == nil || now.Sub(window.started) >= time.Minute {
+		if window == nil && len(s.rateClients) >= 10_000 {
+			for key, item := range s.rateClients {
+				if now.Sub(item.started) >= 2*time.Minute {
+					delete(s.rateClients, key)
+				}
+			}
+			if len(s.rateClients) >= 10_000 {
+				return false
+			}
+		}
+		s.rateClients[key] = &rateWindow{started: now, count: 1}
+		return true
+	}
+	window.count++
+	return window.count <= limit
+}
+
+func anonymousAPIRateLimitApplies(r *http.Request) bool {
+	if !strings.HasPrefix(r.URL.Path, "/api/") {
+		return false
+	}
+	return !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
+}
+
+func writeRateLimited(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", "60")
+	writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "too many requests")
+}
+
+func isAPIPath(path string) bool {
+	return strings.HasPrefix(path, "/api/") || path == "/healthz" || path == "/readyz"
+}
+
+func isQueryExecutionPath(path string) bool {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	return len(parts) == 4 && parts[0] == "api" && parts[1] == "connections" && parts[3] == "query" ||
+		len(parts) == 6 && parts[0] == "api" && parts[1] == "connections" && parts[3] == "txn" && parts[5] == "query"
+}
+
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	gzipWriter *gzip.Writer
+}
+
+func (w gzipResponseWriter) WriteHeader(status int) {
+	w.Header().Del("Content-Length")
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w gzipResponseWriter) Write(data []byte) (int, error) {
+	w.Header().Del("Content-Length")
+	return w.gzipWriter.Write(data)
+}
+
+func (w gzipResponseWriter) Flush() {
+	_ = w.gzipWriter.Flush()
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
