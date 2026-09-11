@@ -20,12 +20,14 @@ export default function ProtectedLayout() {
   // explorer needs the width, and open everywhere else. Using the toggle
   // fixes the choice until it is used again.
   const location = useLocation();
-  const [sidebarMode, setSidebarMode] = useState(() => localStorage.getItem("rowset.sidebar") ?? "auto");
+  // A new key: the old one always held "expanded" or "collapsed", so reusing
+  // it would keep every existing workspace out of the automatic mode.
+  const [sidebarMode, setSidebarMode] = useState(() => localStorage.getItem("rowset.sidebar.mode") ?? "auto");
   const editing = location.pathname.startsWith("/editor");
   const sidebarCollapsed = sidebarMode === "auto" ? editing : sidebarMode === "collapsed";
 
   useEffect(() => {
-    localStorage.setItem("rowset.sidebar", sidebarMode);
+    localStorage.setItem("rowset.sidebar.mode", sidebarMode);
   }, [sidebarCollapsed]);
 
   // Session restore (refresh-cookie exchange) is still in flight; don't bounce

@@ -5,6 +5,13 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.39 — 2026-09-12
+
+- Fixed: the navigation kept its old width in the SQL editor. Every
+  workspace already had an explicit expanded/collapsed setting saved, which
+  overrode the new automatic mode; the setting now lives under its own name
+  and starts as automatic.
+
 ## 0.0.38 — 2026-09-12
 
 - The navigation shows only its icons in the SQL editor, where the explorer
