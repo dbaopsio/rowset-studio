@@ -143,6 +143,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/connections/{id}", s.requireAdmin(http.HandlerFunc(s.deleteConnection)))
 	mux.Handle("POST /api/connections/{id}/test", s.requireAdmin(http.HandlerFunc(s.testConnection)))
 	mux.Handle("GET /api/connections/{id}/schema", s.authenticated(http.HandlerFunc(s.connectionSchema)))
+	mux.Handle("GET /api/connections/{id}/ddl", s.authenticated(http.HandlerFunc(s.objectDDL)))
 	mux.Handle("GET /api/connections/{id}/databases", s.authenticated(http.HandlerFunc(s.listDatabases)))
 	mux.Handle("POST /api/connections/{id}/query", s.authenticated(http.HandlerFunc(s.runQuery)))
 	mux.Handle("POST /api/connections/{id}/explain", s.authenticated(http.HandlerFunc(s.explainQuery)))

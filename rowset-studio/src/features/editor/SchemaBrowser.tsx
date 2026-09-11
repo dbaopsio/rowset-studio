@@ -1,11 +1,12 @@
-import { useContext, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { Icon, type IconName } from "../../components/Icon";
 import { ApiError } from "../../lib/api";
 import { useSchema } from "./useEditor";
-import { ColumnInfo, RoutineInfo, TableInfo, TriggerInfo, exportTable } from "./api";
+import { ColumnInfo, RoutineInfo, TableInfo, TriggerInfo, exportTable, objectDDL } from "./api";
 import { SchemaActions, quoteIdentifier, tableSelect } from "./schemaActions";
 import CsvImportDialog from "./CsvImportDialog";
 import RowMenu from "../../components/RowMenu";
+import { Button, Modal } from "../../components/ui";
 
 // Shorten verbose SQL type names so long ones don't crowd out the column name.
 function shortType(t: string) {
@@ -133,10 +134,10 @@ export default function SchemaBrowser({
         const visibleProcedures = procedures.filter(r => matches(r.key));
         const visibleFunctions = functions.filter(r => matches(r.key));
         const visibleTriggers = triggers.filter(t => matches(t.key));
-        const sequences: { key: string; name: string }[] = [];
+        const sequences: { key: string; name: string; schemaName: string }[] = [];
         for (const schema of data.schemas ?? []) {
           if (schemaFilter && schema.name !== schemaFilter) continue;
-          for (const sequence of schema.sequences ?? []) sequences.push({ key: qualifyName(engine, schema.name, sequence.name), name: sequence.name });
+          for (const sequence of schema.sequences ?? []) sequences.push({ key: qualifyName(engine, schema.name, sequence.name), name: sequence.name, schemaName: schema.name });
         }
         const visibleSequences = sequences.filter(s => matches(s.key));
         const filteredTables = tables
@@ -196,31 +197,28 @@ export default function SchemaBrowser({
             {visibleProcedures.length > 0 && (
               <ObjectGroup label="Procedures" count={visibleProcedures.length}>
                 {visibleProcedures.map((r) => (
-                  <RoutineItem key={r.key} engine={engine} schemaName={r.schemaName} routine={r.routine} />
+                  <RoutineItem key={r.key} engine={engine} schemaName={r.schemaName} routine={r.routine} connectionId={connectionId} database={database} />
                 ))}
               </ObjectGroup>
             )}
             {visibleFunctions.length > 0 && (
               <ObjectGroup label="Functions" count={visibleFunctions.length}>
                 {visibleFunctions.map((r) => (
-                  <RoutineItem key={r.key} engine={engine} schemaName={r.schemaName} routine={r.routine} />
+                  <RoutineItem key={r.key} engine={engine} schemaName={r.schemaName} routine={r.routine} connectionId={connectionId} database={database} />
                 ))}
               </ObjectGroup>
             )}
             {visibleSequences.length > 0 && (
               <ObjectGroup label="Sequences" count={visibleSequences.length}>
                 {visibleSequences.map((s) => (
-                  <li key={s.key} className="flex h-6 items-center gap-2 rounded px-1 pl-[22px] text-slate-600 dark:text-slate-400" title={`sequence ${s.key}`}>
-                    <Icon name="sort" size={12} className="shrink-0 text-slate-400" />
-                    <span className="truncate">{s.key}</span>
-                  </li>
+                  <ObjectRow key={s.key} icon="sort" label={s.key} title={`sequence ${s.key}`} connectionId={connectionId} database={database} schemaName={s.schemaName} kind="sequence" name={s.name} />
                 ))}
               </ObjectGroup>
             )}
             {visibleTriggers.length > 0 && (
               <ObjectGroup label="Triggers" count={visibleTriggers.length}>
                 {visibleTriggers.map((t) => (
-                  <TriggerItem key={t.key} engine={engine} schemaName={t.schemaName} trigger={t.trigger} />
+                  <TriggerItem key={t.key} engine={engine} schemaName={t.schemaName} trigger={t.trigger} connectionId={connectionId} database={database} />
                 ))}
               </ObjectGroup>
             )}
@@ -228,6 +226,49 @@ export default function SchemaBrowser({
         );
       })()}
     </div>
+  );
+}
+
+// Shows what an object is, as the database itself describes it.
+function DDLViewer({ connectionId, database, schemaName, kind, name, onClose }: { connectionId: string; database?: string; schemaName: string; kind: string; name: string; onClose: () => void }) {
+  const action = useContext(SchemaActions);
+  const [sql, setSql] = useState("");
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    objectDDL(connectionId, { database, schema: schemaName, kind, name })
+      .then((text) => { if (alive) setSql(text); }, (err: unknown) => { if (alive) setError(schemaError(err)); });
+    return () => { alive = false; };
+  }, [connectionId, database, schemaName, kind, name]);
+  return (
+    <Modal title={`${kind.charAt(0).toUpperCase()}${kind.slice(1)}: ${name}`} onClose={onClose} size="lg">
+      {error ? (
+        <p role="alert" className="text-[13px] text-rose-600 dark:text-rose-400">{error}</p>
+      ) : (
+        <pre className="max-h-[60vh] overflow-auto rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-[12px] leading-5 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">{sql || "Loading…"}</pre>
+      )}
+      <div className="mt-4 flex justify-end gap-2">
+        <button type="button" disabled={!sql} onClick={() => void navigator.clipboard.writeText(sql).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); }, () => undefined)} className="h-8 rounded-md border border-slate-200 px-3 text-[13px] text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+          {copied ? "Copied" : "Copy"}
+        </button>
+        <Button disabled={!sql} onClick={() => { action({ connectionId, database, sql }); onClose(); }}>Open in editor</Button>
+      </div>
+    </Modal>
+  );
+}
+
+// One non-table object: its name, and a menu that shows its definition.
+function ObjectRow({ icon, label, title, connectionId, database, schemaName, kind, name, trailing }: { icon: IconName; label: string; title: string; connectionId: string; database?: string; schemaName: string; kind: string; name: string; trailing?: React.ReactNode }) {
+  const [showing, setShowing] = useState(false);
+  return (
+    <li className="group flex h-6 items-center gap-2 rounded px-1 pl-[22px] text-slate-600 dark:text-slate-400" title={title}>
+      <Icon name={icon} size={12} className="shrink-0 text-slate-400" />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {trailing}
+      <RowMenu label={`More actions for ${name}`} className="h-5 w-5 opacity-0 group-hover:opacity-100" items={[{ label: "Show DDL", onSelect: () => setShowing(true) }]} />
+      {showing && <DDLViewer connectionId={connectionId} database={database} schemaName={schemaName} kind={kind} name={name} onClose={() => setShowing(false)} />}
+    </li>
   );
 }
 
@@ -263,30 +304,36 @@ function ObjectGroup({ label, count, children }: { label: string; count: number;
   );
 }
 
-function RoutineItem({ engine, schemaName, routine }: { engine: string; schemaName: string; routine: RoutineInfo }) {
+function RoutineItem({ engine, schemaName, routine, connectionId, database }: { engine: string; schemaName: string; routine: RoutineInfo; connectionId: string; database?: string }) {
   const qualifiedName = qualifyName(engine, schemaName, routine.name);
   return (
-    <li
-      className="flex h-6 items-center gap-2 rounded px-1 pl-[22px] text-slate-600 dark:text-slate-400"
+    <ObjectRow
+      icon={routine.kind === "procedure" ? "play" : "wand"}
+      label={qualifiedName}
       title={`${routine.kind} ${qualifiedName}`}
-    >
-      <Icon name={routine.kind === "procedure" ? "play" : "wand"} size={12} className="shrink-0 text-slate-400" />
-      <span className="truncate">{qualifiedName}</span>
-    </li>
+      connectionId={connectionId}
+      database={database}
+      schemaName={schemaName}
+      kind={routine.kind}
+      name={routine.name}
+    />
   );
 }
 
-function TriggerItem({ engine, schemaName, trigger }: { engine: string; schemaName: string; trigger: TriggerInfo }) {
+function TriggerItem({ engine, schemaName, trigger, connectionId, database }: { engine: string; schemaName: string; trigger: TriggerInfo; connectionId: string; database?: string }) {
   const qualifiedTable = qualifyName(engine, schemaName, trigger.table);
   return (
-    <li
-      className="flex h-6 items-center gap-2 rounded px-1 pl-[22px] text-slate-600 dark:text-slate-400"
+    <ObjectRow
+      icon="activity"
+      label={trigger.name}
       title={`${trigger.timing} ${trigger.event} ON ${qualifiedTable}`}
-    >
-      <Icon name="activity" size={12} className="shrink-0 text-slate-400" />
-      <span className="truncate">{trigger.name}</span>
-      <span className="ml-auto max-w-[45%] shrink-0 truncate text-right text-[10px] text-slate-400">{qualifiedTable}</span>
-    </li>
+      connectionId={connectionId}
+      database={database}
+      schemaName={schemaName}
+      kind="trigger"
+      name={trigger.name}
+      trailing={<span className="max-w-[45%] shrink-0 truncate text-right text-[10px] text-slate-400">{qualifiedTable}</span>}
+    />
   );
 }
 
@@ -294,6 +341,7 @@ function TableItem({ engine, schemaName, table, connectionId, database, icon = "
   const action = useContext(SchemaActions);
   const [copyState, setCopyState] = useState<"" | "copied" | "failed">("");
   const [exportState, setExportState] = useState<{ status: "" | "running" | "failed"; message?: string }>({ status: "" });
+  const [showingDDL, setShowingDDL] = useState(false);
   const [open, setOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const qualifiedName = qualifyName(engine, schemaName, table.name);
@@ -334,6 +382,7 @@ function TableItem({ engine, schemaName, table, connectionId, database, icon = "
             label={`More actions for ${qualifiedName}`}
             className="h-5 w-5"
             items={[
+              { label: "Show DDL", onSelect: () => setShowingDDL(true) },
               { label: "Export as CSV", onSelect: () => download("csv"), disabled: exportState.status === "running" },
               { label: "Export as JSON", onSelect: () => download("json"), disabled: exportState.status === "running" },
               ...(icon === "table" ? [{ label: "Import CSV…", onSelect: () => setImporting(true) }] : []),
@@ -341,6 +390,7 @@ function TableItem({ engine, schemaName, table, connectionId, database, icon = "
           />
         </span>
       </div>
+      {showingDDL && <DDLViewer connectionId={connectionId} database={database} schemaName={schemaName} kind={icon === "table" ? "table" : "view"} name={table.name} onClose={() => setShowingDDL(false)} />}
       {importing && <CsvImportDialog connectionId={connectionId} database={database} schemaName={schemaName} table={table} onClose={() => setImporting(false)} />}
       {open && (
         <ul className="ml-[11px] border-l border-slate-200/80 pl-2.5 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">

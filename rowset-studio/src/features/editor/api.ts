@@ -162,6 +162,12 @@ export async function exportTable(connectionId: string, request: { database?: st
   return response.blob();
 }
 
+// The statement that creates an object, for the schema browser's Show DDL.
+export function objectDDL(connectionId: string, request: { database?: string; schema?: string; kind: string; name: string }) {
+  const query = new URLSearchParams({ kind: request.kind, name: request.name, schema: request.schema ?? "", database: request.database ?? "" });
+  return api<{ sql: string }>(`/connections/${connectionId}/ddl?${query}`).then((r) => r.sql);
+}
+
 // CSV import: upload the file in chunks, then insert it in one transaction.
 export function startImport(connectionId: string) {
   return api<{ importId: string }>(`/connections/${connectionId}/imports`, { method: "POST" });

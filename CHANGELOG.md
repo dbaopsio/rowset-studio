@@ -5,6 +5,15 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.41 — 2026-09-12
+
+- **Show DDL** in the schema browser: the statement that creates a table,
+  view, procedure, function, trigger or sequence. MySQL and MariaDB answer
+  with their own SHOW CREATE text, SQL Server and PostgreSQL with their
+  stored definitions, and CREATE TABLE is built from the catalog where the
+  engine has no function for it (columns, defaults, identity, keys, checks,
+  foreign keys and indexes).
+
 ## 0.0.40 — 2026-09-12
 
 - Opening the SQL editor always collapses the navigation to icons, however
