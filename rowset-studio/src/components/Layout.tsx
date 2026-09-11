@@ -104,7 +104,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
   }, [theme]);
 
   return (
-    <aside className={`flex h-full shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] duration-150 dark:border-slate-800 dark:bg-slate-950 ${collapsed ? "w-14" : "w-[248px]"}`}>
+    <aside className={`flex h-full shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] duration-150 dark:border-slate-800 dark:bg-slate-950 ${collapsed ? "w-14" : "w-[208px]"}`}>
       <div className={`flex h-12 items-center border-b border-slate-200 dark:border-slate-800 ${collapsed ? "justify-center px-0" : "justify-between px-3"}`}>
         {!collapsed && (
           <div className="flex min-w-0 items-center gap-2">
@@ -190,6 +190,19 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
           </div>
         ) : (
           <div className="space-y-1.5">
+            {desktop ? (
+              <div className="flex items-center gap-1">
+                <div className="min-w-0 flex-1"><QuitButton collapsed={false} /></div>
+                {sidebarWidgets.map((Widget, index) => <Widget key={index} collapsed={false} />)}
+                <button
+                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+                  title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+                >
+                  <Icon name={theme === "dark" ? "sun" : "moon"} size={15} />
+                </button>
+              </div>
+            ) : (<>
             <div className="flex items-center justify-between rounded-md px-2 py-1.5">
               {desktop ? <span /> : (
               <div className="flex min-w-0 items-center gap-2">
@@ -218,7 +231,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
               <Icon name="logout" size={15} className="text-slate-400" />
               Sign out
             </button>}
-            <QuitButton collapsed={false} />
+            </>)}
           </div>
         )}
         <div className={`mt-1 text-[10px] text-slate-400 ${collapsed ? "text-center" : "px-2"}`} title={`Rowset ${appVersion}`}>

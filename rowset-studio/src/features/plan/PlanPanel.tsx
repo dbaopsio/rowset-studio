@@ -28,7 +28,9 @@ export default function PlanPanel({ plan }: { plan?: PlanState }) {
       setParseError(parsed.error ?? "Could not read the execution plan.");
       return;
     }
-    parsed.statements.forEach((statement, index) => node.appendChild(renderPlan(statement, index)));
+    // The statement is shown above the plan, so the renderer's copy is hidden.
+    const single = parsed.statements.length === 1;
+    parsed.statements.forEach((statement, index) => node.appendChild(renderPlan(statement, index, { single, hideText: true })));
   }, [plan]);
 
   if (!plan) {

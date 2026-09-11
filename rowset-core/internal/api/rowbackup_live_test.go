@@ -1,0 +1,130 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"math/rand"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+)
+
+func TestLiveRowBackupRestoresUpdateAndDelete(t *testing.T) {
+	for _, engine := range importEngines {
+		t.Run(engine.engine, func(t *testing.T) {
+			password := os.Getenv(engine.passwordEnv)
+			if password == "" {
+				t.Skip(engine.passwordEnv + " is not configured")
+			}
+			s, identity := personalServer(t)
+			body, _ := json.Marshal(map[string]any{"name": engine.engine, "engine": engine.engine, "host": "127.0.0.1", "port": engine.port, "database": "rowset_e2e", "connectionUsername": engine.user, "password": password, "tlsMode": "disable"})
+			w := httptest.NewRecorder()
+			s.createConnection(w, personalRequest(identity, string(body)))
+			var connection struct{ ID string }
+			if w.Code != http.StatusCreated || json.Unmarshal(w.Body.Bytes(), &connection) != nil {
+				t.Fatalf("connection: %d %s", w.Code, w.Body.String())
+			}
+			query := func(sql string) map[string]any {
+				t.Helper()
+				encoded, _ := json.Marshal(map[string]any{"sql": sql})
+				w := importCall(t, s, identity, s.runQuery, "POST", connection.ID, "", string(encoded))
+				var out map[string]any
+				_ = json.Unmarshal(w.Body.Bytes(), &out)
+				if w.Code != http.StatusOK {
+					t.Fatalf("%s: %d %s", sql, w.Code, w.Body.String())
+				}
+				return out
+			}
+			restore := func(result map[string]any) {
+				t.Helper()
+				backup, ok := result["backup"].(map[string]any)
+				if !ok {
+					t.Fatalf("no backup: %v", result)
+				}
+				r := personalRequest(identity, "")
+				r.SetPathValue("id", backup["id"].(string))
+				w := httptest.NewRecorder()
+				s.rowBackupRestore(w, r)
+				var script struct{ SQL string }
+				if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &script) != nil {
+					t.Fatalf("restore: %d %s", w.Code, w.Body.String())
+				}
+				var statements []string
+				for _, line := range strings.Split(script.SQL, "\n") {
+					if !strings.HasPrefix(line, "--") {
+						statements = append(statements, line)
+					}
+				}
+				for _, statement := range strings.Split(strings.Join(statements, "\n"), ";\n") {
+					if statement = strings.TrimSpace(statement); statement != "" {
+						query(statement)
+					}
+				}
+			}
+			types := map[string][4]string{
+				"postgres":  {"varchar(40)", "numeric(10,2)", "boolean", "timestamp"},
+				"mysql":     {"varchar(40)", "decimal(10,2)", "boolean", "datetime(3)"},
+				"mariadb":   {"varchar(40)", "decimal(10,2)", "boolean", "datetime(3)"},
+				"sqlserver": {"nvarchar(40)", "decimal(10,2)", "bit", "datetime2"},
+			}[engine.engine]
+			binary := map[string]string{"postgres": "bytea", "sqlserver": "varbinary(8)"}[engine.engine]
+			if binary == "" {
+				binary = "varbinary(8)"
+			}
+			blob := map[string]string{"postgres": `'\x616263'`, "sqlserver": "0x616263"}[engine.engine]
+			if blob == "" {
+				blob = "X'616263'"
+			}
+			yes, no := "true", "false"
+			if engine.engine == "sqlserver" {
+				yes, no = "1", "0"
+			}
+			table := fmt.Sprintf("backup_orders_%d", rand.Intn(1_000_000))
+			query(fmt.Sprintf("CREATE TABLE %s(id int primary key, name %s, amount %s, paid %s, placed %s, data %s)", table, types[0], types[1], types[2], types[3], binary))
+			query(fmt.Sprintf("INSERT INTO %s VALUES (1, 'Ayşe O''Neil', 12.50, %s, '2024-03-01 10:15:30.250', %s), (2, NULL, 7.00, %s, '2024-03-02 08:00:00', NULL), (3, 'keep', 1.00, %s, '2024-03-03 00:00:00', NULL)", table, yes, blob, no, no))
+			snapshot := func() string {
+				rows := query("SELECT id, name, amount, paid, placed, data FROM " + table + " WHERE id > 0 ORDER BY id")["rows"]
+				return fmt.Sprint(rows)
+			}
+			before := snapshot()
+
+			updated := query("UPDATE " + table + " SET name = 'changed', amount = 0, paid = " + no + ", placed = '2000-01-01 00:00:00', data = NULL WHERE id <= 2")
+			if snapshot() == before {
+				t.Fatal("update changed nothing")
+			}
+			if rows := updated["backup"].(map[string]any)["rows"]; rows != float64(2) {
+				t.Fatalf("update backup rows: %v", rows)
+			}
+			restore(updated)
+			if got := snapshot(); got != before {
+				t.Fatalf("update restore:\nwant %s\ngot  %s", before, got)
+			}
+
+			deleted := query("DELETE FROM " + table + " WHERE id IN (1, 2)")
+			restore(deleted)
+			if got := snapshot(); got != before {
+				t.Fatalf("delete restore:\nwant %s\ngot  %s", before, got)
+			}
+
+			// Restore scripts are backed up too, so they can be undone.
+			// A failed statement keeps no backup.
+			if w := importCall(t, s, identity, s.runQuery, "POST", connection.ID, "", `{"sql":"UPDATE `+table+` SET id = 3 WHERE id = 1"}`); w.Code == http.StatusOK {
+				t.Fatalf("duplicate key accepted: %s", w.Body.String())
+			}
+			// Updates on tables without a primary key are not backed up.
+			query("CREATE TABLE " + table + "_nokey(id int, name " + types[0] + ")")
+			query("INSERT INTO " + table + "_nokey VALUES (1, 'a')")
+			if result := query("UPDATE " + table + "_nokey SET name = 'b' WHERE id = 1"); result["backupSkipped"] == nil {
+				t.Fatalf("keyless update: %v", result)
+			}
+			list := httptest.NewRecorder()
+			s.listRowBackups(list, personalRequest(identity, ""))
+			var listed struct{ Backups []map[string]any }
+			if json.Unmarshal(list.Body.Bytes(), &listed) != nil || len(listed.Backups) != 4 {
+				t.Fatalf("backups: %s", list.Body.String())
+			}
+		})
+	}
+}

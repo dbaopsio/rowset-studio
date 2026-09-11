@@ -33,7 +33,7 @@ function heatClass(pct){
 
 /* ---------- render one statement's plan ---------- */
 let SEL = null;
-export function renderPlan(stmt, idx){
+export function renderPlan(stmt, idx, opts = {}){
   const root = stmt.root;
   const dims = layout(root);
   const warningsByNode = new Map();
@@ -46,11 +46,11 @@ export function renderPlan(stmt, idx){
 
   const block = el('div');
   const head = el('div','stmt-head');
-  head.innerHTML = `<h3>Statement ${idx+1} · ${esc(root.phys||'Query')}</h3>`
+  head.innerHTML = `<h3>${opts.single ? '' : 'Statement ' + (idx+1) + ' · '}${esc(root.phys||'Query')}</h3>`
     + `<span class="cost">est. subtree cost ${fmtCost(root.subtree)}</span>`
     + (stmt.missingIndexPct!=null?`<span class="tag tag-cyan">Missing index: +${stmt.missingIndexPct}% impact</span>`:'');
   block.appendChild(head);
-  if(stmt.text){ const s=el('div','stmt-sql'); s.textContent=stmt.text; block.appendChild(s); }
+  if(stmt.text && !opts.hideText){ const s=el('div','stmt-sql'); s.textContent=stmt.text; block.appendChild(s); }
 
   // findings
   if(stmt.findings.length){

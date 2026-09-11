@@ -154,6 +154,11 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 			return
 		}
 	}
+	// Personal workspaces back up the rows a simple UPDATE or DELETE changes.
+	// Shared servers do not: a restore script would bypass result hooks.
+	if !s.config.Shared && sqlguard.IsWrite(info.Command) {
+		annotations.merge(s.captureRowBackup(ctx, identity, connection, info, target, transaction, input.Database))
+	}
 	if engine.ReturnsRows(effectiveSQL) {
 		streamTimeout := time.Duration(s.config.QueryStreamTimeoutSecs) * time.Second
 		if streamTimeout <= 0 {
@@ -195,6 +200,7 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 		if duration == 0 {
 			duration = elapsedMilliseconds(executionStarted)
 		}
+		s.discardRowBackup(identity, annotations)
 		s.recordActivity(r, connection.ID, input.SQL, "error", 0, duration, normalized, queryHash, auditMeta{decision: "allow", reference: reference, errorMessage: err.Error()})
 		writeStatementError(w, err, effectiveSQL, transaction)
 		return

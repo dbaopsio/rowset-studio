@@ -61,6 +61,15 @@ interface RowEditing {
   onApply: (statements: string[], sourceSql: string) => void;
 }
 
+// Rows changed by an UPDATE or DELETE are backed up first when possible.
+function backupNote(result: QueryResult) {
+  const backup = result.annotations?.backup as { rows?: number } | undefined;
+  const skipped = result.annotations?.backupSkipped as string | undefined;
+  if (backup?.rows) return ` Backed up ${backup.rows} row(s) first; restore them from Activity → Row backups.`;
+  if (skipped) return ` No backup was taken: ${skipped}.`;
+  return "";
+}
+
 function editingFor(rowEditing: RowEditing | undefined, sourceSql: string | undefined): ResultEditing | undefined {
   if (!rowEditing || !sourceSql) return undefined;
   return { engine: rowEditing.engine, primaryKey: rowEditing.primaryKey, onApply: (statements) => rowEditing.onApply(statements, sourceSql) };
@@ -388,10 +397,10 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
           data: res,
           error: undefined,
           endedAt: Date.now(),
-          message: `Query returned ${res.rowCount} row(s).`,
+          message: `Query returned ${res.rowCount} row(s).${backupNote(res)}`,
           messageError: false,
         });
-        lastOutcome.current[tabId] = { status: "success", data: res, message: `Query returned ${res.rowCount} row(s).` };
+        lastOutcome.current[tabId] = { status: "success", data: res, message: `Query returned ${res.rowCount} row(s).${backupNote(res)}` };
         if (tx) setPendingStatements(current => ({ ...current, [tabId]: (current[tabId] ?? 0) + 1 }));
         if (/\b(create|alter|drop|truncate)\b/i.test(sql)) void queryClient.invalidateQueries({ queryKey: ["schema", connectionId] });
         return true;
@@ -871,7 +880,7 @@ function ExplorerPanel({
                 <span className="w-4" />
                 <EngineLogo engine={item.engine} size={16} />
                 <span className="truncate">{item.name}</span>
-                <span className="ml-auto rounded border border-slate-200 px-1 text-[10px] text-slate-400 dark:border-slate-800">{item.count}</span>
+                <span className="ml-auto text-[11px] tabular-nums text-slate-400">{item.count}</span>
               </div>
             ))}
           </ExplorerGroup>
@@ -903,7 +912,7 @@ function ExplorerGroup({
         <Icon name={open ? "chevron-down" : "chevron-right"} size={13} className="text-slate-400" />
         <Icon name="database" size={14} className="text-slate-400" />
         <span className="truncate">{title}</span>
-        <span className="ml-auto rounded border border-slate-200 px-1 text-[10px] font-normal text-slate-400 dark:border-slate-800">{count}</span>
+        <span className="ml-auto text-[11px] tabular-nums text-slate-400">{count}</span>
       </button>
       {open && <div className="ml-2 border-l border-slate-100 pl-0.5 dark:border-slate-900">{children}</div>}
     </div>
@@ -940,7 +949,7 @@ function EngineBranch({
         <Icon name={open ? "chevron-down" : "chevron-right"} size={13} className="text-slate-400" />
         <EngineLogo engine={engine} size={16} />
         <span className="truncate">{engineLabel(engine)}</span>
-        <span className="ml-auto rounded border border-slate-200 px-1 text-[10px] text-slate-400 dark:border-slate-800">{connections.length}</span>
+        <span className="ml-auto text-[11px] tabular-nums text-slate-400">{connections.length}</span>
       </button>
       {open && (
         <div className="ml-2 border-l border-slate-100 pl-0.5 dark:border-slate-900">
@@ -1003,13 +1012,13 @@ function ConnectionBranch({
           onClick={() => onTreeStateChange((current) => ({ ...current, [treeKey]: !open }))}
           className="grid h-5 w-4 place-items-center text-slate-400"
         >
-          <Icon name={open ? "chevron-down" : "chevron-right"} size={13} />
+          <Icon name={open ? "chevron-down" : "chevron-right"} size={11} />
         </button>
         <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-          <span className={`h-2 w-2 shrink-0 rounded-full ${envRail[envKind(conn.environment)].replace("bg-", "bg-")}`} />
+          <span title={`${conn.environment} connection`} className={`h-2 w-2 shrink-0 rounded-full ${envRail[envKind(conn.environment)]}`} />
           <span className="truncate font-medium">{conn.name}</span>
         </button>
-        <EnvBadge env={conn.environment} />
+        {envKind(conn.environment) === "prod" && <EnvBadge env={conn.environment} />}
       </div>
       {open && (
         <div className="ml-2 border-l border-slate-100 pl-0.5 dark:border-slate-900">
@@ -1087,13 +1096,13 @@ function DatabaseBranch({
           onClick={() => onTreeStateChange((current) => ({ ...current, [treeKey]: !open }))}
           className="grid h-5 w-4 place-items-center text-slate-400"
         >
-          <Icon name={open ? "chevron-down" : "chevron-right"} size={13} />
+          <Icon name={open ? "chevron-down" : "chevron-right"} size={11} />
         </button>
         <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
           <Icon name="database" size={14} className="shrink-0 text-slate-400" />
           <span className="truncate">{name}</span>
         </button>
-        <span className="ml-auto rounded border border-slate-200 px-1 text-[10px] text-slate-400 dark:border-slate-800">
+        <span className="ml-auto text-[11px] tabular-nums text-slate-400">
           {!shouldLoadSchema ? "—" : isFetching && tableCount === undefined ? "…" : tableCount ?? 0}
         </span>
       </div>
@@ -1136,7 +1145,7 @@ function SystemDatabaseBranch({
         <Icon name={open ? "chevron-down" : "chevron-right"} size={13} className="text-slate-400" />
         <Icon name="database" size={14} className="text-slate-400" />
         <span className="truncate">system databases</span>
-        <span className="ml-auto rounded border border-slate-200 px-1 text-[10px] font-normal text-slate-400 dark:border-slate-800">{databaseNames.length}</span>
+        <span className="ml-auto text-[11px] tabular-nums text-slate-400">{databaseNames.length}</span>
       </button>
       {open && (
         <div className="ml-2 border-l border-slate-100 pl-0.5 dark:border-slate-900">

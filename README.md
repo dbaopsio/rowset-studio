@@ -26,6 +26,8 @@ install or run.
 - **Notebooks** — Markdown notes and SQL cells together, encrypted and saved
   automatically. Export as Markdown or as a SQL script. **Save** in the editor
   adds the current query to a notebook; a cell opens in a new editor tab.
+- **Row backups** — rows changed by an UPDATE or DELETE are saved first;
+  Activity → Row backups opens a script that puts them back.
 - **Schedules** — run a SELECT at set times in your time zone and save each
   result as a CSV or JSON file, while Rowset Studio is running.
 - **Activity** — your statements across every connection, plus per-connection
@@ -85,7 +87,7 @@ in with a one-use local ticket and opens your browser.
 | `rowset desktop-stop` | stop the running Rowset Studio |
 | `rowset --version` | print the version |
 
-**Quit Rowset** at the bottom of the sidebar stops the server. On macOS the
+**Shutdown Rowset** at the bottom of the sidebar stops the server. On macOS the
 menu-bar icon also offers **Open Rowset** and **Quit**; quitting asks to roll
 back open transactions.
 

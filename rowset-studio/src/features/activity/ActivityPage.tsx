@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
-import { Input, PageHeader, Panel, Select } from "../../components/ui";
+import { Input, PageHeader, Panel, SegTabs, Select } from "../../components/ui";
 import { Icon } from "../../components/Icon";
 import EngineLogo from "../../components/EngineLogo";
 import { useConnections } from "../connections/useConnections";
 import { listMyHistory, type HistoryItem } from "../editor/api";
+import { useShared } from "../../lib/instance";
+import RowBackups from "./RowBackups";
 
 const RANGES = { "24h": 24 * 60 * 60 * 1000, "7d": 7 * 24 * 60 * 60 * 1000, "30d": 30 * 24 * 60 * 60 * 1000 } as const;
 type Range = keyof typeof RANGES;
@@ -16,6 +18,8 @@ export default function ActivityPage() {
   const [connectionId, setConnectionId] = useState("");
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
+  const [view, setView] = useState<"statements" | "backups">("statements");
+  const shared = useShared();
   const navigate = useNavigate();
   const { data: connections = [] } = useConnections();
   const history = useQuery({
@@ -34,13 +38,25 @@ export default function ActivityPage() {
       <PageHeader
         icon="activity"
         title="Activity"
-        subtitle="Statements you ran from Rowset Studio, newest first (latest 200). Only you can see your activity."
+        subtitle={view === "backups" ? "Rows saved before your UPDATE and DELETE statements (latest 100). Only you can see them." : "Statements you ran from Rowset Studio, newest first (latest 200). Only you can see your activity."}
         actions={
           <button type="button" onClick={() => void history.refetch()} disabled={history.isFetching} title="Refresh" aria-label="Refresh activity" className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 disabled:cursor-wait dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800">
             <Icon name="refresh" size={14} className={history.isFetching ? "animate-spin" : ""} />
           </button>
         }
       />
+      {!shared && <SegTabs tabs={[{ value: "statements", label: "Statements", icon: "activity" }, { value: "backups", label: "Row backups", icon: "history" }]} value={view} onChange={setView} />}
+      {view === "backups" ? (
+        <>
+          <Panel className="flex items-center gap-2 p-2.5">
+            <div className="relative min-w-[220px] flex-1">
+              <Icon name="search" size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search table or SQL…" aria-label="Search backups" className="pl-8" />
+            </div>
+          </Panel>
+          <RowBackups connections={connections} search={search} />
+        </>
+      ) : (<>
       <Panel className="flex flex-wrap items-center gap-2 p-2.5">
         <div className="relative min-w-[220px] flex-1">
           <Icon name="search" size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -113,6 +129,7 @@ export default function ActivityPage() {
           </div>
         )}
       </Panel>
+      </>)}
     </div>
   );
 }

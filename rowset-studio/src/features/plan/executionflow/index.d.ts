@@ -9,4 +9,4 @@ export interface ParsedPlan {
 }
 
 export function parsePlanFor(engine: string, text: string): ParsedPlan;
-export function renderPlan(statement: PlanStatement, index: number): HTMLElement;
+export function renderPlan(statement: PlanStatement, index: number, options?: { single?: boolean; hideText?: boolean }): HTMLElement;

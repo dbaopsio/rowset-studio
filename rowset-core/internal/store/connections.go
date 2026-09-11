@@ -84,7 +84,7 @@ func (s *Store) UpdateConnection(ctx context.Context, c domain.Connection) error
 }
 
 // connectionTables hold rows that belong to a single connection.
-var connectionTables = []string{"role_connection_access", "saved_queries", "query_history", "custom_policies", "policies", "scheduled_queries"}
+var connectionTables = []string{"role_connection_access", "saved_queries", "query_history", "custom_policies", "policies", "scheduled_queries", "row_backups"}
 
 func (s *Store) DeleteConnection(ctx context.Context, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)

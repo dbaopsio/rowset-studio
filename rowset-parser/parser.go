@@ -302,11 +302,34 @@ func constantBoolean(tokens []Token) (bool, bool) {
 			}
 		}
 	}
-	if len(tokens) == 4 && (tokens[1].Text == "!" || tokens[1].Text == "<") && tokens[2].Text == "=" || len(tokens) == 4 && tokens[1].Text == "<" && tokens[2].Text == ">" {
-		equal := strings.EqualFold(tokens[0].Text, tokens[3].Text)
-		return true, !equal
+	// The lexer splits two-character operators into two tokens.
+	if len(tokens) == 4 {
+		left, right, operator := tokens[0].Text, tokens[3].Text, tokens[1].Text+tokens[2].Text
+		switch operator {
+		case "!=", "<>":
+			// A column differs from a literal only on some rows.
+			if strings.EqualFold(left, right) {
+				return true, false
+			}
+			if literalToken(left) && literalToken(right) {
+				return true, true
+			}
+		case "<=", ">=":
+			leftNumber, leftErr := strconv.ParseFloat(left, 64)
+			rightNumber, rightErr := strconv.ParseFloat(right, 64)
+			if leftErr == nil && rightErr == nil {
+				return true, operator == "<=" && leftNumber <= rightNumber || operator == ">=" && leftNumber >= rightNumber
+			}
+		}
 	}
 	return false, false
+}
+
+func literalToken(text string) bool {
+	if _, err := strconv.ParseFloat(text, 64); err == nil {
+		return true
+	}
+	return strings.HasPrefix(text, "'") || strings.HasPrefix(strings.ToUpper(text), "N'")
 }
 
 func wrapsAll(tokens []Token) bool {

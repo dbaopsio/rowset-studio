@@ -68,6 +68,16 @@ func (s *RowStream) Close() (result error) {
 	return result
 }
 func (s *RowStream) Next() ([]any, bool, error) {
+	values, ok, err := s.NextRaw()
+	if ok {
+		normalizeValues(values)
+	}
+	return values, ok, err
+}
+
+// NextRaw returns the next row as the driver scanned it, with binary values
+// still as bytes.
+func (s *RowStream) NextRaw() ([]any, bool, error) {
 	if !s.rows.Next() {
 		return nil, false, s.rows.Err()
 	}
@@ -79,7 +89,6 @@ func (s *RowStream) Next() ([]any, bool, error) {
 	if err := s.rows.Scan(pointers...); err != nil {
 		return nil, false, err
 	}
-	normalizeValues(values)
 	return values, true, nil
 }
 

@@ -78,13 +78,13 @@ func TestMalformedSQLFailsClosed(t *testing.T) {
 }
 
 func TestTautologicalWhereDoesNotBypassWriteGuard(t *testing.T) {
-	for _, sql := range []string{"update users set ok=(select true where id=1)", "update users set ok=true where 1=1", "delete from users where true", "delete from users where id=7 or 1=1", "delete from users where (1=1 and 2=2)", "delete from users where false or (3 > 2)"} {
+	for _, sql := range []string{"update users set ok=(select true where id=1)", "update users set ok=true where 1=1", "delete from users where true", "delete from users where id=7 or 1=1", "delete from users where (1=1 and 2=2)", "delete from users where false or (3 > 2)", "delete from users where 1 <> 2", "delete from users where 'a' != 'b'", "delete from users where 2 >= 1"} {
 		info, err := Parse(sql)
 		if err != nil || info.HasWhere {
 			t.Fatalf("%q bypassed: %#v %v", sql, info, err)
 		}
 	}
-	for _, sql := range []string{"delete from users where 1=1 and id=2", "delete from users where false", "delete from users where false or id=2"} {
+	for _, sql := range []string{"delete from users where 1=1 and id=2", "delete from users where false", "delete from users where false or id=2", "update users set a=1 where id <= 2", "delete from users where status != 'x'", "delete from users where id <> 7", "delete from users where id >= 3", "delete from users where 1 <= 0"} {
 		info, err := Parse(sql)
 		if err != nil || !info.HasWhere {
 			t.Fatalf("%q was incorrectly treated as tautological: %#v %v", sql, info, err)

@@ -5,6 +5,21 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.20 — 2026-09-11
+
+- **Row backups**: before an UPDATE or DELETE on one table with a WHERE
+  clause, Rowset saves the rows it is about to change (up to 10,000,
+  encrypted, newest 100 kept). Activity → Row backups opens a restore script
+  in a new editor tab: INSERTs for deleted rows, UPDATEs by primary key for
+  changed ones. UPDATEs on tables without a primary key are not backed up,
+  and the editor says why. A statement that fails keeps no backup.
+- Fixed: `WHERE id <= 2` and `WHERE status != 'x'` were treated as always
+  true, so the UPDATE/DELETE-without-WHERE policies blocked them.
+- Redesigned CSV import dialog (drop zone, mapping table, progress) and a
+  lighter schema tree: plain counts instead of boxed badges, compact rows,
+  search with the refresh button inside.
+- The light/dark switch sits next to Shutdown Rowset in the sidebar.
+
 ## 0.0.19 — 2026-09-11
 
 - **Import CSV** from a table in the schema browser: preview, delimiter
