@@ -78,6 +78,7 @@ jobs:
           $page = Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing
           if ($page.Content -notmatch '<title>Rowset Studio</title>') { throw 'Studio page missing' }
           & $exe desktop-stop
+          if ($LASTEXITCODE -ne 0) { throw 'desktop-stop failed' }
           if (-not $desktop.WaitForExit(15000)) { throw 'Rowset Studio did not stop' }
           $env:ROWSET_UNINSTALL = '1'
           & ./install.ps1

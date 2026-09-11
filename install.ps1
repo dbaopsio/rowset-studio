@@ -15,7 +15,9 @@ $Shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Rowset Studio.
 
 function Stop-Rowset {
     if (Test-Path $Exe) {
+        # Fails harmlessly when Rowset Studio is not running.
         try { & $Exe desktop-stop *> $null } catch { }
+        $global:LASTEXITCODE = 0
     }
 }
 
