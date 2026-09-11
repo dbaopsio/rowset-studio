@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import { validWorkspace, mergeWorkspace, WorkspaceWriter, type WorkspaceDocument, type WorkspaceSnapshot } from "./workspace";
+import { Button, Panel } from "../../components/ui";
+import { validWorkspace, mergeWorkspace, missingTabs, WorkspaceWriter, type WorkspaceDocument, type WorkspaceSnapshot } from "./workspace";
 
 function userKey() {
   const user = useAuth.getState().user;
@@ -40,36 +41,113 @@ export function exportWorkspace(workspace: WorkspaceDocument) {
   link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function forget(key: string) {
+  try { localStorage.removeItem(key); } catch { /* Browser storage can be disabled. */ }
+}
+
 export default function WorkspaceGate({ children }: { children: (snapshot: WorkspaceSnapshot, initial: WorkspaceDocument) => ReactNode }) {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [initial, setInitial] = useState<WorkspaceDocument | null>(null);
+  // The workspace being assembled while the user decides about recovery copies.
+  const [draft, setDraft] = useState<WorkspaceDocument | null>(null);
+  const [recoveries, setRecoveries] = useState(localRecoveries);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
-  const [recoveries] = useState(localRecoveries);
   useEffect(() => {
     let alive = true;
     api<WorkspaceSnapshot>("/workspace").then(value => {
       if (!Number.isSafeInteger(value.revision) || value.revision < 0 || (value.document !== null && !validWorkspace(value.document))) throw new Error("Invalid saved workspace. Existing drafts were not changed.");
-      if (alive) { setSnapshot(value); if (!recoveries.length) setInitial(value.document ?? legacyWorkspace()); }
+      if (!alive) return;
+      const base = value.document ?? legacyWorkspace();
+      // Copies whose tabs were saved after all need no decision.
+      const pending = localRecoveries().filter(item => {
+        if (missingTabs(base, item.document).length) return true;
+        forget(item.key);
+        return false;
+      });
+      setSnapshot(value);
+      setRecoveries(pending);
+      if (pending.length) setDraft(base); else setInitial(base);
     }).catch(err => { if (alive) setError(err instanceof Error ? err.message : "Workspace unavailable"); });
     return () => { alive = false; };
-  }, [attempt, recoveries.length]);
-  if (error) return <div className="p-6 text-sm"><p>{error}</p><button className="underline" onClick={() => { setError(""); setAttempt(n => n + 1); }}>Retry loading workspace</button>{recoveries.map(item => <button key={item.key} className="block underline" onClick={() => exportWorkspace(item.document)}>Export local recovery {item.date}</button>)}</div>;
-  if (!snapshot) return <p className="p-6 text-sm">Loading your saved workspace…</p>;
-  if (!initial) return <div className="space-y-3 p-6 text-sm">
-    <p>Local unsaved drafts were found. The server workspace has not been changed.</p>
-    <button className="underline" onClick={() => setInitial(snapshot.document ?? legacyWorkspace())}>Open saved workspace</button>
-    {recoveries.map(item => <div key={item.key} className="flex gap-3">
-      <span>{item.date} · {item.document.tabs.length} tabs</span>
-      <button className="underline" onClick={() => exportWorkspace(item.document)}>Export recovery</button>
-      <button className="underline" onClick={() => {
-        try { setInitial(mergeWorkspace(snapshot.document ?? legacyWorkspace(), item.document, () => crypto.randomUUID())); }
-        catch (error) { setError(error instanceof Error ? error.message : "Recovery failed"); }
-      }}>Recover as additional tabs</button>
-    </div>)}
-    <p>Recovery copies are retained in this browser until you remove them from browser storage.</p>
-  </div>;
+  }, [attempt]);
+
+  if (error) {
+    return (
+      <GateCard title="Your workspace could not be loaded">
+        <p>{error}</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button onClick={() => { setError(""); setAttempt(n => n + 1); }}>Try again</Button>
+          {recoveries.map(item => <LinkButton key={item.key} onClick={() => exportWorkspace(item.document)}>Download unsaved tabs ({formatDate(item.date)})</LinkButton>)}
+        </div>
+      </GateCard>
+    );
+  }
+  if (!snapshot) return <p className="p-6 text-[13px] text-slate-500">Loading your workspace…</p>;
+  if (!initial && draft) {
+    const restore = (item: typeof recoveries[number]) => {
+      try {
+        const next = mergeWorkspace(draft, item.document, () => crypto.randomUUID());
+        forget(item.key);
+        const left = recoveries.filter(other => other.key !== item.key);
+        setRecoveries(left);
+        if (left.length) setDraft(next); else setInitial(next);
+      } catch (err) { setError(err instanceof Error ? err.message : "Recovery failed"); }
+    };
+    const discard = (item: typeof recoveries[number]) => {
+      forget(item.key);
+      const left = recoveries.filter(other => other.key !== item.key);
+      setRecoveries(left);
+      if (!left.length) setInitial(draft);
+    };
+    return (
+      <GateCard title="Unsaved tabs found">
+        <p>Some tabs were not saved to your workspace before Rowset Studio closed. This browser kept a copy.</p>
+        <ul className="mt-4 divide-y divide-slate-100 rounded-md border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+          {recoveries.map(item => {
+            const tabs = missingTabs(draft, item.document);
+            return (
+              <li key={item.key} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-medium text-slate-800 dark:text-slate-100">{tabs.length} unsaved tab{tabs.length === 1 ? "" : "s"}</div>
+                  <div className="truncate text-[12px] text-slate-500" title={tabs.map(tab => tab.title).join(", ")}>{formatDate(item.date)} · {tabs.map(tab => tab.title).join(", ")}</div>
+                </div>
+                <LinkButton onClick={() => exportWorkspace(item.document)}>Download</LinkButton>
+                <LinkButton onClick={() => discard(item)}>Discard</LinkButton>
+                <Button onClick={() => restore(item)}>Restore tabs</Button>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <p className="text-[12px] text-slate-500">Restored tabs are added next to your saved ones; nothing is replaced.</p>
+          <LinkButton onClick={() => setInitial(draft)}>Decide later</LinkButton>
+        </div>
+      </GateCard>
+    );
+  }
+  if (!initial) return null;
   return children(snapshot, initial);
+}
+
+function GateCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="grid min-h-[60vh] place-items-center p-4">
+      <Panel className="w-full max-w-xl p-5 text-[13px] text-slate-600 dark:text-slate-300">
+        <h1 className="mb-1.5 text-[15px] font-semibold text-slate-900 dark:text-slate-100">{title}</h1>
+        {children}
+      </Panel>
+    </div>
+  );
+}
+
+function LinkButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return <button type="button" onClick={onClick} className="h-8 rounded-md px-2.5 text-[12px] text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100">{children}</button>;
+}
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 export function useWorkspacePersistence(snapshot: WorkspaceSnapshot, initial: WorkspaceDocument, current: WorkspaceDocument) {

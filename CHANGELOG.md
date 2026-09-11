@@ -5,6 +5,13 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.24 — 2026-09-11
+
+- Redesigned the unsaved-tabs screen: each copy lists its tabs with
+  Restore tabs, Download and Discard. Restored or discarded copies no longer
+  come back on the next start, copies whose tabs were saved after all are
+  cleared silently, and tabs already in the workspace are not added twice.
+
 ## 0.0.23 — 2026-09-11
 
 - The row backup setting moved to Account (on by default).

@@ -65,9 +65,22 @@ export class WorkspaceWriter {
   }
 }
 
+function sameTab(a: WorkspaceTab, b: WorkspaceTab) {
+  return a.title === b.title && a.sql === b.sql && (a.connectionId ?? null) === (b.connectionId ?? null) && (a.database ?? "") === (b.database ?? "");
+}
+
+// Tabs of a recovery copy that the workspace does not already have.
+export function missingTabs(base: WorkspaceDocument, recovery: WorkspaceDocument) {
+  return recovery.tabs.filter(tab => !base.tabs.some(existing => sameTab(existing, tab)));
+}
+
+// Adds the recovered tabs the workspace does not already have.
 export function mergeWorkspace(base: WorkspaceDocument, recovery: unknown, newID: () => string): WorkspaceDocument {
   if (!validWorkspace(recovery)) throw new Error("Invalid workspace file. Existing tabs were not changed.");
-  if (base.tabs.length + recovery.tabs.length > 100) throw new Error("Recovery would exceed 100 tabs. Export your drafts before closing tabs.");
-  const added = recovery.tabs.map(tab => ({ ...tab, id: newID() }));
-  return { version: 1, tabs: [...base.tabs, ...added], activeTabId: added[recovery.tabs.findIndex(tab => tab.id === recovery.activeTabId)].id };
+  const missing = missingTabs(base, recovery);
+  if (!missing.length) return base;
+  if (base.tabs.length + missing.length > 100) throw new Error("Recovery would exceed 100 tabs. Export your drafts before closing tabs.");
+  const added = missing.map(tab => ({ ...tab, id: newID() }));
+  const active = missing.findIndex(tab => tab.id === recovery.activeTabId);
+  return { version: 1, tabs: [...base.tabs, ...added], activeTabId: added[active >= 0 ? active : 0].id };
 }

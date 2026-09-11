@@ -47,4 +47,6 @@ test('recovery appends new IDs without overwriting saved SQL or database context
   assert.equal(merged.tabs[1].database, 'CaseDb'); assert.equal(merged.activeTabId, 'recovered-id');
   assert.equal(original.tabs.length, 1);
   assert.throws(() => mergeWorkspace(original, null, () => ''), /Invalid/);
+  // Tabs the workspace already has are not added twice.
+  assert.equal(mergeWorkspace(merged, recovered, () => 'again'), merged);
 });
