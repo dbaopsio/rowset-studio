@@ -268,7 +268,7 @@ func sqlServerTableDDL(ctx context.Context, db *sql.DB, schemaName, name string)
 	if len(columns) == 0 {
 		return "", errors.New("table not found")
 	}
-	keys, err := queryStrings(ctx, db, `SELECT '  CONSTRAINT ' + QUOTENAME(k.name) + ' ' + k.type_desc COLLATE DATABASE_DEFAULT + ' (' +
+	keys, err := queryStrings(ctx, db, `SELECT '  CONSTRAINT ' + QUOTENAME(k.name) + ' ' + REPLACE(REPLACE(k.type_desc COLLATE DATABASE_DEFAULT, '_CONSTRAINT', ''), '_', ' ') + ' (' +
 		STUFF((SELECT ', ' + QUOTENAME(c.name) + CASE WHEN ic.is_descending_key = 1 THEN ' DESC' ELSE '' END
 			FROM sys.index_columns ic JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
 			WHERE ic.object_id = k.parent_object_id AND ic.index_id = k.unique_index_id ORDER BY ic.key_ordinal FOR XML PATH('')), 1, 2, '') + ')'
