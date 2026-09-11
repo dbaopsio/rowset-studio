@@ -191,13 +191,13 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
         ) : (
           <div className="space-y-1.5">
             {desktop ? (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-0.5">
                 <div className="min-w-0 flex-1"><QuitButton collapsed={false} /></div>
                 {sidebarWidgets.map((Widget, index) => <Widget key={index} collapsed={false} />)}
-                <span aria-hidden className="mx-0.5 h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-800" />
+                <span aria-hidden className="h-4 w-px shrink-0 bg-slate-200 dark:bg-slate-800" />
                 <button
                   onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                  className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
                   title={theme === "dark" ? "Switch to light" : "Switch to dark"}
                 >
                   <Icon name={theme === "dark" ? "sun" : "moon"} size={15} />

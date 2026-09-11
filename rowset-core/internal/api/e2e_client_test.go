@@ -24,6 +24,8 @@ type e2eClient struct {
 	base, token string
 	remote      bool
 	client      *http.Client
+	// restored tracks the policies whose settings are put back at the end.
+	restored map[string]bool
 }
 
 func newE2EClient(t *testing.T) *e2eClient {
@@ -158,30 +160,63 @@ func (c *e2eClient) stream(t *testing.T, connectionID string, payload map[string
 	return response.StatusCode, rows, complete
 }
 
-// setPolicy turns a built-in policy on or off. On a desktop instance the
-// previous setting is put back when the test ends.
+// setPolicy turns a built-in policy on or off.
 func (c *e2eClient) setPolicy(t *testing.T, key string, enabled bool) {
 	t.Helper()
+	c.setPolicyValue(t, key, enabled, "")
+}
+
+// setPolicyValue also sets a policy's value. On a desktop instance the
+// previous setting, value included, is put back when the test ends, so a
+// test run never leaves a workspace with its own numbers.
+func (c *e2eClient) setPolicyValue(t *testing.T, key string, enabled bool, value string) {
+	t.Helper()
 	if c.remote {
-		code, _, body := c.do(t, "GET", "/api/policies", nil)
-		var list struct {
-			Policies []struct {
-				Key     string `json:"key"`
-				Enabled bool   `json:"enabled"`
-			} `json:"policies"`
-		}
-		if code != http.StatusOK || json.Unmarshal(body, &list) != nil {
-			t.Fatalf("policies: %d %.300s", code, body)
-		}
-		for _, item := range list.Policies {
-			if item.Key == key && item.Enabled != enabled {
-				previous := item.Enabled
-				t.Cleanup(func() { c.do(t, "PATCH", "/api/policies/"+key, map[string]bool{"enabled": previous}) })
-			}
-		}
+		c.rememberPolicy(t, key)
 	}
-	if code, _, body := c.do(t, "PATCH", "/api/policies/"+key, map[string]bool{"enabled": enabled}); code >= 300 {
+	request := map[string]any{"enabled": enabled}
+	if value != "" {
+		request["value"] = value
+	}
+	if code, _, body := c.do(t, "PATCH", "/api/policies/"+key, request); code >= 300 {
 		t.Fatalf("policy %s: %d %s", key, code, body)
+	}
+}
+
+// rememberPolicy records a policy's current setting once per test, and puts
+// it back when the test ends.
+func (c *e2eClient) rememberPolicy(t *testing.T, key string) {
+	t.Helper()
+	if c.restored == nil {
+		c.restored = map[string]bool{}
+	}
+	if c.restored[key] {
+		return
+	}
+	c.restored[key] = true
+	code, _, body := c.do(t, "GET", "/api/policies", nil)
+	var list struct {
+		Policies []struct {
+			Key     string  `json:"key"`
+			Enabled bool    `json:"enabled"`
+			Value   *string `json:"value"`
+		} `json:"policies"`
+	}
+	if code != http.StatusOK || json.Unmarshal(body, &list) != nil {
+		t.Fatalf("policies: %d %.300s", code, body)
+	}
+	for _, item := range list.Policies {
+		if item.Key != key {
+			continue
+		}
+		previous := map[string]any{"enabled": item.Enabled}
+		if item.Value != nil && *item.Value != "" {
+			previous["value"] = *item.Value
+		}
+		t.Cleanup(func() {
+			delete(c.restored, key)
+			c.do(t, "PATCH", "/api/policies/"+key, previous)
+		})
 	}
 }
 

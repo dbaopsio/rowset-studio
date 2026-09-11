@@ -234,9 +234,7 @@ func TestLiveAllTypes(t *testing.T) {
 					shapes = append(shapes, "SELECT * FROM "+big+" WHERE id > 0 FOR UPDATE")
 				}
 				// With the row-limit policy on, the cap applies and says so.
-				if code, _, body := c.do(t, "PATCH", "/api/policies/limit_rows", map[string]any{"enabled": true, "value": "50"}); code >= 300 {
-					t.Fatalf("limit_rows: %d %s", code, body)
-				}
+				c.setPolicyValue(t, "limit_rows", true, "50")
 				if code, out, raw := call("SELECT * FROM "+big+" WHERE id > 0", nil); code != http.StatusOK || out["truncated"] != true || len(out["rows"].([]any)) != 50 || !strings.Contains(fmt.Sprint(out["policyNotice"]), "policy") {
 					t.Errorf("policy-capped select: %d %.200s", code, raw)
 				}
@@ -254,9 +252,7 @@ func TestLiveAllTypes(t *testing.T) {
 						t.Errorf("%s returned %d rows with a 50-row policy", shape, len(rows))
 					}
 				}
-				if code, _, body := c.do(t, "PATCH", "/api/policies/limit_rows", map[string]any{"enabled": false}); code >= 300 {
-					t.Fatalf("limit_rows off: %d %s", code, body)
-				}
+				c.setPolicy(t, "limit_rows", false)
 
 			})
 		})

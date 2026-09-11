@@ -39,8 +39,8 @@ export default function QuitButton({ collapsed }: { collapsed: boolean }) {
             : "flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100"
         }
       >
-        <Icon name="power" size={collapsed ? 16 : 15} />
-        {!collapsed && "Shutdown Rowset"}
+        <Icon name="power" size={collapsed ? 16 : 15} className="shrink-0" />
+        {!collapsed && <span className="truncate whitespace-nowrap">Shutdown Rowset</span>}
       </button>
       {confirming && (
         <Modal title="Shutdown Rowset?" onClose={() => !busy && setConfirming(false)}>

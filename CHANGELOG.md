@@ -5,6 +5,15 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.37 — 2026-09-12
+
+- The row limit policy no longer describes itself as rewriting statements,
+  because it does not: it reads the rows up to the limit and stops.
+- Live tests run against a desktop instance put a policy's value back too,
+  not only whether it was on, so a test run cannot leave a workspace with
+  its own row limit.
+- "Shutdown Rowset" stays on one line in the sidebar again.
+
 ## 0.0.36 — 2026-09-12
 
 - The schema browser lists **sequences** (PostgreSQL, SQL Server, MariaDB)
