@@ -1,13 +1,11 @@
 import { Suspense, useEffect, useState } from "react";
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "./Icon";
 import RowsetLogo from "./RowsetLogo";
 import QuitButton from "./QuitButton";
-import SetPassword from "../pages/SetPassword";
-import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { InstanceBoundary, useShared } from "../lib/instance";
+import { InstanceBoundary, useInstance, useShared } from "../lib/instance";
 import { extensions, type NavGroup } from "../app/extensions";
 
 // ProtectedLayout guards the app shell: unauthenticated users are redirected to
@@ -19,7 +17,6 @@ export default function ProtectedLayout() {
   const dismissPasswordAdvice = useAuth((s) => s.dismissPasswordAdvice);
   const navigate = useNavigate();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("rowset.sidebar") === "collapsed");
-  const me = useQuery({ queryKey: ["me"], queryFn: () => api<{ passwordRequired?: boolean }>("/auth/me"), enabled: Boolean(token) });
 
   useEffect(() => {
     localStorage.setItem("rowset.sidebar", sidebarCollapsed ? "collapsed" : "expanded");
@@ -35,7 +32,6 @@ export default function ProtectedLayout() {
     );
   }
   if (!token) return <Navigate to="/login" replace />;
-  if (me.data?.passwordRequired) return <SetPassword />;
   return (
     <div className="flex h-screen bg-paper text-ink dark:bg-[#121317] dark:text-slate-100">
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((value) => !value)} />
@@ -83,6 +79,8 @@ const vendor = import.meta.env.VITE_ROWSET_VENDOR ?? "";
 
 function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const shared = useShared();
+  // The desktop app signs in by itself, so it has nothing to sign out of.
+  const desktop = Boolean(useInstance().data?.desktop);
   const groups: NavGroup[] = shared && extensionGroups.length ? extensionGroups : personalGroups;
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
@@ -180,13 +178,13 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
             >
               <Icon name={theme === "dark" ? "sun" : "moon"} size={16} />
             </button>
-            <button
+            {!desktop && <button
               onClick={signOut}
               className="grid h-8 w-8 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
               title="Sign out"
             >
               <Icon name="logout" size={16} />
-            </button>
+            </button>}
             <QuitButton collapsed />
           </div>
         ) : (
@@ -210,13 +208,13 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
               </button>
               {sidebarWidgets.map((Widget, index) => <Widget key={index} collapsed={false} />)}
             </div>
-            <button
+            {!desktop && <button
               onClick={signOut}
               className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100"
             >
               <Icon name="logout" size={15} className="text-slate-400" />
               Sign out
-            </button>
+            </button>}
             <QuitButton collapsed={false} />
           </div>
         )}

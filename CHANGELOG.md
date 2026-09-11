@@ -5,6 +5,12 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.15 — 2026-09-11
+
+- The desktop app has no password: it signs in through its launcher every
+  time it opens. Sign out and the first-use password step are gone; an
+  expired session shows how to open Rowset Studio again.
+
 ## 0.0.14 — 2026-09-11
 
 - First use asks the desktop owner to choose a password; signing in later

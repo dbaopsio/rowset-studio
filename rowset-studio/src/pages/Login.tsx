@@ -5,13 +5,13 @@ import { ApiError } from "../lib/api";
 import { Button, ErrorText, Field, Input } from "../components/ui";
 import { Icon } from "../components/Icon";
 import RowsetLogo from "../components/RowsetLogo";
-import { useShared } from "../lib/instance";
+import { useInstance, useShared } from "../lib/instance";
 import { extensions, type SignInCopy } from "../app/extensions";
 
 const vendor = import.meta.env.VITE_ROWSET_VENDOR ?? "";
 
 const personalCopy: SignInCopy = {
-  subtitle: "Enter your Rowset Studio password.",
+  subtitle: "Sign in with your Rowset account.",
   headline: "Your databases. Your workspace.",
   body: "Connect to your databases, save useful queries and work with policies you control.",
   footnote: "Encrypted credentials · Local history · Personal policies",
@@ -31,7 +31,7 @@ function useSignIn() {
 
 export default function Login() {
   const { copy } = useSignIn();
-  const shared = useShared();
+  const desktop = Boolean(useInstance().data?.desktop);
   const login = useAuth((s) => s.login);
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -44,7 +44,7 @@ export default function Login() {
     setBusy(true);
     setError("");
     try {
-      await login(shared ? email : "", password);
+      await login(email, password);
       navigate("/");
     } catch (err) {
       setError(err instanceof ApiError ? err.body.message : "Login failed");
@@ -53,26 +53,32 @@ export default function Login() {
     }
   }
 
+  // The desktop app signs in through its launcher, never with a password.
+  if (desktop) {
+    return (
+      <AuthShell title="Open Rowset Studio" subtitle="This session ended. Open Rowset Studio again to continue where you left off.">
+        <ul className="space-y-2 text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+          <li>macOS: click <b>Rowset</b> in the menu bar, then <b>Open Rowset</b>, or open Rowset Studio from Applications.</li>
+          <li>Windows: open <b>Rowset Studio</b> from the Start menu.</li>
+          <li>Linux or a terminal: run <code>rowset</code>.</li>
+        </ul>
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell title="Sign in" subtitle={copy.subtitle}>
       <form onSubmit={onSubmit} className="space-y-4">
-        {shared && (
-          <Field label="Email">
-            <Input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required />
-          </Field>
-        )}
+        <Field label="Email">
+          <Input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required />
+        </Field>
         <Field label="Password">
-          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus={!shared} required />
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
         </Field>
         <ErrorText>{error}</ErrorText>
         <Button type="submit" disabled={busy} className="w-full">
           {busy ? "Signing in…" : "Sign in"}
         </Button>
-        {!shared && (
-          <p className="text-[12px] leading-5 text-slate-500 dark:text-slate-400">
-            Forgot your password? Open Rowset Studio from the applications menu; it signs you in on this computer, then change it in Account.
-          </p>
-        )}
       </form>
     </AuthShell>
   );
