@@ -57,6 +57,19 @@ func TestLiveSeedDemoTables(t *testing.T) {
 			for _, row := range fixture.rowValues() {
 				run(fmt.Sprintf("INSERT INTO all_types (%s) VALUES (%s)", writable, row), false)
 			}
+			// Views, functions, procedures, triggers and sequences to look at
+			// in the schema browser.
+			objects := objectFixtures[engine.engine]
+			named := func(sql string) string { return strings.ReplaceAll(sql, "{s}", "demo") }
+			for _, statement := range objects.drop {
+				run(named(statement), true)
+			}
+			for _, statement := range objects.create {
+				run(named(statement), false)
+			}
+			for _, check := range objects.use {
+				run(named(check.sql), false)
+			}
 			run("CREATE TABLE big_orders (id int PRIMARY KEY, customer_id int, status varchar(20), total decimal(12,2), note varchar(100))", false)
 			digits := "(SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9)"
 			run("INSERT INTO big_orders (id, customer_id, status, total, note) SELECT x.id, x.id % 500 + 1, CASE x.id % 4 WHEN 0 THEN 'new' WHEN 1 THEN 'paid' WHEN 2 THEN 'shipped' ELSE 'cancelled' END, (x.id % 997) * 1.25, CASE WHEN x.id % 10 = 0 THEN NULL ELSE 'order note' END FROM (SELECT a.n + b.n * 10 + c.n * 100 + d.n * 1000 + e.n * 10000 + 1 AS id FROM "+digits+" a, "+digits+" b, "+digits+" c, "+digits+" d, (SELECT 0 AS n UNION ALL SELECT 1) e) x", false)
