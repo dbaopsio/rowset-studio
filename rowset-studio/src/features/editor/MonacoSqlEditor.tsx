@@ -85,7 +85,7 @@ function registerCompletion(monaco: Monaco) {
         endColumn: word.endColumn,
       };
       const K = monaco.languages.CompletionItemKind;
-      const { tableColumns, tableNames, schemaNames, routines } = schemaRef.current;
+      const { tableColumns, tableNames, schemaNames, routines, databaseNames = {} } = schemaRef.current;
       const fullText = model.getValue();
       const aliases = aliasMap(fullText);
 
@@ -100,6 +100,13 @@ function registerCompletion(monaco: Monaco) {
           return {
             suggestions: resolved.values.map((c) => ({
               label: { label: c, description: "column" }, kind: K.Field, insertText: c, range, detail: resolved.owner, sortText: "0" + c,
+            })),
+          };
+        }
+        if (resolved.values.length > 0 && resolved.kind === "schema") {
+          return {
+            suggestions: resolved.values.map((name) => ({
+              label: { label: name, description: "schema" }, kind: K.Module, insertText: name, range, sortText: "0" + name,
             })),
           };
         }
@@ -127,6 +134,7 @@ function registerCompletion(monaco: Monaco) {
       const suggestions = [
         ...[...localColumns].map((c) => ({ label: { label: c, description: "column" }, kind: K.Field, insertText: c, range, sortText: "0" + c })),
         ...Object.entries(schemaNames).map(([key, name]) => ({ label: { label: name, description: "schema" }, kind: K.Module, insertText: name, range, sortText: "1" + key })),
+        ...Object.entries(databaseNames).map(([key, name]) => ({ label: { label: name, description: "database" }, kind: K.Module, insertText: name, range, sortText: "1" + key })),
         ...Object.keys(tableColumns).map((t) => {
           const name = tableNames[t] ?? t;
           return { label: { label: name, description: "table" }, kind: K.Struct, insertText: name, range, sortText: "1" + name };

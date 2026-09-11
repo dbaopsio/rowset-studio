@@ -5,6 +5,14 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.27 — 2026-09-11
+
+- Autocomplete offers database names on MySQL, MariaDB and SQL Server, and
+  on SQL Server suggests schemas after `database.`.
+- Leaving the SQL editor while a query runs or a transaction is open asks
+  first; a trackpad side swipe no longer navigates back out of the app.
+- The row backup setting explains how the 10,000-row check works.
+
 ## 0.0.26 — 2026-09-11
 
 - More compact Database Explorer; counts in square boxes.

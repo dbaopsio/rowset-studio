@@ -6,7 +6,12 @@ export interface SqlCompletions {
   schemaTables: Record<string, string[]>;
   schemaNames: Record<string, string>;
   routines: { name: string; kind: string }[];
+  /** Databases a statement can name, keyed by lower-case name. */
+  databaseNames?: Record<string, string>;
 }
+
+// Engines where one statement can reach another database by name.
+const CROSS_DATABASE = new Set(["mysql", "mariadb", "mssql", "sqlserver"]);
 
 const STOP_WORDS = new Set([
   "where", "on", "join", "inner", "left", "right", "full", "cross", "group",
@@ -30,7 +35,7 @@ export function aliasMap(sql: string): Record<string, string> {
   return map;
 }
 
-export function buildSqlCompletions(schema?: SchemaInfo): SqlCompletions {
+export function buildSqlCompletions(schema?: SchemaInfo, databases: string[] = [], engine = ""): SqlCompletions {
   const tableColumns: Record<string, string[]> = {};
   const tableNames: Record<string, string> = {};
   const schemaTables: Record<string, string[]> = {};
@@ -57,10 +62,15 @@ export function buildSqlCompletions(schema?: SchemaInfo): SqlCompletions {
     tableColumns[key] = table.columns;
     tableNames[key] = table.name;
   }
-  return { tableColumns, tableNames, schemaTables, schemaNames, routines };
+  const databaseNames: Record<string, string> = {};
+  if (CROSS_DATABASE.has(engine.toLowerCase())) {
+    // MySQL calls a database a schema; it is listed once, as a schema.
+    for (const name of databases) if (!schemaNames[name.toLowerCase()]) databaseNames[name.toLowerCase()] = name;
+  }
+  return { tableColumns, tableNames, schemaTables, schemaNames, routines, databaseNames };
 }
 
-export function dotSuggestions(sql: string, identifier: string, completions: SqlCompletions): { kind: "column" | "table"; values: string[]; owner?: string } {
+export function dotSuggestions(sql: string, identifier: string, completions: SqlCompletions): { kind: "column" | "table" | "schema"; values: string[]; owner?: string } {
   const ident = identifier.toLowerCase();
   const table = aliasMap(sql)[ident];
   const tableKey = table?.toLowerCase() ?? (completions.tableColumns[ident] ? ident : undefined);
@@ -69,6 +79,10 @@ export function dotSuggestions(sql: string, identifier: string, completions: Sql
   }
   if (completions.schemaTables[ident]) {
     return { kind: "table", values: completions.schemaTables[ident] };
+  }
+  // SQL Server: database.schema.table. Only the open database's schemas are known.
+  if (completions.databaseNames?.[ident]) {
+    return { kind: "schema", values: Object.values(completions.schemaNames) };
   }
   return { kind: "column", values: [] };
 }

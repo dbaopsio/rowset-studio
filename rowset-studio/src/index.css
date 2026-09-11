@@ -3,6 +3,12 @@
 @tailwind utilities;
 
 @layer base {
+  html,
+  body {
+    /* Trackpad side swipes must not navigate back out of the app. */
+    overscroll-behavior-x: none;
+  }
+
   html {
     color-scheme: light;
     background: #f6f7f8;

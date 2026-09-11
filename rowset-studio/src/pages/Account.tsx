@@ -70,8 +70,8 @@ export default function Account() {
           <div>
             <h2 className="text-[14px] font-semibold text-slate-900 dark:text-slate-100">Back up rows before UPDATE and DELETE</h2>
             <p className="mt-1 max-w-xl text-[12px] text-slate-500 dark:text-slate-400">
-              Before an UPDATE or DELETE on one table with a WHERE clause, the rows it will change are saved, so you can put them back from Activity → Row backups.
-              If a statement changes more than 10,000 rows, or updates a table without a primary key, Rowset asks before running it without a backup.
+              Before an UPDATE or DELETE on one table with a WHERE clause, Rowset first reads the rows that clause matches and saves them, so you can put them back from Activity → Row backups.
+              That read stops at 10,001 rows: if it gets that many, or the UPDATE is on a table without a primary key, the statement does not run and Rowset asks whether to run it without a backup.
             </p>
           </div>
           <button

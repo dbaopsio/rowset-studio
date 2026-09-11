@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "react-router";
+import { useBlocker, useLocation, useNavigate } from "react-router";
 import { Button, Modal, Panel } from "../../components/ui";
 import { Icon, type IconName } from "../../components/Icon";
 import { EnvBadge, envFrame, envKind, envRail } from "../../components/EnvBadge";
@@ -225,7 +225,18 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   // Feed the structured schema to the editor's autocomplete: per-table columns
   // for alias resolution, tables per schema, plus callable routines.
   const { data: schema } = useSchema(activeConnectionId, selectedDb || undefined);
-  const completions = useMemo(() => buildSqlCompletions(schema), [schema]);
+  const { data: databaseList = [] } = useQuery({
+    queryKey: ["databases", activeConnectionId],
+    queryFn: () => listDatabases(activeConnectionId!),
+    enabled: Boolean(activeConnectionId),
+  });
+  const completions = useMemo(() => buildSqlCompletions(schema, databaseList, activeConnection?.engine ?? ""), [schema, databaseList, activeConnection?.engine]);
+
+  // A back swipe or link must not silently stop running queries or roll back
+  // open transactions.
+  const runningTabs = Object.values(runStates).filter((run) => run.status === "running").length;
+  const openTransactions = Object.keys(transactionIDs).length;
+  const leaveBlocker = useBlocker(({ currentLocation, nextLocation }) => (runningTabs > 0 || openTransactions > 0) && currentLocation.pathname !== nextLocation.pathname);
 
   function patchRun(tabId: string, patch: Partial<TabRunState>) {
     setRunStates((current) => ({ ...current, [tabId]: { ...(current[tabId] ?? IDLE_RUN), ...patch } }));
@@ -668,6 +679,16 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
               : { label: "Tabs auto-saved", tone: "ok", detail: "Your open tabs (SQL text, connection and database) are saved automatically and encrypted, and reopen next time. Query results and open transactions are not kept.\nUse Save to keep a query in your saved queries." }}
         />
 
+        {leaveBlocker.state === "blocked" && (
+          <Modal title="Leave the SQL editor?" onClose={() => leaveBlocker.reset?.()}>
+            {runningTabs > 0 && <p className="text-[13px] text-slate-600 dark:text-slate-300">{runningTabs === 1 ? "A query is" : `${runningTabs} queries are`} still running. Leaving stops {runningTabs === 1 ? "it" : "them"}; a write that already reached the database may still be applied.</p>}
+            {openTransactions > 0 && <p className="mt-2 text-[13px] text-slate-600 dark:text-slate-300">{openTransactions === 1 ? "A tab has" : `${openTransactions} tabs have`} an open transaction. Leaving rolls back changes that were not committed.</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => leaveBlocker.proceed?.()} className="h-8 rounded-md px-3 text-[13px] text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">Leave</button>
+              <Button onClick={() => leaveBlocker.reset?.()}>Stay in the editor</Button>
+            </div>
+          </Modal>
+        )}
         {backupPrompt && backupPrompt.tabId === activeTabId && (
           <Modal title="Run without a backup?" onClose={() => setBackupPrompt(null)}>
             <p className="text-[13px] text-slate-600 dark:text-slate-300">{backupPrompt.reason} The statement has not run.</p>
