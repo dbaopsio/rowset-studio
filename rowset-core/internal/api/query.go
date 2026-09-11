@@ -24,6 +24,8 @@ type queryInput struct {
 	SQL      string  `json:"sql"`
 	Database string  `json:"database"`
 	NodeRole *string `json:"nodeRole"`
+	// Backup asks for the rows an UPDATE or DELETE changes to be saved first.
+	Backup bool `json:"backup"`
 }
 
 func (s *Server) runQuery(w http.ResponseWriter, r *http.Request) {
@@ -154,9 +156,9 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 			return
 		}
 	}
-	// Personal workspaces back up the rows a simple UPDATE or DELETE changes.
-	// Shared servers do not: a restore script would bypass result hooks.
-	if !s.config.Shared && sqlguard.IsWrite(info.Command) {
+	// Personal workspaces can back up the rows a simple UPDATE or DELETE
+	// changes. Shared servers do not: a restore script would bypass result hooks.
+	if input.Backup && !s.config.Shared && sqlguard.IsWrite(info.Command) {
 		annotations.merge(s.captureRowBackup(ctx, identity, connection, info, target, transaction, input.Database))
 	}
 	if engine.ReturnsRows(effectiveSQL) {

@@ -111,6 +111,8 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   const persistence = useWorkspacePersistence(snapshot, initial, workspace);
   const [bottomTab, setBottomTab] = useState<BottomTab>("results");
   const [runStates, setRunStates] = useState<Record<string, TabRunState>>({});
+  // Saving rows before UPDATE/DELETE is a personal-workspace option, on by default.
+  const [backupRows, setBackupRows] = useState(() => localStorage.getItem("rowset.editor.backupRows") !== "off");
   const [explorerOpen, setExplorerOpen] = useState(() => localStorage.getItem("rowset.editor.explorer") !== "collapsed");
   const [explorerTree, setExplorerTree] = useState<Record<string, boolean>>(() => loadBooleanRecord(EXPLORER_TREE_KEY));
   const [selectedSql, setSelectedSql] = useState("");
@@ -164,6 +166,9 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   useEffect(() => {
     localStorage.setItem("rowset.editor.explorer", explorerOpen ? "expanded" : "collapsed");
   }, [explorerOpen]);
+  useEffect(() => {
+    localStorage.setItem("rowset.editor.backupRows", backupRows ? "on" : "off");
+  }, [backupRows]);
 
   useEffect(() => {
     localStorage.setItem(EXPLORER_TREE_KEY, JSON.stringify(explorerTree));
@@ -389,7 +394,8 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     const progress = (data: QueryResult) => {
       if (runSeq.current[tabId] === seq) patchRun(tabId, { data, message: `Receiving rows… ${data.rowCount}` });
     };
-    return (tx ? txnQuery(tx.connectionId, tx.id, sql, tx.database, controller.signal, progress) : runQuery(connectionId, sql, database, nodeRole, controller.signal, progress))
+    const backup = backupRows && !shared;
+    return (tx ? txnQuery(tx.connectionId, tx.id, sql, tx.database, controller.signal, progress, backup) : runQuery(connectionId, sql, database, nodeRole, controller.signal, progress, backup))
       .then((res) => {
         if (runSeq.current[tabId] !== seq) return false;
         patchRun(tabId, {
@@ -676,6 +682,8 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
             if (transactions.current[activeTabId] && !window.confirm("Stopping a statement inside a transaction ends the transaction and discards its uncommitted changes. Stop anyway?")) return;
             scripts.current[activeTabId] = false; controllers.current[activeTabId]?.abort();
           }}
+          backupRows={shared ? undefined : backupRows}
+          onBackupRowsChange={setBackupRows}
           manualCommit={Boolean(manualCommitTabs[activeTabId])}
           onManualCommitChange={setCommitMode}
           pendingStatements={pendingStatements[activeTabId] ?? 0}

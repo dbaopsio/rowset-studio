@@ -23,6 +23,8 @@ export default function RunToolbar({
   onExportWorkspace,
   onImportWorkspace,
   onStop,
+  backupRows,
+  onBackupRowsChange,
   manualCommit,
   onManualCommitChange,
   transactionOpen,
@@ -52,6 +54,9 @@ export default function RunToolbar({
   onExportWorkspace: () => void;
   onImportWorkspace: () => void;
   onStop: () => void;
+  /** Save rows before UPDATE/DELETE; undefined hides the option. */
+  backupRows?: boolean;
+  onBackupRowsChange: (on: boolean) => void;
   manualCommit: boolean;
   onManualCommitChange: (manual: boolean) => void;
   transactionOpen: boolean;
@@ -137,6 +142,23 @@ export default function RunToolbar({
           disabled={!connectionId || running || transactionBusy || nodeRole === "secondary"}
           onChange={onManualCommitChange}
         />
+        {backupRows !== undefined && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={backupRows}
+            onClick={() => onBackupRowsChange(!backupRows)}
+            title={backupRows
+              ? "Row backup on: before an UPDATE or DELETE on one table with a WHERE clause, the rows it changes are saved (up to 10,000).\nRestore them from Activity → Row backups. Click to turn off."
+              : "Row backup off: UPDATE and DELETE run without saving the rows first. Click to turn on."}
+            className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 text-[12px] text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"
+          >
+            <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${backupRows ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-700"}`}>
+              <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${backupRows ? "left-3.5" : "left-0.5"}`} />
+            </span>
+            Row backup
+          </button>
+        )}
         {transactionOpen && <>
           <button onClick={() => onTransaction("commit")} disabled={running || transactionBusy || transactionAborted} className={secondaryButton} title={transactionAborted ? "The database aborted this transaction; Commit would apply nothing" : "Make the pending changes permanent"}>Commit</button>
           <button onClick={() => onTransaction("rollback")} disabled={running || transactionBusy} className={secondaryButton} title="Discard the pending changes">Rollback</button>

@@ -28,7 +28,7 @@ func TestLiveRowBackupRestoresUpdateAndDelete(t *testing.T) {
 			}
 			query := func(sql string) map[string]any {
 				t.Helper()
-				encoded, _ := json.Marshal(map[string]any{"sql": sql})
+				encoded, _ := json.Marshal(map[string]any{"sql": sql, "backup": true})
 				w := importCall(t, s, identity, s.runQuery, "POST", connection.ID, "", string(encoded))
 				var out map[string]any
 				_ = json.Unmarshal(w.Body.Bytes(), &out)
@@ -108,6 +108,10 @@ func TestLiveRowBackupRestoresUpdateAndDelete(t *testing.T) {
 				t.Fatalf("delete restore:\nwant %s\ngot  %s", before, got)
 			}
 
+			// Without the option nothing is backed up.
+			if w := importCall(t, s, identity, s.runQuery, "POST", connection.ID, "", `{"sql":"UPDATE `+table+` SET amount = amount WHERE id = 3"}`); w.Code != http.StatusOK || strings.Contains(w.Body.String(), "backup") {
+				t.Fatalf("backup without the option: %d %s", w.Code, w.Body.String())
+			}
 			// Restore scripts are backed up too, so they can be undone.
 			// A failed statement keeps no backup.
 			if w := importCall(t, s, identity, s.runQuery, "POST", connection.ID, "", `{"sql":"UPDATE `+table+` SET id = 3 WHERE id = 1"}`); w.Code == http.StatusOK {

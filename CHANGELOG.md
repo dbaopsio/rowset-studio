@@ -5,6 +5,11 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.21 — 2026-09-11
+
+- Row backups are optional: the **Row backup** switch in the editor toolbar
+  turns them on or off (on by default, remembered in the browser).
+
 ## 0.0.20 — 2026-09-11
 
 - **Row backups**: before an UPDATE or DELETE on one table with a WHERE
