@@ -35,7 +35,6 @@ export async function readQueryStream(response: Response, onProgress?: (result: 
       result.annotations = resultAnnotations(event);
     } else if (event.type === "rows") {
       if (!receivedColumns || !Array.isArray(event.rows) || !event.rows.every((row: unknown) => Array.isArray(row) && row.length === result.columns.length)) throw new Error("Invalid query row batch");
-      if (result.rows.length + event.rows.length > 10000) throw new Error("Query exceeded the 10,000-row client limit");
       result.rows.push(...event.rows); result.rowCount = result.rows.length;
       if (Date.now() - lastProgress > 100) { onProgress?.({ ...result, rows: [...result.rows] }); lastProgress = Date.now(); }
     } else if (event.type === "complete") {

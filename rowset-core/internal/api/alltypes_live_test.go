@@ -204,12 +204,32 @@ func TestLiveAllTypes(t *testing.T) {
 				if code, out, raw := call("UPDATE "+big+" SET v = 1 WHERE id > 0", nil); code != http.StatusOK || out["rowCount"] != float64(20000) {
 					t.Errorf("update without backup: %d %.200s", code, raw)
 				}
+				// Without a policy nothing caps a result: every row comes back.
+				if code, out, raw := call("SELECT * FROM "+big+" WHERE id > 0", nil); code != http.StatusOK || out["truncated"] != false || len(out["rows"].([]any)) != 20000 {
+					t.Errorf("uncapped select: %d %.200s", code, raw)
+				}
+				// A client may still ask for fewer rows.
 				if code, out, raw := call("SELECT * FROM "+big+" WHERE id > 0", map[string]any{"maxRows": 1000}); code != http.StatusOK || out["truncated"] != true || len(out["rows"].([]any)) != 1000 {
-					t.Errorf("capped select: %d %.200s", code, raw)
+					t.Errorf("client-capped select: %d %.200s", code, raw)
 				}
 				if code, headers, body := export(big, "csv"); code != http.StatusOK || headers.Get("X-Rowset-Rows") != "20000" {
 					t.Errorf("large export: %d %.200s", code, body)
 				}
+				// With the row-limit policy on, the cap applies and says so.
+				if code, _, body := c.do(t, "PATCH", "/api/policies/limit_rows", map[string]any{"enabled": true, "value": "50"}); code >= 300 {
+					t.Fatalf("limit_rows: %d %s", code, body)
+				}
+				if code, out, raw := call("SELECT * FROM "+big+" WHERE id > 0", nil); code != http.StatusOK || out["truncated"] != true || len(out["rows"].([]any)) != 50 || !strings.Contains(fmt.Sprint(out["policyNotice"]), "policy") {
+					t.Errorf("policy-capped select: %d %.200s", code, raw)
+				}
+				// An export follows the same policy.
+				if code, headers, body := export(big, "csv"); code != http.StatusOK || headers.Get("X-Rowset-Rows") != "50" {
+					t.Errorf("policy-capped export: %d %v %.200s", code, headers, body)
+				}
+				if code, _, body := c.do(t, "PATCH", "/api/policies/limit_rows", map[string]any{"enabled": false}); code >= 300 {
+					t.Fatalf("limit_rows off: %d %s", code, body)
+				}
+
 			})
 		})
 	}

@@ -100,7 +100,8 @@ async function readResult(response: Response, onProgress?: (result: QueryResult)
   return response.headers.get("Content-Type")?.includes("application/x-ndjson") ? readQueryStream(response, onProgress) : normalizeResult(await response.json());
 }
 
-export async function runQuery(connectionId: string, sql: string, database?: string, nodeRole?: "primary" | "secondary", signal?: AbortSignal, onProgress?: (result: QueryResult) => void, backup = false, maxRows = 1000) {
+// maxRows 0 asks for every row: only a policy caps a result.
+export async function runQuery(connectionId: string, sql: string, database?: string, nodeRole?: "primary" | "secondary", signal?: AbortSignal, onProgress?: (result: QueryResult) => void, backup = false, maxRows = 0) {
   const response = await apiResponse(`/connections/${connectionId}/query`, {
     method: "POST",
     signal,
@@ -119,7 +120,7 @@ export function beginTxn(connectionId: string, database?: string) {
   });
 }
 
-export async function txnQuery(connectionId: string, txnId: string, sql: string, database?: string, signal?: AbortSignal, onProgress?: (result: QueryResult) => void, backup = false, maxRows = 1000) {
+export async function txnQuery(connectionId: string, txnId: string, sql: string, database?: string, signal?: AbortSignal, onProgress?: (result: QueryResult) => void, backup = false, maxRows = 0) {
   const response = await apiResponse(`/connections/${connectionId}/txn/${txnId}/query`, {
     method: "POST",
     headers: { Accept: "application/x-ndjson" },

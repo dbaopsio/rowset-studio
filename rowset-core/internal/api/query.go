@@ -127,11 +127,11 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 	info = prepared
 	effectiveSQL := info.Raw
 	policyCap := false
-	// The cap comes from a policy or from how many rows the editor asked to
-	// show; the notice tells the user which.
+	// Only a policy caps a result on its own; maxRows is what a client asks
+	// for, and it can only make the cap smaller.
 	if input.MaxRows > 0 && (rowLimit == 0 || input.MaxRows < rowLimit) {
 		rowLimit = input.MaxRows
-		annotations["limitedBy"] = "fetch"
+		annotations["limitedBy"] = "request"
 	}
 	if rowLimit > 0 {
 		limitedSQL, limitErr := rowlimit.Apply(connection.Engine, info, rowLimit+1)

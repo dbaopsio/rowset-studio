@@ -5,6 +5,13 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.32 — 2026-09-12
+
+- The editor no longer caps results at 1000 rows. A result is capped only
+  by the "Limit result rows" policy, which then says so and offers
+  **Export all rows (CSV)**. Rows stream in as they arrive and the grid
+  only renders what is on screen; Stop still ends a run.
+
 ## 0.0.31 — 2026-09-12
 
 - **Procedures, functions, triggers and events with BEGIN … END bodies**

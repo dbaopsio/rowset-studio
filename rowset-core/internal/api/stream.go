@@ -105,8 +105,8 @@ func (s *Server) streamNDJSON(w http.ResponseWriter, r *http.Request, connection
 // limitNotice says why a result stopped early: the editor showed the rows it
 // asked for, or a policy capped the result.
 func limitNotice(annotations Annotations, limit int) string {
-	if annotations["limitedBy"] == "fetch" {
-		return fmt.Sprintf("Showing the first %d rows", limit)
+	if annotations["limitedBy"] == "request" {
+		return fmt.Sprintf("Showing the first %d rows this client asked for", limit)
 	}
 	return fmt.Sprintf("Result limited by policy to %d rows", limit)
 }
