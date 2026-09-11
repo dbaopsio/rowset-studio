@@ -117,11 +117,19 @@ func TestLiveRowBackupRestoresUpdateAndDelete(t *testing.T) {
 			if w := importCall(t, s, identity, s.runQuery, "POST", connection.ID, "", `{"sql":"UPDATE `+table+` SET id = 3 WHERE id = 1"}`); w.Code == http.StatusOK {
 				t.Fatalf("duplicate key accepted: %s", w.Body.String())
 			}
-			// Updates on tables without a primary key are not backed up.
+			// An UPDATE that cannot be backed up waits for the user to run it
+			// without a backup.
 			query("CREATE TABLE " + table + "_nokey(id int, name " + types[0] + ")")
 			query("INSERT INTO " + table + "_nokey VALUES (1, 'a')")
-			if result := query("UPDATE " + table + "_nokey SET name = 'b' WHERE id = 1"); result["backupSkipped"] == nil {
-				t.Fatalf("keyless update: %v", result)
+			keyless := `{"sql":"UPDATE ` + table + `_nokey SET name = 'b' WHERE id = 1","backup":true}`
+			if w := importCall(t, s, identity, s.runQuery, "POST", connection.ID, "", keyless); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "BACKUP_UNAVAILABLE") {
+				t.Fatalf("keyless update: %d %s", w.Code, w.Body.String())
+			}
+			if names := fmt.Sprint(query("SELECT name FROM " + table + "_nokey WHERE id = 1")["rows"]); names != "[[a]]" {
+				t.Fatalf("blocked update ran: %s", names)
+			}
+			if w := importCall(t, s, identity, s.runQuery, "POST", connection.ID, "", strings.Replace(keyless, `"backup":true`, `"backup":false`, 1)); w.Code != http.StatusOK {
+				t.Fatalf("keyless update without backup: %d %s", w.Code, w.Body.String())
 			}
 			list := httptest.NewRecorder()
 			s.listRowBackups(list, personalRequest(identity, ""))

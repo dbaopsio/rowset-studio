@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
-import { Panel } from "../../components/ui";
+import { Button, Modal, Panel } from "../../components/ui";
 import { Icon, type IconName } from "../../components/Icon";
 import { EnvBadge, envFrame, envKind, envRail } from "../../components/EnvBadge";
 import EngineLogo, { engineLabel } from "../../components/EngineLogo";
@@ -22,6 +22,7 @@ import { useAuth } from "../../lib/auth";
 import { SchemaActions } from "./schemaActions";
 import { ApiError } from "../../lib/api";
 import { useShared } from "../../lib/instance";
+import { rowBackupEnabled } from "../../lib/preferences";
 import { useActiveExtensions, type DenialContext } from "../../app/extensions";
 import WorkspaceGate, { exportWorkspace, useWorkspacePersistence } from "./WorkspaceGate";
 import { mergeWorkspace, type WorkspaceDocument, type WorkspaceSnapshot, type WorkspaceTab } from "./workspace";
@@ -111,8 +112,8 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   const persistence = useWorkspacePersistence(snapshot, initial, workspace);
   const [bottomTab, setBottomTab] = useState<BottomTab>("results");
   const [runStates, setRunStates] = useState<Record<string, TabRunState>>({});
-  // Saving rows before UPDATE/DELETE is a personal-workspace option, on by default.
-  const [backupRows, setBackupRows] = useState(() => localStorage.getItem("rowset.editor.backupRows") !== "off");
+  // A statement the server would not run because its rows cannot be backed up.
+  const [backupPrompt, setBackupPrompt] = useState<{ tabId: string; sql: string; reason: string } | null>(null);
   const [explorerOpen, setExplorerOpen] = useState(() => localStorage.getItem("rowset.editor.explorer") !== "collapsed");
   const [explorerTree, setExplorerTree] = useState<Record<string, boolean>>(() => loadBooleanRecord(EXPLORER_TREE_KEY));
   const [selectedSql, setSelectedSql] = useState("");
@@ -166,9 +167,6 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   useEffect(() => {
     localStorage.setItem("rowset.editor.explorer", explorerOpen ? "expanded" : "collapsed");
   }, [explorerOpen]);
-  useEffect(() => {
-    localStorage.setItem("rowset.editor.backupRows", backupRows ? "on" : "off");
-  }, [backupRows]);
 
   useEffect(() => {
     localStorage.setItem(EXPLORER_TREE_KEY, JSON.stringify(explorerTree));
@@ -340,7 +338,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     else setActiveMessage("Nothing to save: the editor is empty.", true);
   }
 
-  async function execute(sql: string, script = false) {
+  async function execute(sql: string, script = false, skipBackup = false) {
     const tabId = activeTab?.id;
     const connectionId = activeConnectionId;
     if (!mounted.current || !tabId || !connectionId || !sql.trim() || closingTabs.current.has(tabId) || transactionOperations.current.has(tabId) || controllers.current[tabId] || (!script && scripts.current[tabId])) return false;
@@ -395,7 +393,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
       if (runSeq.current[tabId] === seq) patchRun(tabId, { data, message: `Receiving rows… ${data.rowCount}` });
     };
     // A restore script puts rows back; backing it up again would only add noise.
-    const backup = backupRows && !shared && !activeTab?.restoreOf;
+    const backup = !skipBackup && !shared && !activeTab?.restoreOf && rowBackupEnabled();
     return (tx ? txnQuery(tx.connectionId, tx.id, sql, tx.database, controller.signal, progress, backup) : runQuery(connectionId, sql, database, nodeRole, controller.signal, progress, backup))
       .then((res) => {
         if (runSeq.current[tabId] !== seq) return false;
@@ -416,6 +414,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
         if (runSeq.current[tabId] !== seq) return false;
         const error = err instanceof Error ? err : new Error("Query failed");
         const pending = err instanceof ApiError && err.body.code === "PENDING";
+        if (err instanceof ApiError && err.body.code === "BACKUP_UNAVAILABLE") setBackupPrompt({ tabId, sql, reason: err.body.message });
         let message = controller.signal.aborted ? "Cancellation requested. For writes, check the database before retrying; cancellation does not prove a write was rolled back." : error.message;
         const txState = err instanceof ApiError ? err.body.transactionState : undefined;
         if (tx && controller.signal.aborted) {
@@ -668,6 +667,16 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
               : { label: "Tabs auto-saved", tone: "ok", detail: "Your open tabs (SQL text, connection and database) are saved automatically and encrypted, and reopen next time. Query results and open transactions are not kept.\nUse Save to keep a query in your saved queries." }}
         />
 
+        {backupPrompt && backupPrompt.tabId === activeTabId && (
+          <Modal title="Run without a backup?" onClose={() => setBackupPrompt(null)}>
+            <p className="text-[13px] text-slate-600 dark:text-slate-300">{backupPrompt.reason} The statement has not run.</p>
+            <p className="mt-2 text-[13px] text-slate-600 dark:text-slate-300">If you run it anyway, the rows it changes cannot be restored from Row backups.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setBackupPrompt(null)} className="h-8 rounded-md px-3 text-[13px] text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">Cancel</button>
+              <Button onClick={() => { const prompt = backupPrompt; setBackupPrompt(null); void execute(prompt.sql, false, true); }}>Run without backup</Button>
+            </div>
+          </Modal>
+        )}
         <RunToolbar
           connectionId={activeConnectionId}
           onConnectionChange={onConnectionChange}
@@ -683,8 +692,6 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
             if (transactions.current[activeTabId] && !window.confirm("Stopping a statement inside a transaction ends the transaction and discards its uncommitted changes. Stop anyway?")) return;
             scripts.current[activeTabId] = false; controllers.current[activeTabId]?.abort();
           }}
-          backupRows={shared || activeTab?.restoreOf ? undefined : backupRows}
-          onBackupRowsChange={setBackupRows}
           manualCommit={Boolean(manualCommitTabs[activeTabId])}
           onManualCommitChange={setCommitMode}
           pendingStatements={pendingStatements[activeTabId] ?? 0}

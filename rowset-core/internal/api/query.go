@@ -159,7 +159,12 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 	// Personal workspaces can back up the rows a simple UPDATE or DELETE
 	// changes. Shared servers do not: a restore script would bypass result hooks.
 	if input.Backup && !s.config.Shared && sqlguard.IsWrite(info.Command) {
-		annotations.merge(s.captureRowBackup(ctx, identity, connection, info, target, transaction, input.Database))
+		notes := s.captureRowBackup(ctx, identity, connection, info, target, transaction, input.Database)
+		if reason, ok := notes["backupBlocked"].(string); ok {
+			writeError(w, http.StatusConflict, "BACKUP_UNAVAILABLE", reason)
+			return
+		}
+		annotations.merge(notes)
 	}
 	if engine.ReturnsRows(effectiveSQL) {
 		streamTimeout := time.Duration(s.config.QueryStreamTimeoutSecs) * time.Second

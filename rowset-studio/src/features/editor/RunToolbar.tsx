@@ -23,8 +23,6 @@ export default function RunToolbar({
   onExportWorkspace,
   onImportWorkspace,
   onStop,
-  backupRows,
-  onBackupRowsChange,
   manualCommit,
   onManualCommitChange,
   transactionOpen,
@@ -54,9 +52,6 @@ export default function RunToolbar({
   onExportWorkspace: () => void;
   onImportWorkspace: () => void;
   onStop: () => void;
-  /** Save rows before UPDATE/DELETE; undefined hides the option. */
-  backupRows?: boolean;
-  onBackupRowsChange: (on: boolean) => void;
   manualCommit: boolean;
   onManualCommitChange: (manual: boolean) => void;
   transactionOpen: boolean;
@@ -153,7 +148,6 @@ export default function RunToolbar({
         <MoreMenu items={[
           { label: "Run all statements", hint: "⇧⌘↵ · stops at the first error", onSelect: onRunAll, disabled: !connectionId || running || transactionBusy },
           { label: "Explain with actual rows", hint: "Runs the SELECT to measure it", onSelect: () => onExplain(true), disabled: !connectionId || running || transactionBusy },
-          ...(backupRows !== undefined ? [{ label: "Back up rows before UPDATE/DELETE", hint: "Restore them from Activity → Row backups", checked: backupRows, onSelect: () => onBackupRowsChange(!backupRows) }] : []),
           ...(onSchedule ? [{ label: "Schedule this query…", hint: "Save its result to a file on a schedule", onSelect: onSchedule, disabled: !connectionId }] : []),
           { label: "Open .sql file…", onSelect: onOpenFile },
           { label: "Download as .sql", onSelect: onSaveFile },

@@ -6,6 +6,7 @@ import { setUserPassword } from "../lib/account";
 import { useInstance } from "../lib/instance";
 import { Button, ErrorText, Field, Input, PageHeader, Panel } from "../components/ui";
 import { Icon, type IconName } from "../components/Icon";
+import { rowBackupEnabled, setRowBackupEnabled } from "../lib/preferences";
 
 const appVersion = import.meta.env.VITE_ROWSET_VERSION || "dev";
 
@@ -22,6 +23,7 @@ export default function Account() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [rowBackup, setRowBackup] = useState(rowBackupEnabled);
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -62,6 +64,28 @@ export default function Account() {
           <Detail icon="activity" label="Version" value={`Rowset ${appVersion}`} />
         </dl>
       </Panel>
+
+      {!shared && <Panel className="p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-[14px] font-semibold text-slate-900 dark:text-slate-100">Back up rows before UPDATE and DELETE</h2>
+            <p className="mt-1 max-w-xl text-[12px] text-slate-500 dark:text-slate-400">
+              Before an UPDATE or DELETE on one table with a WHERE clause, the rows it will change are saved, so you can put them back from Activity → Row backups.
+              If a statement changes more than 10,000 rows, or updates a table without a primary key, Rowset asks before running it without a backup.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={rowBackup}
+            aria-label="Back up rows before UPDATE and DELETE"
+            onClick={() => { setRowBackupEnabled(!rowBackup); setRowBackup(!rowBackup); }}
+            className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors ${rowBackup ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-700"}`}
+          >
+            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${rowBackup ? "left-[18px]" : "left-0.5"}`} />
+          </button>
+        </div>
+      </Panel>}
 
       {!desktop && <Panel className="p-4">
         <h2 className="text-[14px] font-semibold text-slate-900 dark:text-slate-100">Change password</h2>

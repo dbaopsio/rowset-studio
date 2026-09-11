@@ -17,6 +17,7 @@ type workspaceTab struct {
 	ConnectionID *string `json:"connectionId,omitempty"`
 	Database     string  `json:"database,omitempty"`
 	NodeRole     string  `json:"nodeRole,omitempty"`
+	RestoreOf    string  `json:"restoreOf,omitempty"`
 }
 type workspaceDocument struct {
 	Version     int            `json:"version"`
@@ -35,7 +36,7 @@ func validWorkspace(doc workspaceDocument) bool {
 	}
 	ids := make(map[string]bool)
 	for _, tab := range doc.Tabs {
-		if tab.ID == "" || len(tab.ID) > 128 || ids[tab.ID] || len(tab.Title) > 512 || len(tab.Database) > 512 || (tab.ConnectionID != nil && len(*tab.ConnectionID) > 128) {
+		if tab.ID == "" || len(tab.ID) > 128 || ids[tab.ID] || len(tab.Title) > 512 || len(tab.Database) > 512 || len(tab.RestoreOf) > 128 || (tab.ConnectionID != nil && len(*tab.ConnectionID) > 128) {
 			return false
 		}
 		if tab.NodeRole != "" && tab.NodeRole != "primary" && tab.NodeRole != "secondary" {

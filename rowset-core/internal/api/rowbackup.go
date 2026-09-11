@@ -227,6 +227,8 @@ type rowBackupPayload struct {
 
 // captureRowBackup saves the rows a simple UPDATE or DELETE is about to change
 // and returns response fields describing the backup, or why none was taken.
+// "backupBlocked" means the statement must not run until the user agrees to
+// run it without a backup.
 // Inside a PostgreSQL transaction the read runs under a savepoint, so a
 // failed backup never aborts the caller's transaction.
 func (s *Server) captureRowBackup(ctx context.Context, identity domain.Identity, connection domain.Connection, info sqlguard.Info, target engine.Connection, transaction *engine.Transaction, database string) Annotations {
@@ -269,8 +271,9 @@ func (s *Server) captureRowBackup(ctx context.Context, identity domain.Identity,
 	if len(rows) == 0 {
 		return nil
 	}
+	blocked := func(reason string) Annotations { return Annotations{"backupBlocked": reason} }
 	if len(rows) > rowBackupLimit {
-		return skipped(fmt.Sprintf("more than %d rows would change", rowBackupLimit))
+		return blocked(fmt.Sprintf("This %s changes more than %d rows, too many to back up.", strings.ToUpper(plan.kind), rowBackupLimit))
 	}
 	key := make([]string, 0, len(keyRows))
 	for _, row := range keyRows {
@@ -279,7 +282,7 @@ func (s *Server) captureRowBackup(ctx context.Context, identity domain.Identity,
 		}
 	}
 	if plan.kind == "update" && len(key) == 0 {
-		return skipped("the table has no primary key, so the old values could not be put back")
+		return blocked(fmt.Sprintf("%s has no primary key, so the old values could not be put back.", plan.table))
 	}
 	// Leading comments are left out of the saved statement.
 	statement := info.Raw

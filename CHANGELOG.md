@@ -5,6 +5,15 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.23 — 2026-09-11
+
+- The row backup setting moved to Account (on by default).
+- When a statement's rows cannot be backed up (more than 10,000 rows, or an
+  UPDATE on a table without a primary key), it does not run; Rowset asks
+  whether to run it without a backup.
+- Fixed: tabs opened from a row backup made the tab autosave fail with
+  "invalid JSON request".
+
 ## 0.0.22 — 2026-09-11
 
 - Running a restore script no longer makes a new row backup of its own.
