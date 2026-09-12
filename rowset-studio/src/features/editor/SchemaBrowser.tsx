@@ -181,13 +181,12 @@ export default function SchemaBrowser({
                 Tables and columns loaded. Some optional object metadata is unavailable.
               </div>
             )}
-            <SectionTitle label="Tables" count={filteredTables.length === tables.length ? `${tables.length}` : `${filteredTables.length} of ${tables.length}`} />
-            <ul className="space-y-0.5">
+            <ObjectGroup label="Tables" count={filteredTables.length === tables.length ? `${tables.length}` : `${filteredTables.length} of ${tables.length}`} forceOpen={Boolean(needle)}>
               {filteredTables.map((t) => (
                 <TableItem key={t.key} engine={engine} schemaName={t.schemaName} table={t.table} connectionId={connectionId} database={database} />
               ))}
               {filteredTables.length === 0 && <li className="px-1 py-1 text-[11px] text-slate-400">No matching tables.</li>}
-            </ul>
+            </ObjectGroup>
             {visibleViews.length > 0 && (
               <ObjectGroup label="Views" count={visibleViews.length}>
                 {visibleViews.map((t) => (
@@ -277,19 +276,13 @@ function CountPill({ children }: { children: React.ReactNode }) {
   return <span className="min-w-[18px] rounded bg-slate-100 px-1 text-center text-[10.5px] leading-[17px] tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">{children}</span>;
 }
 
-function SectionTitle({ label, count }: { label: string; count: string }) {
-  return (
-    <div className="mt-0.5 flex h-6 items-center gap-2 px-1 text-[12px] text-slate-500 dark:text-slate-400">
-      {label}
-      <CountPill>{count}</CountPill>
-    </div>
-  );
-}
-
-// Collapsible section for non-table object kinds; collapsed by default so the
-// table list keeps its prominence.
-function ObjectGroup({ label, count, children }: { label: string; count: number; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+// Every kind of object sits in a collapsible section, closed until it is
+// opened, so a database with hundreds of tables stays readable. A search
+// opens them, otherwise its matches would be hidden.
+function ObjectGroup({ label, count, children, forceOpen = false }: { label: string; count: number | string; children: React.ReactNode; forceOpen?: boolean }) {
+  const [opened, setOpened] = useState(false);
+  const open = forceOpen || opened;
+  const setOpen = (next: boolean | ((value: boolean) => boolean)) => setOpened(typeof next === "function" ? next(open) : next);
   return (
     <div className="mt-1">
       <button

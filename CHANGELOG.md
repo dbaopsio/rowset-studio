@@ -5,6 +5,16 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.51 — 2026-09-12
+
+- **Slack notifications**: paste an incoming webhook address in Account and
+  Rowset posts when a scheduled query runs — every run or only failures —
+  with how long it took, how many rows it wrote and the file it produced.
+  A statement in the editor that takes longer than a threshold you set can
+  report itself too. The rows are never sent, only what ran.
+- Every group in the schema browser, tables included, starts collapsed;
+  searching opens them so matches are never hidden.
+
 ## 0.0.50 — 2026-09-12
 
 - The assistant moved from the bottom tabs to a panel beside the editor,

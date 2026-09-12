@@ -96,8 +96,10 @@ func (s *Server) runScheduled(ctx context.Context, item store.ScheduledQuery, tr
 		s.logger.Error("scheduled query run not recorded", "query", item.ID, "error", err)
 		return
 	}
+	started := time.Now()
 	rows, path, err := s.executeScheduled(ctx, item)
 	finished := time.Now().UTC().Format(time.RFC3339Nano)
+	go s.notifyScheduledRun(item.UserID, item.Name, rows, time.Since(started), path, err)
 	run.FinishedAt, run.Rows = &finished, rows
 	if err != nil {
 		message := err.Error()

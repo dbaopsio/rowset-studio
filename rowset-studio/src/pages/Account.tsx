@@ -8,6 +8,7 @@ import { Button, ErrorText, Field, Input, PageHeader, Panel } from "../component
 import { Icon, type IconName } from "../components/Icon";
 import { rowBackupEnabled, setRowBackupEnabled } from "../lib/preferences";
 import AiSettingsPanel from "../features/ai/AiSettingsPanel";
+import SlackSettingsPanel from "../features/slack/SlackSettingsPanel";
 
 const appVersion = import.meta.env.VITE_ROWSET_VERSION || "dev";
 
@@ -89,6 +90,8 @@ export default function Account() {
       </Panel>}
 
       {!shared && <AiSettingsPanel />}
+
+      {!shared && <SlackSettingsPanel />}
 
       {!desktop && <Panel className="p-4">
         <h2 className="text-[14px] font-semibold text-slate-900 dark:text-slate-100">Change password</h2>
