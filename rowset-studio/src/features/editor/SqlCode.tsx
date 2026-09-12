@@ -12,11 +12,13 @@ const KEYWORDS = new Set([
   "while", "with",
 ]);
 
+// The same colours the editor's own theme uses, so SQL reads the same
+// wherever it is shown.
 const CLASSES: Record<string, string> = {
-  keyword: "font-medium text-indigo-700 dark:text-indigo-300",
-  string: "text-emerald-700 dark:text-emerald-300",
-  number: "text-amber-700 dark:text-amber-300",
-  comment: "italic text-slate-400 dark:text-slate-500",
+  keyword: "font-semibold text-[#a8482a] dark:text-[#e0a526]",
+  string: "text-[#7a6a15] dark:text-[#c9b458]",
+  number: "text-[#3e7a3a] dark:text-[#8fbf6f]",
+  comment: "italic text-[#a9a08d] dark:text-[#7c7362]",
   plain: "",
 };
 
@@ -24,7 +26,7 @@ const CLASSES: Record<string, string> = {
 // itself uses Monaco; this is for the places that only show SQL.
 export default function SqlCode({ sql, className = "" }: { sql: string; className?: string }) {
   return (
-    <pre className={`overflow-auto whitespace-pre font-mono text-[12px] leading-5 text-slate-700 dark:text-slate-200 ${className}`}>
+    <pre className={`overflow-auto whitespace-pre font-mono text-[12px] leading-5 text-[#1d1b16] dark:text-[#ece7dc] ${className}`}>
       <code>
         {sqlTokens(sql).map((token, index) => {
           const kind =
