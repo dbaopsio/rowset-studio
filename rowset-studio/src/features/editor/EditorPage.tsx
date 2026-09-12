@@ -29,7 +29,7 @@ import WorkspaceGate, { exportWorkspace, useWorkspacePersistence } from "./Works
 import AssistantPanel from "../ai/AssistantPanel";
 import { mergeWorkspace, type WorkspaceDocument, type WorkspaceSnapshot, type WorkspaceTab } from "./workspace";
 
-type BottomTab = "results" | "history" | "messages" | "plan" | "assistant";
+type BottomTab = "results" | "history" | "messages" | "plan";
 
 type QueryTab = WorkspaceTab;
 
@@ -113,6 +113,9 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   const workspace: WorkspaceDocument = { version: 1, tabs, activeTabId: tabs.some(tab => tab.id === activeTabId) ? activeTabId : tabs[0].id };
   const persistence = useWorkspacePersistence(snapshot, initial, workspace);
   const [bottomTab, setBottomTab] = useState<BottomTab>("results");
+  // The assistant sits beside the editor, where it can stay open while a
+  // statement runs and its results come in.
+  const [assistantOpen, setAssistantOpen] = useState(() => localStorage.getItem("rowset.editor.assistant") === "open");
   const [runStates, setRunStates] = useState<Record<string, TabRunState>>({});
   // A statement the server would not run because its rows cannot be backed up.
   const [backupPrompt, setBackupPrompt] = useState<{ tabId: string; sql: string; reason: string } | null>(null);
@@ -169,6 +172,10 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   useEffect(() => {
     localStorage.setItem("rowset.editor.explorer", explorerOpen ? "expanded" : "collapsed");
   }, [explorerOpen]);
+
+  useEffect(() => {
+    localStorage.setItem("rowset.editor.assistant", assistantOpen ? "open" : "closed");
+  }, [assistantOpen]);
 
   useEffect(() => {
     localStorage.setItem(EXPLORER_TREE_KEY, JSON.stringify(explorerTree));
@@ -736,6 +743,8 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
           transactionAborted={Boolean(abortedTransactions[activeTabId])}
           transactionBusy={transactionBusy}
           onTransaction={(action) => void transactionAction(action)}
+          assistantOpen={assistantOpen}
+          onAssistantToggle={() => setAssistantOpen((open) => !open)}
           onFormat={formatCurrent}
           onSave={saveCurrent}
           running={activeRun.status === "running"}
@@ -746,7 +755,8 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
           onNodeRoleChange={onNodeRoleChange}
         />
 
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <input ref={fileInput} type="file" accept=".sql,text/plain,application/sql" className="hidden" aria-label="Open SQL file" onChange={(event) => { void openSQLFile(event.target.files?.[0]); event.target.value = ""; }} />
           <div className="flex min-h-[120px] flex-1 flex-col border-b border-slate-200 dark:border-slate-800">
             <Suspense
@@ -788,16 +798,6 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
               plan={plans[activeTabId]}
               rowEditing={rowEditing}
               onSelectResult={(index) => patchRun(activeTabId, { activeResult: index })}
-              assistant={
-                <AssistantPanel
-                  sql={(selectedSql.trim() || currentSql).trim()}
-                  connectionId={activeConnectionId}
-                  database={selectedDb || undefined}
-                  error={activeRun.messageError ? activeRun.message : undefined}
-                  plan={plans[activeTabId]?.result?.plan}
-                  onInsert={(sql) => openSqlTab(sql, "From assistant")}
-                />
-              }
               onExportAllRows={activeRun.sql && activeConnectionId && !transactionIDs[activeTabId] ? () => exportTable(activeConnectionId, { database: selectedDb || undefined, sql: activeRun.sql!, format: "csv" }).then((blob) => {
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
@@ -808,6 +808,28 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
               }) : undefined}
             />
           </div>
+        </div>
+        {assistantOpen && (
+          <aside className="flex w-[360px] shrink-0 flex-col border-l border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex h-8 shrink-0 items-center gap-2 border-b border-slate-200 px-2 text-xs dark:border-slate-800">
+              <Icon name="wand" size={13} className="text-slate-400" />
+              <span className="font-medium text-slate-700 dark:text-slate-200">Assistant</span>
+              <button type="button" onClick={() => setAssistantOpen(false)} title="Close the assistant" aria-label="Close the assistant" className="ml-auto grid h-6 w-6 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-200">
+                <Icon name="close" size={13} />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <AssistantPanel
+                sql={(selectedSql.trim() || currentSql).trim()}
+                connectionId={activeConnectionId}
+                database={selectedDb || undefined}
+                error={activeRun.messageError ? activeRun.message : undefined}
+                plan={plans[activeTabId]?.result?.plan}
+                onInsert={(sql) => openSqlTab(sql, "From assistant")}
+              />
+            </div>
+          </aside>
+        )}
         </div>
       </Panel>
     </div>
@@ -1362,7 +1384,6 @@ function BottomPanel({
   rowEditing,
   onSelectResult,
   onExportAllRows,
-  assistant,
 }: {
   activeTab: BottomTab;
   onChange: (tab: BottomTab) => void;
@@ -1375,8 +1396,6 @@ function BottomPanel({
   onSelectResult?: (index: number) => void;
   /** Downloads every row of the statement's result. */
   onExportAllRows?: () => Promise<void>;
-  /** The assistant, shown in its own tab. */
-  assistant?: React.ReactNode;
 }) {
   // Several statements ran: show one result at a time, picked from a strip.
   const results = run.results && run.results.length > 1 ? run.results : undefined;
@@ -1391,12 +1410,11 @@ function BottomPanel({
     messages: { label: "Messages", icon: "text" },
     history: { label: "History", icon: "history" },
     plan: { label: "Plan", icon: "explain" },
-    assistant: { label: "Assistant", icon: "wand" },
   };
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-8 items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 text-xs dark:border-slate-800 dark:bg-slate-950">
-        {(["results", "messages", "history", "plan", "assistant"] as BottomTab[]).filter((tab) => tab !== "plan" || plan).map((tab) => (
+        {(["results", "messages", "history", "plan"] as BottomTab[]).filter((tab) => tab !== "plan" || plan).map((tab) => (
           <button
             key={tab}
             onClick={() => onChange(tab)}
@@ -1445,7 +1463,6 @@ function BottomPanel({
         )}
         {visibleTab === "history" && <HistoryPanel connectionId={connectionId} onPick={onPickHistory} />}
         {visibleTab === "plan" && <PlanPanel plan={plan} />}
-        {visibleTab === "assistant" && assistant}
         {visibleTab === "messages" && (
           <MessagePanel message={run.message} error={run.messageError ? run.message : ""} />
         )}

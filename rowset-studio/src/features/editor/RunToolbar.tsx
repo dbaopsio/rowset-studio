@@ -30,6 +30,8 @@ export default function RunToolbar({
   pendingStatements,
   transactionBusy,
   onTransaction,
+  assistantOpen,
+  onAssistantToggle,
   onFormat,
   onSave,
   running,
@@ -59,6 +61,9 @@ export default function RunToolbar({
   pendingStatements: number;
   transactionBusy: boolean;
   onTransaction: (action: "commit" | "rollback") => void;
+  /** The assistant panel beside the editor. */
+  assistantOpen?: boolean;
+  onAssistantToggle?: () => void;
   onFormat: () => void;
   onSave: () => void;
   running: boolean;
@@ -143,7 +148,22 @@ export default function RunToolbar({
         </>}
         <span className="h-5 w-px bg-slate-200 dark:bg-slate-800" />
         <ToolbarButton onClick={() => onExplain(false)} disabled={!connectionId || running || transactionBusy} icon="explain" label="Explain" />
-        <ToolbarButton onClick={onFormat} icon="wand" label="Format" />
+        <ToolbarButton onClick={onFormat} icon="format" label="Format" />
+        {onAssistantToggle && (
+          <button
+            type="button"
+            onClick={onAssistantToggle}
+            title={assistantOpen ? "Hide the assistant" : "Ask the assistant about this statement"}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[12px] transition ${
+              assistantOpen
+                ? "border-brand-300 bg-brand-50 font-medium text-brand-700 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-300"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+            }`}
+          >
+            <Icon name="wand" size={14} />
+            Assistant
+          </button>
+        )}
         <ToolbarButton onClick={onSave} icon="save" label="Save" />
         <MoreMenu items={[
           { label: "Run all statements", hint: "⇧⌘↵ · stops at the first error", onSelect: onRunAll, disabled: !connectionId || running || transactionBusy },
@@ -241,7 +261,7 @@ function ToolbarButton({
 }: {
   onClick: () => void;
   disabled?: boolean;
-  icon: "explain" | "wand" | "save";
+  icon: "explain" | "format" | "save";
   label: string;
 }) {
   return (

@@ -18,6 +18,7 @@ export type IconName =
   | "columns"
   | "play"
   | "wand"
+  | "format"
   | "save"
   | "explain"
   | "sun"
@@ -108,6 +109,13 @@ const paths: Record<IconName, ReactNode> = {
     </>
   ),
   play: <path d="M5 3.5l7 4.5-7 4.5z" />,
+  // Lines of different lengths: text being tidied up.
+  format: (
+    <>
+      <path d="M3 4h10M3 8h6M3 12h8" />
+      <path d="M11.5 11.5l1.5 1.5 2-2.5" />
+    </>
+  ),
   wand: (
     <>
       <path d="M4 12l7-7M10 3l.7 1.3L12 5l-1.3.7L10 7l-.7-1.3L8 5l1.3-.7z" />

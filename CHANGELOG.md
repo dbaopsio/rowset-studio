@@ -5,6 +5,13 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.50 — 2026-09-12
+
+- The assistant moved from the bottom tabs to a panel beside the editor,
+  opened with the Assistant button in the toolbar, so it can stay open while
+  a statement runs and its results come in. Its state is remembered.
+- Format has an icon of its own; the wand now means the assistant.
+
 ## 0.0.49 — 2026-09-12
 
 - **AI assistant**, set up in Account: either your own Anthropic or OpenAI
