@@ -5,6 +5,13 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.52 — 2026-09-12
+
+- Autocomplete follows the clause you are in: columns come first while
+  selecting or filtering, tables after FROM and JOIN.
+- After FROM, the joins your foreign keys allow are offered with the ON
+  clause already written, using the alias already in the statement.
+
 ## 0.0.51 — 2026-09-12
 
 - **Slack notifications**: paste an incoming webhook address in Account and

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Editor, { type Monaco } from "@monaco-editor/react";
 import { ROWSET_SQL_LANGUAGE, defineThemes } from "./monacoSetup";
-import { aliasMap, dotSuggestions, type SqlCompletions } from "./sqlCompletions";
+import { aliasMap, clauseAt, dotSuggestions, joinSuggestions, type SqlCompletions } from "./sqlCompletions";
 
 // Warm SQL themes matched to the app palette (terracotta/ink on paper) so the
 // editor reads as one surface with the rest of the product — no cool default blue.
@@ -72,8 +72,12 @@ function registerCompletion(monaco: Monaco) {
         return { suggestions: [] };
       }
 
-      // Plain context. Columns of tables already referenced in the statement
-      // rank first; every table name next; other columns after keywords.
+      // Plain context. What ranks first follows the clause the cursor is in:
+      // columns while selecting or filtering, tables after FROM and JOIN.
+      const clause = clauseAt(fullText, model.getOffsetAt(position));
+      const wantsTables = clause === "from";
+      const columnRank = wantsTables ? "2" : "0";
+      const tableRank = wantsTables ? "0" : "1";
       const referenced = new Set(Object.values(aliases).map((table) => table.toLowerCase()));
       const localColumns = new Set<string>();
       for (const t of referenced) for (const c of tableColumns[t] ?? []) localColumns.add(c);
@@ -84,16 +88,25 @@ function registerCompletion(monaco: Monaco) {
       for (const c of localColumns) otherColumns.delete(c);
 
       const suggestions = [
-        ...[...localColumns].map((c) => ({ label: { label: c, description: "column" }, kind: K.Field, insertText: c, range, sortText: "0" + c })),
+        // A join the foreign keys allow, with its ON clause already written.
+        ...(wantsTables ? joinSuggestions(fullText, schemaRef.current) : []).map((join) => ({
+          label: { label: join.label, description: "join" },
+          kind: K.Snippet,
+          insertText: join.insertText,
+          detail: join.detail,
+          range,
+          sortText: "0" + join.label,
+        })),
+        ...[...localColumns].map((c) => ({ label: { label: c, description: "column" }, kind: K.Field, insertText: c, range, sortText: columnRank + c })),
         ...Object.entries(schemaNames).map(([key, name]) => ({ label: { label: name, description: "schema" }, kind: K.Module, insertText: name, range, sortText: "1" + key })),
         ...Object.entries(databaseNames).map(([key, name]) => ({ label: { label: name, description: "database" }, kind: K.Module, insertText: name, range, sortText: "1" + key })),
         ...Object.keys(tableColumns).map((t) => {
           const name = tableNames[t] ?? t;
-          return { label: { label: name, description: "table" }, kind: K.Struct, insertText: name, range, sortText: "1" + name };
+          return { label: { label: name, description: "table" }, kind: K.Struct, insertText: name, range, sortText: tableRank + name };
         }),
         ...SQL_KEYWORDS.map((k) => ({ label: { label: k, description: "keyword" }, kind: K.Keyword, insertText: k, range, sortText: "2" + k })),
         ...routines.map((r) => ({ label: { label: r.name, description: r.kind }, kind: K.Function, insertText: r.name, range, sortText: "3" + r.name })),
-        ...[...otherColumns].map((c) => ({ label: { label: c, description: "column" }, kind: K.Field, insertText: c, range, sortText: "4" + c })),
+        ...[...otherColumns].map((c) => ({ label: { label: c, description: "column" }, kind: K.Field, insertText: c, range, sortText: (wantsTables ? "4" : "3") + c })),
       ];
       return { suggestions };
     },
