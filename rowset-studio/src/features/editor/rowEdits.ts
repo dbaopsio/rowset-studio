@@ -68,20 +68,51 @@ export function editTarget(origins: (ColumnOrigin | null)[] | undefined, primary
   return { schema, table, columns, key };
 }
 
+// Rows typed into the grid become INSERT statements. Columns left untouched
+// are not written, so defaults and identity values still come from the
+// database.
+export function insertStatements(engine: string, target: EditTarget, rows: Map<number, string | null>[], types: (string | undefined)[] = []): string[] {
+  const tableName = qualifiedTable(engine, target);
+  return rows
+    .filter((row) => [...row.values()].some((value) => value !== null && value !== ""))
+    .map((row) => {
+      const indexes = [...row.keys()].filter((index) => target.columns[index]);
+      const names = indexes.map((index) => quoteIdentifier(engine, target.columns[index]!));
+      const values = indexes.map((index) => sqlLiteral(engine, row.get(index) ?? null, types[index]));
+      return names.length ? `INSERT INTO ${tableName} (${names.join(", ")}) VALUES (${values.join(", ")})` : "";
+    })
+    .filter(Boolean);
+}
+
+// Rows marked in the grid become DELETE statements matched on the primary key.
+export function deleteStatements(engine: string, target: EditTarget, rows: unknown[][], types: (string | undefined)[] = []): string[] {
+  const tableName = qualifiedTable(engine, target);
+  return rows.map((row) => `DELETE FROM ${tableName} WHERE ${keyCondition(engine, target, row, types)}`);
+}
+
+function qualifiedTable(engine: string, target: EditTarget) {
+  return (target.schema ? quoteIdentifier(engine, target.schema) + "." : "") + quoteIdentifier(engine, target.table);
+}
+
+function keyCondition(engine: string, target: EditTarget, row: unknown[], types: (string | undefined)[]) {
+  return target.key
+    .map((index) => {
+      const column = quoteIdentifier(engine, target.columns[index]!);
+      const value = row[index];
+      return value === null || value === undefined ? `${column} IS NULL` : `${column} = ${sqlLiteral(engine, value, types[index])}`;
+    })
+    .join(" AND ");
+}
+
 export function updateStatements(engine: string, target: EditTarget, edits: RowEdit[], types: (string | undefined)[] = []): string[] {
-  const tableName = (target.schema ? quoteIdentifier(engine, target.schema) + "." : "") + quoteIdentifier(engine, target.table);
+  const tableName = qualifiedTable(engine, target);
   return edits
     .filter((edit) => edit.values.size > 0)
     .map((edit) => {
       const assignments = [...edit.values.entries()]
         .filter(([index]) => target.columns[index] && !target.key.includes(index))
         .map(([index, value]) => `${quoteIdentifier(engine, target.columns[index]!)} = ${sqlLiteral(engine, value, types[index])}`);
-      const where = target.key.map((index) => {
-        const value = edit.row[index];
-        const column = quoteIdentifier(engine, target.columns[index]!);
-        return value === null || value === undefined ? `${column} IS NULL` : `${column} = ${sqlLiteral(engine, value, types[index])}`;
-      });
-      return assignments.length ? `UPDATE ${tableName} SET ${assignments.join(", ")} WHERE ${where.join(" AND ")}` : "";
+      return assignments.length ? `UPDATE ${tableName} SET ${assignments.join(", ")} WHERE ${keyCondition(engine, target, edit.row, types)}` : "";
     })
     .filter(Boolean);
 }

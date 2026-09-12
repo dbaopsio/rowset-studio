@@ -5,6 +5,14 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.44 — 2026-09-12
+
+- **Add and delete rows in the result grid**, next to editing cells: Add row
+  types a new row at the end, and clicking a row's number marks it for
+  deletion. Review shows the INSERT, UPDATE and DELETE statements, coloured,
+  before anything runs; they run through the editor, so policies, manual
+  commit and row backups apply as to any statement.
+
 ## 0.0.43 — 2026-09-12
 
 - The DDL of an object is shown with SQL colouring.

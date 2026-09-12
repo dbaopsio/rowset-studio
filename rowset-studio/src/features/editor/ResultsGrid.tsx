@@ -3,7 +3,8 @@ import { Icon } from "../../components/Icon";
 import { useActiveExtensions } from "../../app/extensions";
 import { Modal } from "../../components/ui";
 import { QueryResult } from "./api";
-import { editTarget, updateStatements, type EditTarget } from "./rowEdits";
+import { deleteStatements, editTarget, insertStatements, updateStatements, type EditTarget } from "./rowEdits";
+import SqlCode from "./SqlCode";
 import { resultCSV, resultJSON } from "./resultExport";
 import { compareCells } from "./resultSort";
 
@@ -13,7 +14,7 @@ export interface ResultEditing {
   engine: string;
   /** Primary-key column names of a table, or null when it has none. */
   primaryKey: (schema: string, table: string) => string[] | null;
-  /** Runs the UPDATE statements through the editor, then reloads the result. */
+  /** Runs the statements through the editor, then reloads the result. */
   onApply: (statements: string[]) => void;
 }
 
@@ -28,18 +29,46 @@ export default function ResultsGrid({ result, editing }: { result: QueryResult; 
   const target = useMemo(() => (editing ? editTarget(result.columnOrigins, editing.primaryKey) : null), [editing, result.columnOrigins]);
   const [editMode, setEditMode] = useState(false);
   const [edits, setEdits] = useState<CellEdits>(() => new Map());
+  // Rows typed in at the end of the grid, and rows marked for deletion.
+  const [drafts, setDrafts] = useState<Map<number, string | null>[]>([]);
+  const [deletions, setDeletions] = useState<Set<number>>(() => new Set());
   const [reviewing, setReviewing] = useState(false);
-  const changeCount = [...edits.values()].reduce((count, row) => count + row.size, 0);
-  const statements = useMemo(
-    () => (editing && target ? updateStatements(editing.engine, target, [...edits.entries()].map(([row, values]) => ({ row: result.rows[row], values })), result.columnTypes) : []),
-    [editing, target, edits, result.rows],
-  );
+  const changeCount = [...edits.values()].reduce((count, row) => count + row.size, 0) + drafts.length + deletions.size;
+  const statements = useMemo(() => {
+    if (!editing || !target) return [];
+    const types = result.columnTypes;
+    return [
+      ...insertStatements(editing.engine, target, drafts, types),
+      ...updateStatements(editing.engine, target, [...edits.entries()].map(([row, values]) => ({ row: result.rows[row], values })), types),
+      ...deleteStatements(editing.engine, target, [...deletions].map((row) => result.rows[row]), types),
+    ];
+  }, [editing, target, edits, drafts, deletions, result.rows, result.columnTypes]);
 
   // A new result starts clean.
   useEffect(() => {
     setEdits(new Map());
+    setDrafts([]);
+    setDeletions(new Set());
     setEditMode(false);
   }, [result]);
+
+  function setDraftCell(draft: number, column: number, value: string | null) {
+    setDrafts((current) => current.map((row, index) => (index === draft ? new Map(row).set(column, value) : row)));
+  }
+
+  function toggleDeletion(row: number) {
+    setDeletions((current) => {
+      const next = new Set(current);
+      if (!next.delete(row)) next.add(row);
+      return next;
+    });
+  }
+
+  function discard() {
+    setEdits(new Map());
+    setDrafts([]);
+    setDeletions(new Set());
+  }
 
   function setCell(row: number, column: number, value: string | null) {
     setEdits((current) => {
@@ -82,12 +111,18 @@ export default function ResultsGrid({ result, editing }: { result: QueryResult; 
             {editMode ? `Editing ${target?.table ?? ""}` : "Edit rows"}
           </button>
         )}
+        {editMode && target && (
+          <button type="button" onClick={() => setDrafts((current) => [...current, new Map()])} title="Type a new row at the end of the grid" className="flex h-6 items-center gap-1 rounded px-2 font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
+            <Icon name="plus" size={12} />
+            Add row
+          </button>
+        )}
         {changeCount > 0 && (
           <>
             <button type="button" onClick={() => setReviewing(true)} className="flex h-6 items-center rounded bg-emerald-600 px-2 font-medium text-white hover:bg-emerald-500">
               Review {changeCount} change{changeCount === 1 ? "" : "s"}
             </button>
-            <button type="button" onClick={() => setEdits(new Map())} className="flex h-6 items-center rounded px-2 font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
+            <button type="button" onClick={discard} className="flex h-6 items-center rounded px-2 font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
               Discard
             </button>
           </>
@@ -98,7 +133,9 @@ export default function ResultsGrid({ result, editing }: { result: QueryResult; 
         </div>
       </div>
       <div className="flex-1 overflow-auto">
-        {view === "grid" ? <GridView result={result} editable={editMode ? target : null} edits={edits} onEdit={setCell} /> : <TextView result={result} />}
+        {view === "grid" ? (
+          <GridView result={result} editable={editMode ? target : null} edits={edits} onEdit={setCell} drafts={drafts} onDraftEdit={setDraftCell} deletions={deletions} onToggleDelete={toggleDeletion} />
+        ) : <TextView result={result} />}
       </div>
       {reviewing && editing && (
         <Modal title="Apply changes" onClose={() => setReviewing(false)} size="lg">
@@ -106,10 +143,10 @@ export default function ResultsGrid({ result, editing }: { result: QueryResult; 
             <p className="text-[13px] text-slate-600 dark:text-slate-300">
               These statements run in the editor like any query, so policies apply and, in manual commit mode, nothing is saved until you press Commit. The result reloads afterwards.
             </p>
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 font-mono text-[11px] leading-5 text-slate-100">{statements.map((statement) => statement + ";").join("\n")}</pre>
+            <SqlCode sql={statements.map((statement) => statement + ";").join("\n")} className="max-h-72 rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900" />
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setReviewing(false)} className="inline-flex h-8 items-center rounded-md border border-slate-200 px-3 text-[13px] text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Cancel</button>
-              <button type="button" disabled={!statements.length} onClick={() => { editing.onApply(statements); setReviewing(false); setEdits(new Map()); setEditMode(false); }} className="inline-flex h-8 items-center rounded-md bg-emerald-600 px-3 text-[13px] font-medium text-white hover:bg-emerald-500 disabled:opacity-50">
+              <button type="button" disabled={!statements.length} onClick={() => { editing.onApply(statements); setReviewing(false); discard(); setEditMode(false); }} className="inline-flex h-8 items-center rounded-md bg-emerald-600 px-3 text-[13px] font-medium text-white hover:bg-emerald-500 disabled:opacity-50">
                 Apply {statements.length} statement{statements.length === 1 ? "" : "s"}
               </button>
             </div>
@@ -120,7 +157,7 @@ export default function ResultsGrid({ result, editing }: { result: QueryResult; 
   );
 }
 
-function GridView({ result, editable, edits, onEdit }: { result: QueryResult; editable?: EditTarget | null; edits?: CellEdits; onEdit?: (row: number, column: number, value: string | null) => void }) {
+function GridView({ result, editable, edits, onEdit, drafts = [], onDraftEdit, deletions, onToggleDelete }: { result: QueryResult; editable?: EditTarget | null; edits?: CellEdits; onEdit?: (row: number, column: number, value: string | null) => void; drafts?: Map<number, string | null>[]; onDraftEdit?: (draft: number, column: number, value: string | null) => void; deletions?: Set<number>; onToggleDelete?: (row: number) => void }) {
   const [editingCell, setEditingCell] = useState<{ row: number; column: number; text: string } | null>(null);
   const Mark = useActiveExtensions().find((item) => item.columnMark)?.columnMark;
   const [cellView, setCellView] = useState<{ column: string; value: unknown } | null>(null);
@@ -217,8 +254,19 @@ function GridView({ result, editable, edits, onEdit }: { result: QueryResult; ed
             const row = result.rows[rowIndex];
             const rowEdits = edits?.get(rowIndex);
             return (
-              <tr key={rowIndex} style={{ height: rowHeight }} className="hover:bg-slate-50 dark:hover:bg-slate-900">
-                <td className="whitespace-nowrap border-r border-slate-100 px-2 py-1.5 text-slate-400 dark:border-slate-800 dark:text-slate-500">{start + i + 1}</td>
+              <tr key={rowIndex} style={{ height: rowHeight }} className={`hover:bg-slate-50 dark:hover:bg-slate-900 ${deletions?.has(rowIndex) ? "bg-rose-50 line-through decoration-rose-400 dark:bg-rose-500/10" : ""}`}>
+                <td className="whitespace-nowrap border-r border-slate-100 px-2 py-1.5 text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                  {editable && onToggleDelete ? (
+                    <button
+                      type="button"
+                      onClick={() => onToggleDelete(rowIndex)}
+                      title={deletions?.has(rowIndex) ? "Keep this row" : "Mark this row for deletion"}
+                      className={`w-full text-left no-underline ${deletions?.has(rowIndex) ? "text-rose-600 dark:text-rose-400" : "hover:text-rose-600 dark:hover:text-rose-400"}`}
+                    >
+                      {deletions?.has(rowIndex) ? "✕" : start + i + 1}
+                    </button>
+                  ) : start + i + 1}
+                </td>
                 {row.map((cell, j) => {
                   const canEdit = Boolean(editable && editable.columns[j] && !editable.key.includes(j));
                   const changed = Boolean(rowEdits?.has(j));
@@ -260,6 +308,43 @@ function GridView({ result, editable, edits, onEdit }: { result: QueryResult; ed
               <td colSpan={result.columns.length + 1} style={{ height: `${paddingBottom}px`, border: 0, padding: 0 }} />
             </tr>
           )}
+          {drafts.map((draft, draftIndex) => {
+            const key = -1 - draftIndex;
+            return (
+              <tr key={key} style={{ height: rowHeight }} className="bg-emerald-50/60 dark:bg-emerald-500/10">
+                <td className="whitespace-nowrap border-r border-slate-100 px-2 py-1.5 text-[10px] font-medium uppercase text-emerald-700 dark:border-slate-800 dark:text-emerald-300">new</td>
+                {result.columns.map((_, j) => {
+                  const canEdit = Boolean(editable && editable.columns[j]);
+                  const value = draft.get(j);
+                  const inEdit = editingCell?.row === key && editingCell.column === j;
+                  const commit = (text: string | null) => { onDraftEdit?.(draftIndex, j, text); setEditingCell(null); };
+                  return (
+                    <td
+                      key={j}
+                      title={canEdit ? "Double-click to type a value; columns left empty keep their default" : "This column cannot be written"}
+                      onDoubleClick={() => canEdit && setEditingCell({ row: key, column: j, text: value ?? "" })}
+                      style={{ maxWidth: widths[j] ?? 480 }}
+                      className="overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-100 px-2 py-1.5 text-slate-700 dark:border-slate-800 dark:text-slate-200"
+                    >
+                      {inEdit ? (
+                        <span className="flex items-center gap-1">
+                          <input
+                            autoFocus
+                            value={editingCell.text}
+                            onChange={(event) => setEditingCell({ row: key, column: j, text: event.target.value })}
+                            onKeyDown={(event) => { if (event.key === "Enter") commit(editingCell.text); if (event.key === "Escape") setEditingCell(null); }}
+                            onBlur={() => commit(editingCell.text)}
+                            className="h-6 w-full min-w-[80px] rounded border border-sky-400 bg-white px-1 font-mono text-[12px] outline-none dark:bg-slate-900"
+                          />
+                          <button type="button" title="Set NULL" onMouseDown={(event) => { event.preventDefault(); commit(null); }} className="rounded border border-slate-300 px-1 text-[10px] text-slate-500 dark:border-slate-600">NULL</button>
+                        </span>
+                      ) : value === null ? <span className="text-slate-400">NULL</span> : value ? value : <span className="text-slate-300 dark:text-slate-600">default</span>}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

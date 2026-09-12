@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { editTarget, sqlLiteral, updateStatements } from "./rowEdits.ts";
+import { deleteStatements, editTarget, insertStatements, sqlLiteral, updateStatements } from "./rowEdits.ts";
 
 const origins = [
   { schema: "public", table: "customers", column: "id" },
@@ -47,4 +47,14 @@ test("binary cells are written as hex literals", () => {
   assert.deepEqual(updateStatements("postgres", target, edit, ["INT4", "BYTEA"]), ["UPDATE \"files\" SET \"data\" = '\\x00ff' WHERE \"id\" = 1"]);
   // Text that merely looks like hex stays text.
   assert.deepEqual(updateStatements("mysql", target, edit, ["INT", "VARCHAR"]), ["UPDATE `files` SET `data` = '\\\\x00ff' WHERE `id` = 1"]);
+});
+
+test("new rows become INSERTs and marked rows become DELETEs", () => {
+  const target = { schema: "sales", table: "orders", columns: ["id", "total", "note"], key: [0] };
+  const draft = new Map([[1, "9.5"], [2, null]]);
+  assert.deepEqual(insertStatements("postgres", target, [draft]), ['INSERT INTO "sales"."orders" ("total", "note") VALUES (\'9.5\', NULL)']);
+  // A row with nothing typed in is not written at all.
+  assert.deepEqual(insertStatements("postgres", target, [new Map([[1, ""]])]), []);
+  assert.deepEqual(deleteStatements("mysql", target, [[7, 1, "x"]]), ["DELETE FROM `sales`.`orders` WHERE `id` = 7"]);
+  assert.deepEqual(deleteStatements("mssql", target, [[null, 1, "x"]]), ["DELETE FROM [sales].[orders] WHERE [id] IS NULL"]);
 });
