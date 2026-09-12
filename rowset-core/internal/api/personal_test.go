@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dbaopsio/rowset-studio/rowset-core/internal/activity"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/auth"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/config"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/domain"
@@ -76,7 +75,7 @@ func TestPersonalPoliciesCanBeCreatedAndEnforceAgainstOwner(t *testing.T) {
 			t.Fatalf("owner policy bypass: %d %s", w.Code, w.Body.String())
 		}
 	}
-	items, err := activity.SQLite{Data: s.store}.ListQueryHistory(context.Background(), identity.UserID, "c", nil, nil)
+	items, err := s.activity.ListQueryHistory(context.Background(), identity.UserID, "c", nil, nil)
 	if err != nil || len(items) != 2 {
 		t.Fatalf("local history: %d %v", len(items), err)
 	}

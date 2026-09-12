@@ -97,6 +97,23 @@ Data lives in `Rowset/Community` under the user configuration directory
 example a disposable test workspace. The directory holds the encryption keys; do
 not share it. Exported workspace JSON is **not** encrypted.
 
+Rowset writes a copy of its database into `snapshots/` in the same directory
+once a day and keeps the newest seven. Before a new version upgrades the
+database it also writes a `before-…` copy, which is never rotated out. To go
+back to a copy, quit Rowset and put the file in place of
+`rowset-community.sqlite3`.
+
+Statement history and the audit log are kept for as long as you keep them. To
+remove old entries automatically, set a period in days:
+
+| Variable | Removes |
+| --- | --- |
+| `ROWSET_QUERY_HISTORY_RETENTION_DAYS` | history entries older than this |
+| `ROWSET_AUDIT_RETENTION_DAYS` | audit entries older than this |
+
+A shared server applies 30 days of history and 90 days of audit unless these are
+set; `0` keeps everything.
+
 ## Build from source
 
 ```sh
@@ -130,9 +147,10 @@ release workflow, which tests, builds and publishes the assets.
 (cd rowset-studio && npm run build && npm run lint && npm test)
 ```
 
-Live engine tests run against real PostgreSQL, MySQL and SQL Server servers and
-are skipped unless `ROWSET_MATRIX_POSTGRES_PASSWORD`,
-`ROWSET_MATRIX_MYSQL_PASSWORD` and `ROWSET_MATRIX_MSSQL_PASSWORD` are set.
+Live engine tests run against real PostgreSQL, MySQL, MariaDB and SQL Server
+servers and are skipped unless `ROWSET_MATRIX_POSTGRES_PASSWORD`,
+`ROWSET_MATRIX_MYSQL_PASSWORD`, `ROWSET_MATRIX_MARIADB_PASSWORD` and
+`ROWSET_MATRIX_MSSQL_PASSWORD` are set.
 
 The version lives in `rowset-studio/package.json`; the build scripts stamp it
 into Studio, the executable and the macOS app. See [CHANGELOG.md](CHANGELOG.md).

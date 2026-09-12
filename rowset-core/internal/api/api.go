@@ -54,11 +54,14 @@ type Server struct {
 	stopSchedules       context.CancelFunc
 	scheduleRuns        sync.WaitGroup
 	importMu            sync.Mutex
+	stopRetention       context.CancelFunc
 	imports             map[string]*csvUpload
 }
 
 func New(cfg config.Config, data *store.Store, issuer *auth.Issuer, logger *slog.Logger) *Server {
-	return NewWithActivity(cfg, data, activity.SQLite{Data: data}, issuer, logger)
+	// Statements are recorded by one background writer in batches, so an
+	// audit write never holds up the statement it describes.
+	return NewWithActivity(cfg, data, activity.NewBuffered(activity.SQLite{Data: data}, 4096), issuer, logger)
 }
 
 func NewWithActivity(cfg config.Config, data *store.Store, activityStore activity.Store, issuer *auth.Issuer, logger *slog.Logger) *Server {
@@ -71,6 +74,12 @@ func NewWithActivity(cfg config.Config, data *store.Store, activityStore activit
 	server := &Server{config: cfg, store: data, activity: activityStore, issuer: issuer, logger: logger, vault: secretVault, engines: engine.NewManager(), txns: make(map[string]*transactionEntry), stopTransactions: cancel, topologyLocks: make(map[string]*sync.Mutex), stopTopology: stopTopology, rateClients: make(map[string]*rateWindow)}
 	go server.transactionReaper(txnContext)
 	go server.topologyRefresher(topologyContext)
+	retentionContext, stopRetention := context.WithCancel(context.Background())
+	server.stopRetention = stopRetention
+	// The periods are settled here, before the loop starts, so it never reads
+	// configuration another goroutine could still be setting up.
+	auditDays, historyDays := server.retentionPeriods()
+	go server.activityRetention(retentionContext, auditDays, historyDays)
 	server.scheduleRunning = map[string]bool{}
 	server.imports = map[string]*csvUpload{}
 	server.scheduleContext, server.stopSchedules = context.WithCancel(context.Background())
@@ -106,6 +115,13 @@ func (s *Server) Close() error {
 		item.mu.Lock()
 		_ = item.transaction.Rollback()
 		item.mu.Unlock()
+	}
+	if s.stopRetention != nil {
+		s.stopRetention()
+	}
+	// Queued activity is written before the store closes behind the server.
+	if closer, ok := s.activity.(interface{ Close() }); ok {
+		closer.Close()
 	}
 	return s.engines.Close()
 }
@@ -143,6 +159,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/connections/{id}", s.requireAdmin(http.HandlerFunc(s.deleteConnection)))
 	mux.Handle("POST /api/connections/{id}/test", s.requireAdmin(http.HandlerFunc(s.testConnection)))
 	mux.Handle("GET /api/connections/{id}/schema", s.authenticated(http.HandlerFunc(s.connectionSchema)))
+	mux.Handle("POST /api/connections/{id}/schema/refresh", s.authenticated(http.HandlerFunc(s.refreshConnectionSchema)))
 	mux.Handle("GET /api/connections/{id}/ddl", s.authenticated(http.HandlerFunc(s.objectDDL)))
 	mux.Handle("GET /api/connections/{id}/databases", s.authenticated(http.HandlerFunc(s.listDatabases)))
 	mux.Handle("POST /api/connections/{id}/query", s.authenticated(http.HandlerFunc(s.runQuery)))

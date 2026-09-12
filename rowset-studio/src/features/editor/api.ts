@@ -218,6 +218,12 @@ export function listMyHistory(filters?: { from?: string; to?: string }) {
   return api<{ history: HistoryItem[] | null }>(`/history${suffix}`).then((r) => r.history ?? []);
 }
 
+// The server keeps a loaded schema for a short while; this makes the next
+// load read the database's catalog again, for objects changed elsewhere.
+export function forgetSchema(connectionId: string) {
+  return api<void>(`/connections/${connectionId}/schema/refresh`, { method: "POST" });
+}
+
 export function getSchema(connectionId: string, database?: string) {
   const qs = database ? `?database=${encodeURIComponent(database)}` : "";
   return api<SchemaInfo>(`/connections/${connectionId}/schema${qs}`).then(normalizeSchema);

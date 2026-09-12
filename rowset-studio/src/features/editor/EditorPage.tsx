@@ -15,7 +15,7 @@ import RunToolbar, { type WorkspaceStatus } from "./RunToolbar";
 import SaveToNotebookDialog from "../notebooks/SaveToNotebookDialog";
 import PlanPanel, { type PlanState } from "../plan/PlanPanel";
 import SchemaBrowser from "./SchemaBrowser";
-import { explainQuery, exportTable, listDatabases, runQuery, beginTxn, txnQuery, commitTxn, rollbackTxn, type QueryResult } from "./api";
+import { explainQuery, exportTable, forgetSchema, listDatabases, runQuery, beginTxn, txnQuery, commitTxn, rollbackTxn, type QueryResult } from "./api";
 import { buildSqlCompletions } from "./sqlCompletions";
 import { useSchema } from "./useEditor";
 import { formatSql, statementAt, splitStatements } from "./sqlText";
@@ -1138,7 +1138,7 @@ function ConnectionBranch({
               label: "Refresh databases and schema",
               onSelect: () => {
                 void queryClient.invalidateQueries({ queryKey: ["databases", conn.id] });
-                void queryClient.invalidateQueries({ queryKey: ["schema", conn.id] });
+                void forgetSchema(conn.id).finally(() => queryClient.invalidateQueries({ queryKey: ["schema", conn.id] }));
               },
             },
             { label: "Edit connection", onSelect: () => navigate("/connections") },
@@ -1217,7 +1217,7 @@ function DatabaseBranch({
           className="opacity-0 group-hover:opacity-100"
           items={[
             { label: "Show diagram", onSelect: () => navigate(`/diagram?connection=${encodeURIComponent(connectionId)}&database=${encodeURIComponent(name)}`) },
-            { label: "Refresh schema", onSelect: () => void queryClient.invalidateQueries({ queryKey: ["schema", connectionId, name] }) },
+            { label: "Refresh schema", onSelect: () => void forgetSchema(connectionId).finally(() => queryClient.invalidateQueries({ queryKey: ["schema", connectionId, name] })) },
           ]}
         />
         <CountPill>{!shouldLoadSchema ? "—" : isFetching && tableCount === undefined ? "…" : tableCount ?? 0}</CountPill>

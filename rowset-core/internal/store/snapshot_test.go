@@ -2,10 +2,13 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestSnapshotWritesAnOpenableCopy(t *testing.T) {
@@ -99,5 +102,86 @@ func TestPruneSnapshotsKeepsEverythingWhenKeepIsZero(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(directory, "rowset-20260912-000000.sqlite3")); err != nil {
 		t.Fatalf("snapshot removed with keep=0: %v", err)
+	}
+}
+
+func TestDailySnapshotSkipsWhenARecentOneExists(t *testing.T) {
+	ctx := context.Background()
+	directory := t.TempDir()
+	data, err := Open(ctx, filepath.Join(directory, "rowset-community.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	snapshots := filepath.Join(directory, "snapshots")
+	if err := os.MkdirAll(snapshots, 0700); err != nil {
+		t.Fatal(err)
+	}
+	old := "rowset-" + time.Now().UTC().Add(-26*time.Hour).Format("20060102-150405") + ".sqlite3"
+	if err := os.WriteFile(filepath.Join(snapshots, old), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := data.DailySnapshot(ctx, snapshots, 7)
+	if err != nil || first == "" {
+		t.Fatalf("a day-old snapshot did not lead to a new one: %q %v", first, err)
+	}
+	// Restarting again the same day must not take another copy and rotate
+	// out older ones.
+	second, err := data.DailySnapshot(ctx, snapshots, 7)
+	if err != nil || second != "" {
+		t.Fatalf("a second snapshot was taken the same day: %q %v", second, err)
+	}
+}
+
+func TestPendingMigrationsAreBackedUpBeforeTheyRun(t *testing.T) {
+	ctx := context.Background()
+	directory := t.TempDir()
+	path := filepath.Join(directory, "rowset-community.sqlite3")
+	backups := filepath.Join(directory, "snapshots")
+
+	// A new database has nothing to lose, so nothing is copied.
+	data, err := Open(ctx, path, WithMigrationBackup(backups))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := os.ReadDir(backups); len(entries) != 0 {
+		t.Fatalf("a new database was backed up: %d files", len(entries))
+	}
+	var latest int64
+	if err := data.db.QueryRowContext(ctx, "SELECT MAX(version) FROM rowset_go_migrations").Scan(&latest); err != nil {
+		t.Fatal(err)
+	}
+	// Pretend this database predates the latest migration. The newest one is
+	// written to run again safely.
+	if _, err := data.db.ExecContext(ctx, "DELETE FROM rowset_go_migrations WHERE version=?", latest); err != nil {
+		t.Fatal(err)
+	}
+	data.Close()
+
+	upgraded, err := Open(ctx, path, WithMigrationBackup(backups))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upgraded.Close()
+	entries, err := os.ReadDir(backups)
+	if err != nil || len(entries) != 1 || !strings.HasPrefix(entries[0].Name(), "before-") {
+		t.Fatalf("expected one pre-upgrade copy, got %v %v", entries, err)
+	}
+	// Read the copy as a plain file: opening it as a store would apply the
+	// migration to it and hide what state it was taken in.
+	raw, err := sql.Open("sqlite", "file:"+filepath.ToSlash(filepath.Join(backups, entries[0].Name()))+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	var inCopy, inLive int
+	if err := raw.QueryRowContext(ctx, "SELECT COUNT(*) FROM rowset_go_migrations WHERE version=?", latest).Scan(&inCopy); err != nil {
+		t.Fatal(err)
+	}
+	if err := upgraded.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM rowset_go_migrations WHERE version=?", latest).Scan(&inLive); err != nil {
+		t.Fatal(err)
+	}
+	if inCopy != 0 || inLive != 1 {
+		t.Fatalf("copy was not taken before the upgrade: migration %d in copy=%d, in live=%d", latest, inCopy, inLive)
 	}
 }

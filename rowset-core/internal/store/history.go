@@ -35,16 +35,33 @@ func (s *Store) DeleteSavedQuery(ctx context.Context, id, userID string) error {
 	return requireChanged(result)
 }
 
+const insertQueryHistory = "INSERT INTO query_history(id,user_id,connection_id,sql,normalized_sql,query_hash,status,rows_returned,duration_ms,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)"
+
 func (s *Store) CreateQueryHistory(ctx context.Context, item domain.QueryHistory) error {
-	_, err := s.db.ExecContext(ctx, "INSERT INTO query_history(id,user_id,connection_id,sql,normalized_sql,query_hash,status,rows_returned,duration_ms,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", item.ID, item.UserID, item.ConnectionID, item.SQL, item.NormalizedSQL, item.QueryHash, item.Status, item.RowsReturned, item.DurationMS, item.CreatedAt)
+	_, err := s.db.ExecContext(ctx, insertQueryHistory, item.ID, item.UserID, item.ConnectionID, item.SQL, item.NormalizedSQL, item.QueryHash, item.Status, item.RowsReturned, item.DurationMS, item.CreatedAt)
 	return mapError(err)
 }
 
 func (s *Store) ListQueryHistory(ctx context.Context, userID, connectionID string, from, to *string) ([]domain.QueryHistory, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,user_id,connection_id,sql,COALESCE(normalized_sql,''),COALESCE(query_hash,''),COALESCE(status,''),COALESCE(rows_returned,0),COALESCE(duration_ms,0),created_at
-		FROM query_history WHERE user_id=?1 AND (?2 = '' OR connection_id=?2)
-		AND (?3 IS NULL OR created_at>=?3) AND (?4 IS NULL OR created_at<=?4)
-		ORDER BY created_at DESC LIMIT 200`, userID, connectionID, from, to)
+	// Only the conditions that apply are written. "?2 = '' OR connection_id=?2"
+	// reads the same but hides the column from the planner, which then sorts
+	// every statement the person ever ran to return the newest 200.
+	query := `SELECT id,user_id,connection_id,sql,COALESCE(normalized_sql,''),COALESCE(query_hash,''),COALESCE(status,''),COALESCE(rows_returned,0),COALESCE(duration_ms,0),created_at
+		FROM query_history WHERE user_id=?`
+	args := []any{userID}
+	if connectionID != "" {
+		query += " AND connection_id=?"
+		args = append(args, connectionID)
+	}
+	if from != nil {
+		query += " AND created_at>=?"
+		args = append(args, *from)
+	}
+	if to != nil {
+		query += " AND created_at<=?"
+		args = append(args, *to)
+	}
+	rows, err := s.db.QueryContext(ctx, query+" ORDER BY created_at DESC LIMIT 200", args...)
 	if err != nil {
 		return nil, err
 	}

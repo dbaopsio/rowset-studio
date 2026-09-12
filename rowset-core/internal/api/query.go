@@ -192,7 +192,12 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 			writeError(w, http.StatusInternalServerError, "INTERNAL", "failed to prepare the result")
 			return
 		}
+		// Forgotten before the response as well as after it: a client reloads
+		// the schema the moment the last row arrives, which can be before
+		// this handler gets past the response.
+		s.forgetSchemaAfter(info.Kind, connection.ID)
 		s.streamQueryResponse(w, r, connection, input.SQL, normalized, queryHash, reference, stream, transforms, annotations.merge(resultNotes), policyCap, rowLimit)
+		s.forgetSchemaAfter(info.Kind, connection.ID)
 		// Ending a capped read leaves the database still producing rows;
 		// cancelling first lets the driver abort instead of draining them.
 		stopStream()
@@ -216,11 +221,23 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 		writeStatementError(w, err, effectiveSQL, transaction)
 		return
 	}
+	s.forgetSchemaAfter(info.Kind, connection.ID)
 	rowCount := result.RowsAffected
 	s.recordActivity(r, connection.ID, input.SQL, "success", rowCount, result.DurationMS, normalized, queryHash, auditMeta{decision: "allow", reference: reference, command: true})
 	go s.notifyLongStatement(identity.UserID, connection.Name, input.SQL, rowCount, time.Duration(result.DurationMS)*time.Millisecond, "")
 	response := map[string]any{"columns": []string{}, "rows": [][]any{}, "rowCount": rowCount, "rowsAffected": result.RowsAffected, "durationMs": result.DurationMS, "truncated": false}
 	writeJSON(w, http.StatusOK, annotations.addTo(response))
+}
+
+// forgetSchemaAfter drops the cached schema after a statement that can
+// create, alter or drop objects — DDL, a script, a procedure call — so the
+// explorer and autocomplete show the change straight away.
+func (s *Server) forgetSchemaAfter(kind sqlguard.Kind, connectionID string) {
+	switch kind {
+	case sqlguard.Select, sqlguard.Insert, sqlguard.Update, sqlguard.Delete, sqlguard.Session:
+		return
+	}
+	s.engines.InvalidateSchema(connectionID)
 }
 
 func elapsedMilliseconds(started time.Time) int64 {

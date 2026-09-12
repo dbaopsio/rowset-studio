@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -44,22 +45,78 @@ func optionalNumber(value int64, set bool) string {
 var auditReferenceColumn string
 
 func (s *Store) WriteAudit(ctx context.Context, item domain.AuditLog) error {
+	return s.WriteActivity(ctx, []domain.AuditLog{item}, nil)
+}
+
+const auditChainQuery = "SELECT entry_hash FROM audit_logs WHERE org_id=? AND entry_hash IS NOT NULL ORDER BY rowid DESC LIMIT 1"
+
+// WriteActivity stores audit entries and history rows in one transaction.
+// The chain head of each organization is read once and carried forward in
+// memory, so a batch costs one lookup and one commit however many rows it
+// holds. Entries are chained in the order given.
+func (s *Store) WriteActivity(ctx context.Context, audits []domain.AuditLog, histories []domain.QueryHistory) error {
+	if len(audits) == 0 && len(histories) == 0 {
+		return nil
+	}
 	s.auditMu.Lock()
 	defer s.auditMu.Unlock()
-	var previous sql.NullString
-	if item.OrgID != "" {
-		_ = s.db.QueryRowContext(ctx, "SELECT entry_hash FROM audit_logs WHERE org_id=? AND entry_hash IS NOT NULL ORDER BY rowid DESC LIMIT 1", item.OrgID).Scan(&previous)
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
 	}
-	item = PrepareAudit(previous.String, item)
-	columns := "id,user_id,org_id,role,connection_id,sql,normalized_sql,query_hash,client_type,client_ip,user_agent,started_at,duration_ms,rows_returned,rows_affected,policy_decision,policy_reason,policy_id,error_message,created_at,prev_hash,entry_hash,hash_version"
-	args := []any{item.ID, nullText(item.UserID), nullText(item.OrgID), nullText(item.Role), nullText(item.ConnectionID), nullText(item.SQL), nullText(item.NormalizedSQL), nullText(item.QueryHash), nullText(item.ClientType), nullText(item.ClientIP), nullText(item.UserAgent), nullText(item.StartedAt), item.DurationMS, nullableNumber(item.RowsReturned, item.RowsReturnedSet), nullableNumber(item.RowsAffected, item.RowsAffectedSet), nullText(item.PolicyDecision), nullText(item.PolicyReason), nullText(item.PolicyID), nullText(item.ErrorMessage), item.CreatedAt, nullText(item.PreviousHash), item.EntryHash, item.HashVersion}
-	if auditReferenceColumn != "" {
-		columns += "," + auditReferenceColumn
-		args = append(args, nullText(item.Reference))
+	defer conn.Close()
+	// IMMEDIATE takes the write lock before the chain head is read, so no
+	// other writer can commit between the read and the inserts; waiting for
+	// the lock goes through busy_timeout like any other write.
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return mapError(err)
 	}
-	_, err := s.db.ExecContext(ctx, "INSERT INTO audit_logs("+columns+") VALUES("+strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")+")", args...)
-	return mapError(err)
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		}
+	}()
+	heads := map[string]string{}
+	for _, item := range audits {
+		previous := ""
+		if item.OrgID != "" {
+			head, known := heads[item.OrgID]
+			if !known {
+				var value sql.NullString
+				if err := conn.QueryRowContext(ctx, auditChainQuery, item.OrgID).Scan(&value); err != nil && !errors.Is(err, sql.ErrNoRows) {
+					return mapError(err)
+				}
+				head = value.String
+			}
+			previous = head
+		}
+		item = PrepareAudit(previous, item)
+		if item.OrgID != "" {
+			heads[item.OrgID] = item.EntryHash
+		}
+		columns := "id,user_id,org_id,role,connection_id,sql,normalized_sql,query_hash,client_type,client_ip,user_agent,started_at,duration_ms,rows_returned,rows_affected,policy_decision,policy_reason,policy_id,error_message,created_at,prev_hash,entry_hash,hash_version"
+		args := []any{item.ID, nullText(item.UserID), nullText(item.OrgID), nullText(item.Role), nullText(item.ConnectionID), nullText(item.SQL), nullText(item.NormalizedSQL), nullText(item.QueryHash), nullText(item.ClientType), nullText(item.ClientIP), nullText(item.UserAgent), nullText(item.StartedAt), item.DurationMS, nullableNumber(item.RowsReturned, item.RowsReturnedSet), nullableNumber(item.RowsAffected, item.RowsAffectedSet), nullText(item.PolicyDecision), nullText(item.PolicyReason), nullText(item.PolicyID), nullText(item.ErrorMessage), item.CreatedAt, nullText(item.PreviousHash), item.EntryHash, item.HashVersion}
+		if auditReferenceColumn != "" {
+			columns += "," + auditReferenceColumn
+			args = append(args, nullText(item.Reference))
+		}
+		if _, err := conn.ExecContext(ctx, "INSERT INTO audit_logs("+columns+") VALUES("+strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")+")", args...); err != nil {
+			return mapError(err)
+		}
+	}
+	for _, item := range histories {
+		if _, err := conn.ExecContext(ctx, insertQueryHistory, item.ID, item.UserID, item.ConnectionID, item.SQL, item.NormalizedSQL, item.QueryHash, item.Status, item.RowsReturned, item.DurationMS, item.CreatedAt); err != nil {
+			return mapError(err)
+		}
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return mapError(err)
+	}
+	committed = true
+	return nil
 }
+
 func nullText(value string) any {
 	if value == "" {
 		return nil

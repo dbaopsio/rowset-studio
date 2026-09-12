@@ -119,8 +119,9 @@ type Schema struct {
 }
 
 type Manager struct {
-	mu    sync.Mutex
-	pools map[string]*sql.DB
+	mu      sync.Mutex
+	pools   map[string]*sql.DB
+	schemas schemaCache
 }
 
 func NewManager() *Manager { return &Manager{pools: make(map[string]*sql.DB)} }
@@ -141,6 +142,7 @@ func (m *Manager) Invalidate(connectionID string) error {
 	if connectionID == "" {
 		return nil
 	}
+	m.InvalidateSchema(connectionID)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var joined error

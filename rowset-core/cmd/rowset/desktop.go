@@ -115,19 +115,14 @@ func desktop() error {
 	if err != nil {
 		return err
 	}
-	data, err := store.Open(context.Background(), cfg.DBPath)
+	snapshots := filepath.Join(directory, "snapshots")
+	data, err := store.Open(context.Background(), cfg.DBPath, store.WithMigrationBackup(snapshots))
 	if err != nil {
 		return err
 	}
 	defer data.Close()
 	if err := data.ClaimMode(context.Background(), false); err != nil {
 		return err
-	}
-	// A copy of yesterday's database is the only thing that helps when a
-	// migration or a mistake takes the live one; failing to write one is not a
-	// reason to refuse to start.
-	if _, err := data.Snapshot(context.Background(), filepath.Join(directory, "snapshots"), 7); err != nil {
-		fmt.Fprintf(os.Stderr, "Rowset: could not write a snapshot of the database: %v\n", err)
 	}
 	hasUsers, err := data.HasUsers(context.Background())
 	if err != nil {
@@ -161,6 +156,21 @@ func desktop() error {
 	}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
+	// One copy a day, taken once the server is answering so a large database
+	// does not hold up opening Rowset. Shutdown interrupts the copy and waits
+	// for it, so the store is never closed underneath it. Failing to write one
+	// is not a reason to stop.
+	snapshotted := make(chan struct{})
+	go func() {
+		defer close(snapshotted)
+		if _, err := data.DailySnapshot(ctx, snapshots, 7); err != nil && ctx.Err() == nil {
+			fmt.Fprintf(os.Stderr, "Rowset: could not write a snapshot of the database: %v\n", err)
+		}
+	}()
+	defer func() {
+		stop()
+		<-snapshotted
+	}()
 	if os.Getenv("ROWSET_DESKTOP_NO_BROWSER") != "1" {
 		if err := openDesktopState(directory); err != nil {
 			stop()

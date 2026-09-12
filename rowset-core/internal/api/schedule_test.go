@@ -188,7 +188,7 @@ func TestLiveScheduledQueryWritesFiles(t *testing.T) {
 			t.Fatalf("%s file %s: %q %v", format, *runs[0].OutputPath, content, err)
 		}
 	}
-	history, _ := s.store.ListQueryHistory(context.Background(), identity.UserID, connectionID, nil, nil)
+	history, _ := s.activity.ListQueryHistory(context.Background(), identity.UserID, connectionID, nil, nil)
 	if len(history) != 2 {
 		t.Fatalf("scheduled runs missing from activity: %d", len(history))
 	}

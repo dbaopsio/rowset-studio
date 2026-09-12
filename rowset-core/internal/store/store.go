@@ -31,9 +31,22 @@ var migrationFiles embed.FS
 type Store struct {
 	db      *sql.DB
 	auditMu sync.Mutex
+	// migrationBackupDir receives a copy of the database before pending
+	// migrations change it.
+	migrationBackupDir string
 }
 
-func Open(ctx context.Context, path string) (*Store, error) {
+// Option adjusts how a store is opened.
+type Option func(*Store)
+
+// WithMigrationBackup copies an existing database into directory before any
+// pending migration is applied, and refuses to upgrade it when the copy
+// cannot be written.
+func WithMigrationBackup(directory string) Option {
+	return func(s *Store) { s.migrationBackupDir = directory }
+}
+
+func Open(ctx context.Context, path string, options ...Option) (*Store, error) {
 	if path == "" {
 		return nil, errors.New("database path is empty")
 	}
@@ -59,6 +72,12 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	db.SetMaxIdleConns(2)
 	db.SetConnMaxLifetime(0)
 	store := &Store{db: db}
+	for _, option := range options {
+		option(store)
+	}
+	if path == ":memory:" {
+		store.migrationBackupDir = ""
+	}
 	if err := store.migrate(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -91,6 +110,39 @@ func (s *Store) Snapshot(ctx context.Context, directory string, keep int) (strin
 		return path, err
 	}
 	return path, nil
+}
+
+// snapshotInterval is the least time between two daily snapshots. It is
+// shorter than a day so someone who opens Rowset every morning, a little
+// earlier or later each time, still gets one each day.
+const snapshotInterval = 20 * time.Hour
+
+// DailySnapshot takes a snapshot unless the newest one is recent. Restarting
+// Rowset many times in a day therefore does not rotate out last week's copy.
+func (s *Store) DailySnapshot(ctx context.Context, directory string, keep int) (string, error) {
+	if newest, ok := newestSnapshot(directory); ok && time.Since(newest) < snapshotInterval {
+		return "", nil
+	}
+	return s.Snapshot(ctx, directory, keep)
+}
+
+func newestSnapshot(directory string) (time.Time, bool) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return time.Time{}, false
+	}
+	var newest time.Time
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, "rowset-") || !strings.HasSuffix(name, ".sqlite3") {
+			continue
+		}
+		taken, err := time.Parse("20060102-150405", strings.TrimSuffix(strings.TrimPrefix(name, "rowset-"), ".sqlite3"))
+		if err == nil && taken.After(newest) {
+			newest = taken
+		}
+	}
+	return newest, !newest.IsZero()
 }
 
 // The names carry a sortable timestamp, so the oldest are simply the first.
@@ -167,6 +219,10 @@ func (s *Store) Close() error                   { return s.db.Close() }
 func (s *Store) DB() *sql.DB                    { return s.db }
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
 
+// purgeChunk bounds how long one delete holds the write lock, so statements
+// keep being recorded while years of activity are removed.
+const purgeChunk = 2000
+
 func (s *Store) PurgeActivity(ctx context.Context, auditDays, historyDays *uint32) (uint64, uint64, error) {
 	var deleted [2]uint64
 	for index, item := range []struct {
@@ -176,15 +232,23 @@ func (s *Store) PurgeActivity(ctx context.Context, auditDays, historyDays *uint3
 		if item.days == nil {
 			continue
 		}
-		result, err := s.db.ExecContext(ctx, "DELETE FROM "+item.table+" WHERE created_at<datetime('now', ?)", fmt.Sprintf("-%d days", *item.days))
-		if err != nil {
-			return deleted[0], deleted[1], err
+		// created_at is stored as RFC 3339 ("2026-09-12T19:19:56.1Z"); the
+		// cutoff is written the same way so the two compare as text.
+		cutoff := time.Now().UTC().AddDate(0, 0, -int(*item.days)).Format(time.RFC3339Nano)
+		for {
+			result, err := s.db.ExecContext(ctx, "DELETE FROM "+item.table+" WHERE rowid IN (SELECT rowid FROM "+item.table+" WHERE created_at<? LIMIT ?)", cutoff, purgeChunk)
+			if err != nil {
+				return deleted[0], deleted[1], err
+			}
+			count, err := result.RowsAffected()
+			if err != nil {
+				return deleted[0], deleted[1], err
+			}
+			deleted[index] += uint64(count)
+			if count < purgeChunk {
+				break
+			}
 		}
-		count, err := result.RowsAffected()
-		if err != nil {
-			return deleted[0], deleted[1], err
-		}
-		deleted[index] = uint64(count)
 	}
 	return deleted[0], deleted[1], nil
 }
@@ -286,6 +350,20 @@ func (s *Store) migrate(ctx context.Context) error {
 		return err
 	}
 
+	// A database that already holds data is copied before a new version
+	// changes its schema: that copy, not one taken afterwards, is what undoes
+	// a migration that went wrong.
+	if len(known) > 0 && s.migrationBackupDir != "" {
+		for _, item := range migrations {
+			if _, applied := known[item.version]; !applied {
+				if err := s.backupBeforeMigrating(ctx, conn, item.name); err != nil {
+					return err
+				}
+				break
+			}
+		}
+	}
+
 	for _, migration := range migrations {
 		if checksum, ok := known[migration.version]; ok {
 			if checksum != migration.checksum {
@@ -318,6 +396,18 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err := extend(ctx, conn); err != nil {
 			return fmt.Errorf("extend schema: %w", err)
 		}
+	}
+	return nil
+}
+
+func (s *Store) backupBeforeMigrating(ctx context.Context, conn *sql.Conn, next string) error {
+	if err := mkdirAll(s.migrationBackupDir); err != nil {
+		return fmt.Errorf("prepare the backup before upgrading the database: %w", err)
+	}
+	name := "before-" + strings.TrimSuffix(next, ".sql") + "-" + time.Now().UTC().Format("20060102-150405") + ".sqlite3"
+	path := filepath.Join(s.migrationBackupDir, name)
+	if _, err := conn.ExecContext(ctx, "VACUUM INTO ?", path); err != nil {
+		return fmt.Errorf("the database was not upgraded because a copy of it could not be written to %s first (%w); free some disk space and start Rowset again", s.migrationBackupDir, err)
 	}
 	return nil
 }

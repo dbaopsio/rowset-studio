@@ -424,12 +424,24 @@ func (s *Server) connectionSchema(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := withConnectionTimeout(r, connection, 0, 60*time.Second)
 	defer cancel()
-	schema, err := s.engines.Schema(ctx, target)
+	refresh := r.URL.Query().Get("refresh") == "1"
+	schema, err := s.engines.CachedSchema(ctx, target, refresh)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "EXEC_ERROR", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, schemaJSON(schema))
+}
+
+// refreshConnectionSchema forgets the cached schema of every database on the
+// connection, for when objects were changed from another tool.
+func (s *Server) refreshConnectionSchema(w http.ResponseWriter, r *http.Request) {
+	connection, ok := s.authorizedConnection(w, r)
+	if !ok {
+		return
+	}
+	s.engines.InvalidateSchema(connection.ID)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) listDatabases(w http.ResponseWriter, r *http.Request) {

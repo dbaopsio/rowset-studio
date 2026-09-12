@@ -5,6 +5,34 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.55 — 2026-09-12
+
+- Statements are recorded by one background writer in batches instead of two
+  writes on every request. With 48 concurrent writers the local store went from
+  613 to about 46,000 records a second. A record is never dropped: when the
+  queue is full a request waits for room rather than competing with the writer
+  for SQLite's lock, and history still shows a statement as soon as it has run.
+- The audit chain reads its newest entry through an index. At 200,000 audit
+  entries that read took 40 ms on every statement, behind a lock; it now takes
+  0.01 ms.
+- History is listed through its index instead of sorting every statement a
+  person ever ran (20 ms at 200,000 rows).
+- Retention periods are applied once a day on a shared server. A personal
+  workspace keeps its history and audit log unless a period is set explicitly.
+  Old entries are removed in small batches, so statements keep being recorded
+  meanwhile, and the cutoff is compared in the same format the entries use.
+- Snapshots are taken at most once a day, after Rowset is already answering.
+  Taking one on every start meant a few restarts in a day rotated out last
+  week's copy, and a large database held up opening the app.
+- Before a new version applies migrations to an existing database, Rowset
+  copies it to `snapshots/before-<migration>-<time>.sqlite3` and does not
+  upgrade when that copy cannot be written. The daily snapshot is taken after
+  migrations, so it could never undo one that went wrong.
+- A loaded schema is reused for 30 seconds and loaded once when the explorer,
+  autocomplete, the diagram and the assistant ask at the same time. DDL, a
+  script or a procedure run through Rowset, the end of a transaction, editing
+  the connection and Refresh all read the catalog again straight away.
+
 ## 0.0.54 — 2026-09-12
 
 - Rowset writes a snapshot of its own database into `snapshots/` beside it on

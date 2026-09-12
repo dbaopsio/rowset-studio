@@ -218,6 +218,9 @@ func (s *Server) finishTransaction(w http.ResponseWriter, r *http.Request, commi
 		writeError(w, 502, "TXN_FINISH_ERROR", "Transaction handle closed. Verify the database state before retrying writes: "+err.Error())
 		return
 	}
+	// Objects created or dropped inside the transaction only become real, or
+	// disappear, when it ends.
+	s.engines.InvalidateSchema(connection.ID)
 	w.WriteHeader(204)
 }
 

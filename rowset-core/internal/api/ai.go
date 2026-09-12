@@ -206,7 +206,7 @@ func (s *Server) schemaSummary(r *http.Request, connection domain.Connection, da
 	}
 	ctx, cancel := withConnectionTimeout(r, connection, 0, 60*time.Second)
 	defer cancel()
-	schema, err := s.engines.Schema(ctx, target)
+	schema, err := s.engines.CachedSchema(ctx, target, false)
 	if err != nil {
 		return ""
 	}
