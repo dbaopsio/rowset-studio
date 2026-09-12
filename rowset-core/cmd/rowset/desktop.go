@@ -70,6 +70,15 @@ func desktop() error {
 	defer listener.Close()
 	port = listener.Addr().(*net.TCPAddr).Port
 	configPath := filepath.Join(directory, "rowset-community.env")
+	// Starting on an empty directory creates a new installation with no
+	// connections. That is right the first time and alarming every other time,
+	// so say which directory is in use and never do it silently.
+	if _, err := os.Stat(filepath.Join(directory, "rowset-community.sqlite3")); errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintf(os.Stderr, "Rowset: no database in %s — starting a new installation there.\n", directory)
+		fmt.Fprintf(os.Stderr, "Rowset: if you expected your existing connections, stop Rowset and start it with ROWSET_DESKTOP_DIR set to your data directory.\n")
+	} else {
+		fmt.Fprintf(os.Stderr, "Rowset: data directory %s\n", directory)
+	}
 	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
 		jwt, err := randomHex(32)
 		if err != nil {
@@ -113,6 +122,12 @@ func desktop() error {
 	defer data.Close()
 	if err := data.ClaimMode(context.Background(), false); err != nil {
 		return err
+	}
+	// A copy of yesterday's database is the only thing that helps when a
+	// migration or a mistake takes the live one; failing to write one is not a
+	// reason to refuse to start.
+	if _, err := data.Snapshot(context.Background(), filepath.Join(directory, "snapshots"), 7); err != nil {
+		fmt.Fprintf(os.Stderr, "Rowset: could not write a snapshot of the database: %v\n", err)
 	}
 	hasUsers, err := data.HasUsers(context.Background())
 	if err != nil {

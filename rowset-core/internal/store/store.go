@@ -70,6 +70,56 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return store, nil
 }
 
+// Snapshot writes a consistent copy of the database into directory and keeps
+// only the newest keep files. SQLite reads the whole database in one
+// transaction for VACUUM INTO, so the copy is safe to take while Rowset is
+// serving, and it is the only copy that stays consistent with the WAL.
+func (s *Store) Snapshot(ctx context.Context, directory string, keep int) (string, error) {
+	if err := mkdirAll(directory); err != nil {
+		return "", err
+	}
+	path := filepath.Join(directory, "rowset-"+time.Now().UTC().Format("20060102-150405")+".sqlite3")
+	// VACUUM INTO refuses to overwrite, so a second snapshot within the same
+	// second is simply left alone.
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+	if _, err := s.db.ExecContext(ctx, "VACUUM INTO ?", path); err != nil {
+		return "", fmt.Errorf("snapshot database: %w", err)
+	}
+	if err := pruneSnapshots(directory, keep); err != nil {
+		return path, err
+	}
+	return path, nil
+}
+
+// The names carry a sortable timestamp, so the oldest are simply the first.
+func pruneSnapshots(directory string, keep int) error {
+	if keep <= 0 {
+		return nil
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return err
+	}
+	var names []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "rowset-") && strings.HasSuffix(entry.Name(), ".sqlite3") {
+			names = append(names, entry.Name())
+		}
+	}
+	if len(names) <= keep {
+		return nil
+	}
+	sort.Strings(names)
+	for _, name := range names[:len(names)-keep] {
+		if err := os.Remove(filepath.Join(directory, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 const malformedDSNSuffix = "&_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
 
 // Early Go builds accidentally used '&' instead of '?' before SQLite URI

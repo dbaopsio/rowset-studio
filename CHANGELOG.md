@@ -5,6 +5,18 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.54 — 2026-09-12
+
+- Rowset writes a snapshot of its own database into `snapshots/` beside it on
+  every start and keeps the newest seven, so a bad migration or a mistake is
+  recoverable. SQLite's VACUUM INTO takes the copy in one transaction, which
+  keeps it consistent with the write-ahead log.
+- Starting on a data directory with no database says so on the console, and
+  names ROWSET_DESKTOP_DIR, instead of quietly coming up as a new installation
+  with no connections in it.
+- `scripts/restart-try.sh` rebuilds and restarts the local instance against its
+  own data directory.
+
 ## 0.0.53 — 2026-09-12
 
 - Columns of the tables in the statement are offered through their alias, and
