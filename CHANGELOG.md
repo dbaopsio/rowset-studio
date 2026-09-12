@@ -5,6 +5,12 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.48 — 2026-09-12
+
+- SQL shown outside the editor is coloured by the editor's own tokenizer
+  instead of a short keyword list, so every keyword, function, string and
+  number reads exactly as it does while typing.
+
 ## 0.0.47 — 2026-09-12
 
 - The Plan tab appears only once Explain has produced a plan, and goes away

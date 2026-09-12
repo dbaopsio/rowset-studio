@@ -1,58 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import Editor, { type Monaco } from "@monaco-editor/react";
-import { ROWSET_SQL_LANGUAGE } from "./monacoSetup";
+import { ROWSET_SQL_LANGUAGE, defineThemes } from "./monacoSetup";
 import { aliasMap, dotSuggestions, type SqlCompletions } from "./sqlCompletions";
 
 // Warm SQL themes matched to the app palette (terracotta/ink on paper) so the
 // editor reads as one surface with the rest of the product — no cool default blue.
-function defineThemes(monaco: Monaco) {
-  monaco.editor.defineTheme("rowset-light", {
-    base: "vs",
-    inherit: true,
-    rules: [
-      { token: "keyword.sql", foreground: "a8482a", fontStyle: "bold" },
-      { token: "keyword", foreground: "a8482a", fontStyle: "bold" },
-      { token: "operator.sql", foreground: "8c3a22" },
-      { token: "string.sql", foreground: "7a6a15" },
-      { token: "string", foreground: "7a6a15" },
-      { token: "number", foreground: "3e7a3a" },
-      { token: "comment", foreground: "a9a08d", fontStyle: "italic" },
-      { token: "predefined.sql", foreground: "5c5446" },
-      { token: "identifier", foreground: "1d1b16" },
-    ],
-    colors: {
-      "editor.background": "#ffffff",
-      "editor.foreground": "#1d1b16",
-      "editorLineNumber.foreground": "#a9a08d",
-      "editorLineNumber.activeForeground": "#5c5446",
-      "editor.selectionBackground": "#e6bfa855",
-      "editor.lineHighlightBackground": "#faf1eb",
-      "editorCursor.foreground": "#a8482a",
-    },
-  });
-  monaco.editor.defineTheme("rowset-dark", {
-    base: "vs-dark",
-    inherit: true,
-    rules: [
-      { token: "keyword.sql", foreground: "e0a526", fontStyle: "bold" },
-      { token: "keyword", foreground: "e0a526", fontStyle: "bold" },
-      { token: "operator.sql", foreground: "d89b79" },
-      { token: "string.sql", foreground: "c9b458" },
-      { token: "string", foreground: "c9b458" },
-      { token: "number", foreground: "8fbf6f" },
-      { token: "comment", foreground: "7c7362", fontStyle: "italic" },
-      { token: "identifier", foreground: "ece7dc" },
-    ],
-    colors: {
-      "editor.background": "#121317",
-      "editor.foreground": "#e7e9ec",
-      "editorLineNumber.foreground": "#5c5446",
-      "editor.lineHighlightBackground": "#1e1b15",
-      "editorCursor.foreground": "#e0a526",
-    },
-  });
-}
-
 const SQL_KEYWORDS = [
   "SELECT", "FROM", "WHERE", "INSERT INTO", "UPDATE", "DELETE FROM", "SET", "VALUES",
   "JOIN", "LEFT JOIN", "RIGHT JOIN", "INNER JOIN", "ON", "GROUP BY", "ORDER BY", "HAVING",
