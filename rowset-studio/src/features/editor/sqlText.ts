@@ -2,7 +2,10 @@
 // comments byte-for-byte. They never format by replacing inside SQL literals.
 export interface SQLToken { text: string; start: number; end: number; kind: "space" | "comment" | "quoted" | "word" | "symbol" }
 
-export function sqlTokens(sql: string): SQLToken[] {
+// "#" starts a comment only on MySQL and MariaDB; SQL Server uses it for
+// temporary tables and PostgreSQL for operators. Callers that know the engine
+// say so; the default keeps the behaviour everything else relies on.
+export function sqlTokens(sql: string, { hashComments = true }: { hashComments?: boolean } = {}): SQLToken[] {
   const tokens: SQLToken[] = [];
   let i = 0;
   while (i < sql.length) {
@@ -10,7 +13,7 @@ export function sqlTokens(sql: string): SQLToken[] {
     let kind: SQLToken["kind"] = "symbol";
     if (/\s/.test(sql[i])) {
       kind = "space"; while (i < sql.length && /\s/.test(sql[i])) i++;
-    } else if (sql.startsWith("--", i) || sql[i] === "#") {
+    } else if (sql.startsWith("--", i) || (hashComments && sql[i] === "#")) {
       kind = "comment"; while (i < sql.length && sql[i] !== "\n") i++;
       if (i < sql.length) i++;
     } else if (sql.startsWith("/*", i)) {

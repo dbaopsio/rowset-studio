@@ -3,6 +3,7 @@ import Editor, { type Monaco } from "@monaco-editor/react";
 import { ROWSET_SQL_LANGUAGE, defineThemes } from "./monacoSetup";
 import { aliasMap, clauseAt, columnSuggestions, dotSuggestions, groupByColumns, joinSuggestions, type SqlCompletions } from "./sqlCompletions";
 import { splitStatements } from "./sqlText";
+import { inspectSql, type Inspection } from "./sqlInspections";
 
 // Warm SQL themes matched to the app palette (terracotta/ink on paper) so the
 // editor reads as one surface with the rest of the product — no cool default blue.
@@ -128,39 +129,88 @@ function registerCompletion(monaco: Monaco) {
 
 let actionsRegistered = false;
 
-// One quick fix, offered on the statement under the cursor: a SELECT that
-// aggregates without a GROUP BY gets the columns it must group by.
+// The last inspection of each editor model, so a quick fix can find the fixes
+// behind the marker it was asked about.
+const inspections = new Map<string, Inspection[]>();
+const MARKER_OWNER = "rowset";
+
+function inspect(monaco: Monaco, model: ReturnType<Monaco["editor"]["createModel"]>) {
+  if (model.isDisposed()) return;
+  const found = inspectSql(model.getValue(), schemaRef.current);
+  inspections.set(model.uri.toString(), found);
+  monaco.editor.setModelMarkers(model, MARKER_OWNER, found.map((item) => {
+    const start = model.getPositionAt(item.start);
+    const end = model.getPositionAt(item.end);
+    return {
+      startLineNumber: start.lineNumber,
+      startColumn: start.column,
+      endLineNumber: end.lineNumber,
+      endColumn: end.column,
+      message: item.message,
+      severity: item.severity === "error" ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+      code: item.code,
+      source: "Rowset",
+    };
+  }));
+}
+
+// Quick fixes: the ones inspections offer for the marker under the cursor,
+// and GROUP BY for a SELECT that aggregates without one.
 function registerCodeActions(monaco: Monaco) {
   if (actionsRegistered) return;
   actionsRegistered = true;
   monaco.languages.registerCodeActionProvider(ROWSET_SQL_LANGUAGE, {
-    provideCodeActions: (model, range) => {
-      const text = model.getValue();
-      const offset = model.getOffsetAt({ lineNumber: range.startLineNumber, column: range.startColumn });
-      const statement = splitStatements(text).find((item) => offset >= item.start && offset <= item.end);
-      const none = { actions: [], dispose: () => undefined };
-      if (!statement) return none;
-      const body = statement.sql;
-      if (/\bgroup\s+by\b/i.test(body)) return none;
-      if (!/^\s*select\b/i.test(body)) return none;
-      if (!/\b(count|sum|avg|min|max|array_agg|string_agg|group_concat|listagg)\s*\(/i.test(body)) return none;
-      const columns = groupByColumns(body);
-      if (columns.length === 0) return none;
-      // GROUP BY belongs before whatever closes the statement.
-      const tail = body.search(/\b(order\s+by|limit|fetch\s+first|for\s+update)\b/i);
-      const cut = tail >= 0 ? tail : body.replace(/[\s;]+$/, "").length;
-      const at = model.getPositionAt(statement.start + cut);
-      const newline = tail >= 0 ? "" : "\n";
-      return {
-        actions: [{
-          title: `Group by ${columns.join(", ")}`,
-          kind: "quickfix",
-          edit: { edits: [{ resource: model.uri, versionId: model.getVersionId(), textEdit: { range: { startLineNumber: at.lineNumber, startColumn: at.column, endLineNumber: at.lineNumber, endColumn: at.column }, text: `${newline}GROUP BY ${columns.join(", ")}${tail >= 0 ? "\n" : ""}` } }] },
-        }],
-        dispose: () => undefined,
-      };
+    provideCodeActions: (model, range, context) => {
+      const actions: { title: string; kind: string; isPreferred?: boolean; diagnostics?: typeof context.markers; edit: { edits: { resource: typeof model.uri; versionId: number; textEdit: { range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }; text: string } }[] } }[] = [];
+      const known = inspections.get(model.uri.toString()) ?? [];
+      for (const marker of context.markers) {
+        if (marker.source !== "Rowset") continue;
+        const start = model.getOffsetAt({ lineNumber: marker.startLineNumber, column: marker.startColumn });
+        const end = model.getOffsetAt({ lineNumber: marker.endLineNumber, column: marker.endColumn });
+        const item = known.find((candidate) => candidate.start === start && candidate.end === end && candidate.code === marker.code);
+        item?.fixes.forEach((fix, index) => {
+          const from = model.getPositionAt(fix.start);
+          const to = model.getPositionAt(fix.end);
+          actions.push({
+            title: fix.title,
+            kind: "quickfix",
+            isPreferred: item.fixes.length === 1 && index === 0,
+            diagnostics: [marker],
+            edit: { edits: [{ resource: model.uri, versionId: model.getVersionId(), textEdit: { range: { startLineNumber: from.lineNumber, startColumn: from.column, endLineNumber: to.lineNumber, endColumn: to.column }, text: fix.replacement } }] },
+          });
+        });
+      }
+      const groupBy = groupByAction(model, range);
+      if (groupBy) actions.push(groupBy);
+      return { actions, dispose: () => undefined };
     },
   });
+}
+
+// A SELECT that aggregates without a GROUP BY gets the columns it must group by.
+function groupByAction(model: ReturnType<Monaco["editor"]["createModel"]>, range: { startLineNumber: number; startColumn: number }) {
+  const text = model.getValue();
+  const offset = model.getOffsetAt({ lineNumber: range.startLineNumber, column: range.startColumn });
+  const statement = splitStatements(text).find((item) => offset >= item.start && offset <= item.end);
+  if (!statement) return null;
+  const body = statement.sql;
+  if (/\bgroup\s+by\b/i.test(body)) return null;
+  if (!/^\s*select\b/i.test(body)) return null;
+  if (!/\b(count|sum|avg|min|max|array_agg|string_agg|group_concat|listagg)\s*\(/i.test(body)) return null;
+  const columns = groupByColumns(body);
+  if (columns.length === 0) return null;
+  // GROUP BY belongs before whatever closes the statement. The statement's
+  // text is trimmed, so its position is found again in the editor.
+  const tail = body.search(/\b(order\s+by|limit|fetch\s+first|for\s+update)\b/i);
+  const cut = tail >= 0 ? tail : body.replace(/[\s;]+$/, "").length;
+  const bodyStart = text.indexOf(body, statement.start);
+  const at = model.getPositionAt((bodyStart >= 0 ? bodyStart : statement.start) + cut);
+  const newline = tail >= 0 ? "" : "\n";
+  return {
+    title: `Group by ${columns.join(", ")}`,
+    kind: "quickfix",
+    edit: { edits: [{ resource: model.uri, versionId: model.getVersionId(), textEdit: { range: { startLineNumber: at.lineNumber, startColumn: at.column, endLineNumber: at.lineNumber, endColumn: at.column }, text: `${newline}GROUP BY ${columns.join(", ")}${tail >= 0 ? "\n" : ""}` } }] },
+  };
 }
 
 // Thin Monaco wrapper fixed to the SQL language. Autocomplete is fed by the
@@ -187,6 +237,8 @@ export default function MonacoSqlEditor({
   onRunRef.current = onRun;
   const onRunAllRef = useRef(onRunAll);
   onRunAllRef.current = onRunAll;
+  // Re-inspects the text when the schema behind the checks changes.
+  const reinspect = useRef<(() => void) | null>(null);
   const [theme, setTheme] = useState(() => (document.documentElement.classList.contains("dark") ? "dark" : "light"));
 
   useEffect(() => {
@@ -197,6 +249,7 @@ export default function MonacoSqlEditor({
 
   useEffect(() => {
     schemaRef.current = completions ?? { tableColumns: {}, tableNames: {}, schemaTables: {}, schemaNames: {}, routines: [] };
+    reinspect.current?.();
   }, [completions]);
 
   return (
@@ -222,6 +275,25 @@ export default function MonacoSqlEditor({
         });
         editor.onDidChangeCursorPosition((e) => {
           onCursorChange?.({ line: e.position.lineNumber, column: e.position.column });
+        });
+        // Problems are marked once typing pauses, not on every keystroke.
+        let timer: number | undefined;
+        const check = () => {
+          const model = editor.getModel();
+          if (model) inspect(monaco, model);
+        };
+        reinspect.current = check;
+        check();
+        const typing = editor.onDidChangeModelContent(() => {
+          window.clearTimeout(timer);
+          timer = window.setTimeout(check, 300);
+        });
+        editor.onDidDispose(() => {
+          window.clearTimeout(timer);
+          typing.dispose();
+          reinspect.current = null;
+          const model = editor.getModel();
+          if (model) inspections.delete(model.uri.toString());
         });
       }}
       options={{

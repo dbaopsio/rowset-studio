@@ -89,3 +89,12 @@
       26px 26px;
   }
 }
+
+/* Monaco sizes its quick-fix menu from the "Quick Fix" heading, which cuts a
+   fix such as "Change to total" down to "Change to …" before it can be read. */
+.monaco-editor .action-widget {
+  min-width: 16rem;
+}
+.monaco-editor .action-widget .action-label {
+  text-overflow: clip;
+}

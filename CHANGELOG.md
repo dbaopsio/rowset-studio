@@ -5,6 +5,28 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.57 — 2026-09-12
+
+- The editor marks problems as you type, from the text and the schema already
+  loaded, with no round trip to the database:
+  - a string, quoted name or comment that is never closed, and a bracket that
+    closes nothing (errors);
+  - a table or view that is not in the loaded schema, and `alias.column` where
+    the table has no such column, each with close names to change to;
+  - a column two tables of the same query both have, used without saying
+    which, with a fix to qualify it for each;
+  - UPDATE or DELETE without WHERE.
+- Checks stay quiet when a name cannot be verified: CTEs, tables the script
+  creates, table functions, system catalogues, other databases, subquery
+  aliases, and a table name that several schemas share where the search path
+  decides — a column is missing only if no candidate has it. A subquery's
+  columns are checked against its own tables, not the outer query's.
+- `#` starts a comment only on MySQL and MariaDB when inspecting, so SQL Server
+  temporary tables and PostgreSQL's `#>` no longer look like broken brackets.
+- Fixed: the GROUP BY quick fix inserted at the wrong place in a statement that
+  had blank lines before it.
+- The quick-fix menu is wide enough to show the whole fix.
+
 ## 0.0.56 — 2026-09-12
 
 - **Run on several connections** (editor ⋯ menu) runs the selection, or the

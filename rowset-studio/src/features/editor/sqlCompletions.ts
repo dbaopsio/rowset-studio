@@ -20,6 +20,8 @@ export interface SqlCompletions {
   foreignKeys?: Record<string, ForeignKey[]>;
   /** Databases a statement can name, keyed by lower-case name. */
   databaseNames?: Record<string, string>;
+  /** Engine of the connection, lower-case, when known. */
+  engine?: string;
 }
 
 // Engines where one statement can reach another database by name.
@@ -90,7 +92,7 @@ export function buildSqlCompletions(schema?: SchemaInfo, databases: string[] = [
     // MySQL calls a database a schema; it is listed once, as a schema.
     for (const name of databases) if (!schemaNames[name.toLowerCase()]) databaseNames[name.toLowerCase()] = name;
   }
-  return { tableColumns, tableNames, schemaTables, schemaNames, routines, databaseNames, foreignKeys };
+  return { tableColumns, tableNames, schemaTables, schemaNames, routines, databaseNames, foreignKeys, engine: engine.toLowerCase() };
 }
 
 /** Where the cursor is, so the right kind of name is offered first. */
