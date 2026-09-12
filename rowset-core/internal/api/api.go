@@ -163,6 +163,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/connections/{id}/ddl", s.authenticated(http.HandlerFunc(s.objectDDL)))
 	mux.Handle("GET /api/connections/{id}/databases", s.authenticated(http.HandlerFunc(s.listDatabases)))
 	mux.Handle("POST /api/connections/{id}/query", s.authenticated(http.HandlerFunc(s.runQuery)))
+	mux.Handle("POST /api/multirun", s.authenticated(http.HandlerFunc(s.runOnConnections)))
 	mux.Handle("POST /api/connections/{id}/explain", s.authenticated(http.HandlerFunc(s.explainQuery)))
 	mux.Handle("POST /api/connections/{id}/export", s.authenticated(http.HandlerFunc(s.exportTable)))
 	mux.Handle("POST /api/connections/{id}/imports", s.authenticated(http.HandlerFunc(s.startImport)))

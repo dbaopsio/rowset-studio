@@ -131,6 +131,7 @@ export default function MultiRunPanel({ state, onStop }: { state: MultiRunState;
 
 function duration(outcome: TargetOutcome) {
   if (!outcome.startedAt) return "—";
-  const ms = (outcome.endedAt ?? Date.now()) - outcome.startedAt;
+  const finished = outcome.status === "success" || outcome.status === "error" || outcome.status === "cancelled";
+  const ms = finished && outcome.durationMs !== undefined ? outcome.durationMs : (outcome.endedAt ?? Date.now()) - outcome.startedAt;
   return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
 }

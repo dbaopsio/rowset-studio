@@ -6,6 +6,7 @@ import { ColumnInfo, RoutineInfo, TableInfo, TriggerInfo, exportTable, objectDDL
 import { SchemaActions, quoteIdentifier, tableSelect } from "./schemaActions";
 import CsvImportDialog from "./CsvImportDialog";
 import SqlCode from "./SqlCode";
+import { formatDefinition } from "./ddlFormat";
 import RowMenu from "../../components/RowMenu";
 import { Button, Modal } from "../../components/ui";
 
@@ -129,12 +130,25 @@ export default function SchemaBrowser({
           }
         }
 
+        // A trigger belongs under the table or view it fires on; only one the
+        // schema has no such table for stays in the group of its own.
+        const tableTriggers = new Map<string, TriggerInfo[]>();
+        const objectKey = (schemaName: string, name: string) => `${schemaName}|${name.toLowerCase()}`;
+        const owners = new Set([...tables, ...views].map((item) => objectKey(item.schemaName, item.table.name)));
+        const looseTriggers = triggers.filter((item) => {
+          const owner = objectKey(item.schemaName, item.trigger.table ?? "");
+          if (!item.trigger.table || !owners.has(owner)) return true;
+          tableTriggers.set(owner, [...(tableTriggers.get(owner) ?? []), item.trigger]);
+          return false;
+        });
+        const triggersOf = (item: QualifiedTable) => tableTriggers.get(objectKey(item.schemaName, item.table.name));
+
         const needle = (filter || search).trim().toLowerCase();
         const matches = (key: string) => !needle || key.toLowerCase().includes(needle);
-        const visibleViews = views.filter(t => matches(t.key) || t.table.columns.some(c => matches(c.name)));
+        const visibleViews = views.filter(t => matches(t.key) || t.table.columns.some(c => matches(c.name)) || (triggersOf(t) ?? []).some(trigger => matches(trigger.name)));
         const visibleProcedures = procedures.filter(r => matches(r.key));
         const visibleFunctions = functions.filter(r => matches(r.key));
-        const visibleTriggers = triggers.filter(t => matches(t.key));
+        const visibleTriggers = looseTriggers.filter(t => matches(t.key));
         const sequences: { key: string; name: string; schemaName: string }[] = [];
         for (const schema of data.schemas ?? []) {
           if (schemaFilter && schema.name !== schemaFilter) continue;
@@ -142,7 +156,7 @@ export default function SchemaBrowser({
         }
         const visibleSequences = sequences.filter(s => matches(s.key));
         const filteredTables = tables
-          .filter((item) => !needle || item.key.toLowerCase().includes(needle) || (item.table.columns ?? []).some((column) => column.name.toLowerCase().includes(needle)))
+          .filter((item) => !needle || item.key.toLowerCase().includes(needle) || (item.table.columns ?? []).some((column) => column.name.toLowerCase().includes(needle)) || (triggersOf(item) ?? []).some((trigger) => trigger.name.toLowerCase().includes(needle)))
           .sort((left, right) => left.key.localeCompare(right.key));
 
         return (
@@ -183,14 +197,14 @@ export default function SchemaBrowser({
             )}
             <ObjectGroup label="Tables" count={filteredTables.length === tables.length ? `${tables.length}` : `${filteredTables.length} of ${tables.length}`} forceOpen={Boolean(needle)}>
               {filteredTables.map((t) => (
-                <TableItem key={t.key} engine={engine} schemaName={t.schemaName} table={t.table} connectionId={connectionId} database={database} />
+                <TableItem key={t.key} engine={engine} schemaName={t.schemaName} table={t.table} triggers={triggersOf(t)} connectionId={connectionId} database={database} />
               ))}
               {filteredTables.length === 0 && <li className="px-1 py-1 text-[11px] text-slate-400">No matching tables.</li>}
             </ObjectGroup>
             {visibleViews.length > 0 && (
               <ObjectGroup label="Views" count={visibleViews.length}>
                 {visibleViews.map((t) => (
-                  <TableItem key={t.key} engine={engine} schemaName={t.schemaName} table={t.table} icon="grid" connectionId={connectionId} database={database} />
+                  <TableItem key={t.key} engine={engine} schemaName={t.schemaName} table={t.table} triggers={triggersOf(t)} icon="grid" connectionId={connectionId} database={database} />
                 ))}
               </ObjectGroup>
             )}
@@ -211,7 +225,7 @@ export default function SchemaBrowser({
             {visibleSequences.length > 0 && (
               <ObjectGroup label="Sequences" count={visibleSequences.length}>
                 {visibleSequences.map((s) => (
-                  <ObjectRow key={s.key} icon="sort" label={s.key} title={`sequence ${s.key}`} connectionId={connectionId} database={database} schemaName={s.schemaName} kind="sequence" name={s.name} />
+                  <ObjectRow key={s.key} icon="sort" label={s.key} title={`sequence ${s.key}`} engine={engine} connectionId={connectionId} database={database} schemaName={s.schemaName} kind="sequence" name={s.name} />
                 ))}
               </ObjectGroup>
             )}
@@ -230,7 +244,7 @@ export default function SchemaBrowser({
 }
 
 // Shows what an object is, as the database itself describes it.
-function DDLViewer({ connectionId, database, schemaName, kind, name, onClose }: { connectionId: string; database?: string; schemaName: string; kind: string; name: string; onClose: () => void }) {
+function DDLViewer({ engine, connectionId, database, schemaName, kind, name, onClose }: { engine: string; connectionId: string; database?: string; schemaName: string; kind: string; name: string; onClose: () => void }) {
   const action = useContext(SchemaActions);
   const [sql, setSql] = useState("");
   const [error, setError] = useState("");
@@ -238,9 +252,11 @@ function DDLViewer({ connectionId, database, schemaName, kind, name, onClose }: 
   useEffect(() => {
     let alive = true;
     objectDDL(connectionId, { database, schema: schemaName, kind, name })
-      .then((text) => { if (alive) setSql(text); }, (err: unknown) => { if (alive) setError(schemaError(err)); });
+      // A definition the database returns on one line is laid out on lines;
+      // Copy and Open in editor take the text as shown.
+      .then((text) => { if (alive) setSql(formatDefinition(text, engine.toLowerCase())); }, (err: unknown) => { if (alive) setError(schemaError(err)); });
     return () => { alive = false; };
-  }, [connectionId, database, schemaName, kind, name]);
+  }, [engine, connectionId, database, schemaName, kind, name]);
   return (
     <Modal title={`${kind.charAt(0).toUpperCase()}${kind.slice(1)}: ${name}`} onClose={onClose} size="lg">
       {error ? (
@@ -259,7 +275,7 @@ function DDLViewer({ connectionId, database, schemaName, kind, name, onClose }: 
 }
 
 // One non-table object: its name, and a menu that shows its definition.
-function ObjectRow({ icon, label, title, connectionId, database, schemaName, kind, name, trailing }: { icon: IconName; label: string; title: string; connectionId: string; database?: string; schemaName: string; kind: string; name: string; trailing?: React.ReactNode }) {
+function ObjectRow({ icon, label, title, engine, connectionId, database, schemaName, kind, name, trailing }: { icon: IconName; label: string; title: string; engine: string; connectionId: string; database?: string; schemaName: string; kind: string; name: string; trailing?: React.ReactNode }) {
   const [showing, setShowing] = useState(false);
   return (
     <li className="group flex h-6 items-center gap-2 rounded px-1 pl-[22px] text-slate-600 dark:text-slate-400" title={title}>
@@ -267,7 +283,7 @@ function ObjectRow({ icon, label, title, connectionId, database, schemaName, kin
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {trailing}
       <RowMenu label={`More actions for ${name}`} className="h-5 w-5 opacity-0 group-hover:opacity-100" items={[{ label: "Show DDL", onSelect: () => setShowing(true) }]} />
-      {showing && <DDLViewer connectionId={connectionId} database={database} schemaName={schemaName} kind={kind} name={name} onClose={() => setShowing(false)} />}
+      {showing && <DDLViewer engine={engine} connectionId={connectionId} database={database} schemaName={schemaName} kind={kind} name={name} onClose={() => setShowing(false)} />}
     </li>
   );
 }
@@ -305,6 +321,7 @@ function RoutineItem({ engine, schemaName, routine, connectionId, database }: { 
       icon={routine.kind === "procedure" ? "play" : "wand"}
       label={qualifiedName}
       title={`${routine.kind} ${qualifiedName}`}
+      engine={engine}
       connectionId={connectionId}
       database={database}
       schemaName={schemaName}
@@ -320,18 +337,19 @@ function TriggerItem({ engine, schemaName, trigger, connectionId, database }: { 
     <ObjectRow
       icon="activity"
       label={trigger.name}
-      title={`${trigger.timing} ${trigger.event} ON ${qualifiedTable}`}
+      title={trigger.table ? `${trigger.timing} ${trigger.event} ON ${qualifiedTable}` : `${trigger.timing} ${trigger.event}`.trim() || trigger.name}
+      engine={engine}
       connectionId={connectionId}
       database={database}
       schemaName={schemaName}
       kind="trigger"
       name={trigger.name}
-      trailing={<span className="max-w-[45%] shrink-0 truncate text-right text-[10px] text-slate-400">{qualifiedTable}</span>}
+      trailing={trigger.table ? <span className="max-w-[45%] shrink-0 truncate text-right text-[10px] text-slate-400">{qualifiedTable}</span> : undefined}
     />
   );
 }
 
-function TableItem({ engine, schemaName, table, connectionId, database, icon = "table" }: { engine: string; schemaName: string; table: TableInfo; connectionId: string; database?: string; icon?: IconName }) {
+function TableItem({ engine, schemaName, table, triggers = [], connectionId, database, icon = "table" }: { engine: string; schemaName: string; table: TableInfo; triggers?: TriggerInfo[]; connectionId: string; database?: string; icon?: IconName }) {
   const action = useContext(SchemaActions);
   const [copyState, setCopyState] = useState<"" | "copied" | "failed">("");
   const [exportState, setExportState] = useState<{ status: "" | "running" | "failed"; message?: string }>({ status: "" });
@@ -366,6 +384,12 @@ function TableItem({ engine, schemaName, table, connectionId, database, icon = "
           <Icon name={open ? "chevron-down" : "chevron-right"} size={12} className="-mr-0.5 shrink-0 text-slate-400" />
           <Icon name={icon} size={13} className="shrink-0 text-slate-400 group-hover:text-slate-500" />
           <span className="truncate" title={qualifiedName}>{qualifiedName}</span>
+          {triggers.length > 0 && (
+            <span className="flex shrink-0 items-center gap-0.5 text-[10px] text-slate-400" title={`${triggers.length} trigger${triggers.length === 1 ? "" : "s"}: ${triggers.map((trigger) => trigger.name).join(", ")}`}>
+              <Icon name="activity" size={11} />
+              {triggers.length > 1 && triggers.length}
+            </span>
+          )}
         </button>
         {exportState.status === "running" && <span className="shrink-0 pr-1 text-[11px] text-slate-400">Exporting…</span>}
         {exportState.status === "failed" && <button type="button" onClick={() => setExportState({ status: "" })} title={exportState.message} className="shrink-0 pr-1 text-[11px] text-rose-500">Export failed</button>}
@@ -384,7 +408,7 @@ function TableItem({ engine, schemaName, table, connectionId, database, icon = "
           />
         </span>
       </div>
-      {showingDDL && <DDLViewer connectionId={connectionId} database={database} schemaName={schemaName} kind={icon === "table" ? "table" : "view"} name={table.name} onClose={() => setShowingDDL(false)} />}
+      {showingDDL && <DDLViewer engine={engine} connectionId={connectionId} database={database} schemaName={schemaName} kind={icon === "table" ? "table" : "view"} name={table.name} onClose={() => setShowingDDL(false)} />}
       {importing && <CsvImportDialog connectionId={connectionId} database={database} schemaName={schemaName} table={table} onClose={() => setImporting(false)} />}
       {open && (
         <ul className="ml-[11px] border-l border-slate-200/80 pl-2.5 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
@@ -417,9 +441,34 @@ function TableItem({ engine, schemaName, table, connectionId, database, icon = "
               ))}
             </li>
           )}
+          {triggers.length > 0 && (
+            <li className="mt-1 space-y-0.5 border-t border-slate-100 pt-1 dark:border-slate-800/60">
+              <div className="flex items-center gap-1.5 text-[10px] font-medium text-slate-400">
+                <Icon name="activity" size={11} className="text-slate-300 dark:text-slate-600" />
+                Triggers
+              </div>
+              {triggers.map((trigger) => (
+                <TableTrigger key={trigger.name} engine={engine} schemaName={schemaName} trigger={trigger} connectionId={connectionId} database={database} />
+              ))}
+            </li>
+          )}
         </ul>
       )}
     </li>
+  );
+}
+
+// A trigger inside its table: when it fires, and its definition on request.
+function TableTrigger({ engine, schemaName, trigger, connectionId, database }: { engine: string; schemaName: string; trigger: TriggerInfo; connectionId: string; database?: string }) {
+  const [showing, setShowing] = useState(false);
+  const when = `${trigger.timing} ${trigger.event}`.trim().toLowerCase();
+  return (
+    <div className="group flex items-center gap-1.5 py-0.5 pl-3.5" title={`${trigger.name}: ${when}`}>
+      <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">{trigger.name}</span>
+      {when && <span className="shrink-0 text-[10px] text-slate-400">{when}</span>}
+      <RowMenu label={`More actions for ${trigger.name}`} className="h-5 w-5 opacity-0 group-hover:opacity-100" items={[{ label: "Show DDL", onSelect: () => setShowing(true) }]} />
+      {showing && <DDLViewer engine={engine} connectionId={connectionId} database={database} schemaName={schemaName} kind="trigger" name={trigger.name} onClose={() => setShowing(false)} />}
+    </div>
   );
 }
 

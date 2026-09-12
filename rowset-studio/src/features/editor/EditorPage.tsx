@@ -15,7 +15,7 @@ import RunToolbar, { type WorkspaceStatus } from "./RunToolbar";
 import SaveToNotebookDialog from "../notebooks/SaveToNotebookDialog";
 import PlanPanel, { type PlanState } from "../plan/PlanPanel";
 import SchemaBrowser from "./SchemaBrowser";
-import { explainQuery, exportTable, forgetSchema, listDatabases, runQuery, beginTxn, txnQuery, commitTxn, rollbackTxn, type QueryResult } from "./api";
+import { explainQuery, exportTable, forgetSchema, listDatabases, runOnConnections, runQuery, beginTxn, txnQuery, commitTxn, rollbackTxn, type QueryResult } from "./api";
 import { buildSqlCompletions } from "./sqlCompletions";
 import { useSchema } from "./useEditor";
 import { formatSql, statementAt, splitStatements } from "./sqlText";
@@ -29,7 +29,7 @@ import WorkspaceGate, { exportWorkspace, useWorkspacePersistence } from "./Works
 import AssistantPanel from "../ai/AssistantPanel";
 import MultiRunDialog from "./MultiRunDialog";
 import MultiRunPanel, { type MultiRunState } from "./MultiRunPanel";
-import { runOnConnections, scriptChanges, type MultiRunTarget, type TargetOutcome } from "./multiRun";
+import { applyEvent, failOutcomes, initialOutcomes, scriptChanges, stopOutcomes, type MultiRunTarget, type TargetOutcome } from "./multiRun";
 import { mergeWorkspace, type WorkspaceDocument, type WorkspaceSnapshot, type WorkspaceTab } from "./workspace";
 
 type BottomTab = "results" | "history" | "messages" | "plan" | "connections";
@@ -527,10 +527,9 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     }
   }
 
-  // The same statements on several connections. Each goes through the same
-  // endpoint as a normal run, so policies, row backups and history apply to
-  // every connection on its own.
-  async function startMultiRun(targets: MultiRunTarget[], statements: string[]) {
+  // The same statements on several connections, run by the server, which
+  // applies policies, row backups and history to every connection on its own.
+  async function startMultiRun(targets: MultiRunTarget[], statements: string[], concurrency: number) {
     const tabId = activeTabId;
     setMultiRunDialog(null);
     if (!tabId || multiControllers.current[tabId]) return;
@@ -540,13 +539,20 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     const publish = (outcomes: TargetOutcome[], running: boolean) =>
       setMultiRuns((current) => ({ ...current, [tabId]: { outcomes, statements: statements.length, running } }));
     setBottomTab("connections");
+    let outcomes = initialOutcomes(targets, statements.length);
+    publish(outcomes, true);
     try {
-      const outcomes = await runOnConnections(
-        targets,
-        statements,
-        (target, sql, signal) => runQuery(target.connectionId, sql, target.database || undefined, undefined, signal, undefined, backup),
-        { signal: controller.signal, onChange: (outcomes) => publish(outcomes, true) },
+      await runOnConnections(
+        { targets: targets.map((target) => ({ connectionId: target.connectionId, database: target.database })), statements, concurrency, backup },
+        controller.signal,
+        (event) => {
+          outcomes = applyEvent(outcomes, event);
+          publish(outcomes, true);
+        },
       );
+      publish(outcomes, false);
+    } catch (err) {
+      outcomes = controller.signal.aborted ? stopOutcomes(outcomes) : failOutcomes(outcomes, err instanceof Error ? err.message : "The run could not continue.");
       publish(outcomes, false);
     } finally {
       if (multiControllers.current[tabId] === controller) delete multiControllers.current[tabId];
@@ -893,7 +899,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
         connections={connections}
         initialIds={activeConnectionId ? [activeConnectionId] : []}
         onClose={() => setMultiRunDialog(null)}
-        onRun={(targets, statements) => void startMultiRun(targets, statements)}
+        onRun={(targets, statements, concurrency) => void startMultiRun(targets, statements, concurrency)}
       />
     )}
     {saveDialogOpen && (

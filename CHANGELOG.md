@@ -5,6 +5,26 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.58 — 2026-09-13
+
+- **Run on several connections** now runs on the server, up to ten
+  connections at once (chosen in the dialog, four by default). A browser opens
+  at most six connections to one address and shares them with the rest of
+  Studio, so running from the page capped real concurrency at six and stalled
+  everything else meanwhile. One request now streams each connection's
+  progress; every statement still goes through the query handler as the same
+  person, so policies, row backups, timeouts and history apply per connection,
+  and results reach the page unchanged, large integers included. Stop all
+  ends the statements on the databases themselves.
+- A trigger on a table or view is listed under that table, after its columns
+  and indexes, and the table shows that it has triggers. The Triggers group
+  keeps only triggers without such a table.
+- Definitions a database returns on one line — MySQL and MariaDB triggers and
+  views, PostgreSQL triggers, SQL Server views and functions — are laid out on
+  lines in Show DDL. Only whitespace between tokens changes; a definition the
+  author wrote on lines is shown exactly as written. Copy and Open in editor
+  take the text as shown.
+
 ## 0.0.57 — 2026-09-12
 
 - The editor marks problems as you type, from the text and the schema already

@@ -23,12 +23,16 @@ export default function MultiRunDialog({
   connections: Connection[];
   initialIds: string[];
   onClose: () => void;
-  onRun: (targets: MultiRunTarget[], statements: string[]) => void;
+  onRun: (targets: MultiRunTarget[], statements: string[], concurrency: number) => void;
 }) {
   const [selected, setSelected] = useState(() => new Set(initialIds.filter((id) => connections.some((connection) => connection.id === id))));
   const [databases, setDatabases] = useState<Record<string, string>>({});
   const [confirmed, setConfirmed] = useState(false);
   const [filter, setFilter] = useState("");
+  const [concurrency, setConcurrency] = useState(() => {
+    const saved = Number(localStorage.getItem(CONCURRENCY_KEY));
+    return Number.isInteger(saved) && saved >= 1 && saved <= MAX_CONCURRENCY ? saved : 4;
+  });
 
   const statements = useMemo(() => splitStatements(sql).map((statement) => statement.sql.trim()).filter(Boolean), [sql]);
   const changes = scriptChanges(statements);
@@ -66,6 +70,7 @@ export default function MultiRunDialog({
         database: (databases[connection.id] ?? connection.database).trim(),
       })),
       statements,
+      concurrency,
     );
   }
 
@@ -75,7 +80,7 @@ export default function MultiRunDialog({
         <p className="text-slate-600 dark:text-slate-300">
           {statements.length === 1 ? "One statement" : `${statements.length} statements`} from {source === "selection" ? "the selection" : "the editor"}
           {changes ? `, ${changing} of them changing data or schema.` : ", reading only."} Each connection runs them in order in auto-commit and stops at its
-          first error; policies, row backups and history apply to each one as usual.
+          first error; policies, row backups and history apply to each one as usual. Rowset runs them, so this page stays usable meanwhile.
         </p>
 
         <div className="flex items-center gap-2">
@@ -121,6 +126,17 @@ export default function MultiRunDialog({
         )}
 
         <div className="flex items-center justify-end gap-2 pt-1">
+          <label className="mr-auto flex items-center gap-2 text-[12px] text-slate-600 dark:text-slate-300" title="Connections that run at the same time; the rest wait their turn">
+            At once
+            <select
+              value={concurrency}
+              onChange={(event) => { const value = Number(event.target.value); setConcurrency(value); localStorage.setItem(CONCURRENCY_KEY, String(value)); }}
+              aria-label="Connections at once"
+              className="h-7 rounded-md border border-slate-200 bg-white px-1.5 text-[12px] text-slate-700 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+            >
+              {Array.from({ length: MAX_CONCURRENCY }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
           <button type="button" onClick={onClose} className="h-8 rounded-md border border-slate-200 px-3 text-[13px] text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900">Cancel</button>
           <button
             type="button"
@@ -135,5 +151,8 @@ export default function MultiRunDialog({
     </Modal>
   );
 }
+
+const CONCURRENCY_KEY = "rowset.multirun.concurrency";
+const MAX_CONCURRENCY = 10;
 
 const linkButton = "h-8 shrink-0 rounded-md px-2 text-[12px] text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-900 dark:hover:text-slate-200";

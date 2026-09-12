@@ -1,7 +1,6 @@
 import test from "node:test";
-import { setTimeout, clearTimeout } from "node:timers";
 import assert from "node:assert/strict";
-import { combineResults, runOnConnections, scriptChanges, statementEffect } from "./multiRun.ts";
+import { applyEvent, combineResults, failOutcomes, initialOutcomes, scriptChanges, statementEffect, stopOutcomes } from "./multiRun.ts";
 
 test("reads are recognised and everything else counts as a change", () => {
   for (const sql of [
@@ -42,43 +41,35 @@ test("reads are recognised and everything else counts as a change", () => {
 const targets = ["a", "b", "c", "d", "e"].map((name) => ({ connectionId: name, name, engine: "postgres", environment: "dev", database: "app" }));
 const result = (columns, rows) => ({ columns, rows, rowCount: rows.length, durationMs: 1 });
 
-test("connections run side by side, statements in order, and an error stops only its connection", async () => {
-  let running = 0, peak = 0;
-  const seen = [];
-  const outcomes = await runOnConnections(targets, ["SELECT 1", "SELECT 2", "SELECT 3"], async (target, sql) => {
-    running++; peak = Math.max(peak, running);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    running--;
-    seen.push(`${target.name}:${sql}`);
-    if (target.name === "b" && sql === "SELECT 2") throw new Error("relation does not exist");
-    return result(["n"], [[sql]]);
-  }, { concurrency: 2, signal: new globalThis.AbortController().signal });
+test("progress events from the server become each connection's outcome", () => {
+  let outcomes = initialOutcomes(targets.slice(0, 3), 2);
+  assert.deepEqual(outcomes.map((outcome) => outcome.status), ["queued", "queued", "queued"]);
+  outcomes = applyEvent(outcomes, { type: "target", index: 1, status: "running", completed: 0, total: 2, durationMs: 0 }, 1000);
+  outcomes = applyEvent(outcomes, { type: "target", index: 1, status: "running", completed: 1, total: 2, rowCount: 3, durationMs: 40 }, 1040);
+  outcomes = applyEvent(outcomes, { type: "target", index: 1, status: "success", completed: 2, total: 2, rowCount: 1, durationMs: 90, result: result(["n"], [[7]]) }, 1090);
+  outcomes = applyEvent(outcomes, { type: "target", index: 2, status: "error", completed: 0, total: 2, error: "relation does not exist", failedStatement: "SELECT x", durationMs: 5 }, 1100);
+  // Events for a connection that is not in the run, and the closing event, change nothing.
+  outcomes = applyEvent(outcomes, { type: "target", index: 9, status: "success", completed: 2, total: 2, durationMs: 1 });
+  outcomes = applyEvent(outcomes, { type: "done", index: 0, completed: 0, total: 2, durationMs: 0 });
 
-  assert.ok(peak <= 2, `ran ${peak} at once`);
-  const byName = Object.fromEntries(outcomes.map((outcome) => [outcome.target.name, outcome]));
-  assert.equal(byName.b.status, "error");
-  assert.equal(byName.b.completed, 1);
-  assert.equal(byName.b.failedStatement, "SELECT 2");
-  assert.ok(!seen.includes("b:SELECT 3"), "a statement ran after its connection failed");
-  for (const name of ["a", "c", "d", "e"]) {
-    assert.equal(byName[name].status, "success", name);
-    assert.equal(byName[name].completed, 3);
-    assert.deepEqual(byName[name].result.rows, [["SELECT 3"]]);
-  }
-  // Within one connection the order is kept.
-  assert.deepEqual(seen.filter((item) => item.startsWith("a:")), ["a:SELECT 1", "a:SELECT 2", "a:SELECT 3"]);
+  assert.equal(outcomes[0].status, "queued");
+  assert.deepEqual({ status: outcomes[1].status, completed: outcomes[1].completed, rowCount: outcomes[1].rowCount, durationMs: outcomes[1].durationMs, startedAt: outcomes[1].startedAt, endedAt: outcomes[1].endedAt },
+    { status: "success", completed: 2, rowCount: 1, durationMs: 90, startedAt: 1000, endedAt: 1090 });
+  assert.deepEqual(outcomes[1].result.rows, [[7]]);
+  assert.equal(outcomes[2].error, "relation does not exist");
+  assert.equal(outcomes[2].failedStatement, "SELECT x");
 });
 
-test("stopping cancels what is running and everything still queued", async () => {
-  const controller = new globalThis.AbortController();
-  const outcomes = await runOnConnections(targets, ["SELECT 1"], (target, _sql, signal) => new Promise((resolve, reject) => {
-    if (target.name === "a") { controller.abort(); }
-    const timer = setTimeout(() => resolve(result(["n"], [[1]])), 50);
-    signal.addEventListener("abort", () => { clearTimeout(timer); reject(new Error("aborted")); });
-    if (signal.aborted) { clearTimeout(timer); reject(new Error("aborted")); }
-  }), { concurrency: 1, signal: controller.signal });
-  assert.deepEqual(outcomes.map((outcome) => outcome.status), ["cancelled", "cancelled", "cancelled", "cancelled", "cancelled"]);
-  assert.match(outcomes[0].error, /may have completed/);
+test("stopping or losing the run settles every connection still going", () => {
+  let outcomes = initialOutcomes(targets.slice(0, 3), 1);
+  outcomes = applyEvent(outcomes, { type: "target", index: 0, status: "success", completed: 1, total: 1, durationMs: 5 });
+  outcomes = applyEvent(outcomes, { type: "target", index: 1, status: "running", completed: 0, total: 1, durationMs: 0 });
+  const stopped = stopOutcomes(outcomes);
+  assert.deepEqual(stopped.map((outcome) => outcome.status), ["success", "cancelled", "cancelled"]);
+  assert.match(stopped[1].error, /may have completed/);
+  const failed = failOutcomes(outcomes, "network error");
+  assert.deepEqual(failed.map((outcome) => outcome.status), ["success", "error", "error"]);
+  assert.equal(failed[2].error, "network error");
 });
 
 test("results with the same columns are combined with the connection in front", () => {

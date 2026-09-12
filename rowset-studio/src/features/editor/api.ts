@@ -1,5 +1,6 @@
 import { api, apiResponse, ApiError } from "../../lib/api";
 import { readQueryStream, resultAnnotations } from "./queryStream";
+import type { MultiRunEvent } from "./multiRun";
 
 export interface QueryResult {
   columns: string[];
@@ -102,6 +103,41 @@ async function readResult(response: Response, onProgress?: (result: QueryResult)
 }
 
 // maxRows 0 asks for every row: only a policy caps a result.
+/**
+ * Runs statements on several connections through one request; the server
+ * runs up to ten at a time and reports each connection's progress as it goes.
+ */
+export async function runOnConnections(
+  request: { targets: { connectionId: string; database: string }[]; statements: string[]; concurrency: number; backup: boolean },
+  signal: AbortSignal,
+  onEvent: (event: MultiRunEvent) => void,
+) {
+  const response = await apiResponse("/multirun", { method: "POST", signal, headers: { Accept: "application/x-ndjson" }, body: JSON.stringify(request) });
+  if (!response.body) throw new Error("The server sent no progress.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finished = false;
+  const accept = (line: string) => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line) as MultiRunEvent & { result?: RawQueryResponse };
+    if (event.type === "done") finished = true;
+    onEvent(event.result ? { ...event, result: normalizeResult(event.result) } : event);
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    let newline: number;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      accept(buffer.slice(0, newline));
+      buffer = buffer.slice(newline + 1);
+    }
+    if (done) break;
+  }
+  accept(buffer);
+  if (!finished) throw new Error("The run was interrupted before every connection finished.");
+}
+
 export async function runQuery(connectionId: string, sql: string, database?: string, nodeRole?: "primary" | "secondary", signal?: AbortSignal, onProgress?: (result: QueryResult) => void, backup = false, maxRows = 0) {
   const response = await apiResponse(`/connections/${connectionId}/query`, {
     method: "POST",
