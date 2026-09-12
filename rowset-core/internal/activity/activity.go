@@ -290,9 +290,18 @@ func (b *Buffered) CreateQueryHistory(ctx context.Context, item domain.QueryHist
 	return nil
 }
 
+// flushBeforeReadWait bounds how long a history read waits for the records
+// queued before it. A local database stores them in milliseconds; a remote
+// backend that is slow or down must not leave the history page waiting, so
+// after this the read shows what is already stored.
+var flushBeforeReadWait = 2 * time.Second
+
 func (b *Buffered) ListQueryHistory(ctx context.Context, userID, connectionID string, from, to *string) ([]domain.QueryHistory, error) {
-	if err := b.Flush(ctx); err != nil {
-		return nil, err
+	waitCtx, cancel := context.WithTimeout(ctx, flushBeforeReadWait)
+	err := b.Flush(waitCtx)
+	cancel()
+	if err != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 	return b.backend.ListQueryHistory(ctx, userID, connectionID, from, to)
 }

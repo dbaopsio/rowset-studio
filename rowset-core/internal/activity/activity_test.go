@@ -174,3 +174,33 @@ func TestBufferedConcurrentWritersKeepEveryRecord(t *testing.T) {
 	}
 	t.Logf("%d records in %s (%.0f records/s)", histories+audits, elapsed.Round(time.Millisecond), float64(histories+audits)/elapsed.Seconds())
 }
+
+// A backend that stores nothing until released, and still answers reads.
+type stuckStore struct{ slowStore }
+
+func (s *stuckStore) ListQueryHistory(context.Context, string, string, *string, *string) ([]domain.QueryHistory, error) {
+	return []domain.QueryHistory{{ID: "already stored"}}, nil
+}
+
+func TestHistoryReadsDoNotWaitForeverOnAStuckBackend(t *testing.T) {
+	backend := &stuckStore{slowStore{release: make(chan struct{})}}
+	buffer := NewBuffered(backend, 8)
+	original := flushBeforeReadWait
+	flushBeforeReadWait = 100 * time.Millisecond
+	t.Cleanup(func() {
+		flushBeforeReadWait = original
+		close(backend.release)
+		buffer.Close()
+	})
+	if err := buffer.CreateQueryHistory(context.Background(), domain.QueryHistory{ID: "queued"}); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	items, err := buffer.ListQueryHistory(context.Background(), "user", "conn", nil, nil)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items=%v err=%v", items, err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("history read waited %s for a backend that is not writing", elapsed)
+	}
+}

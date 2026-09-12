@@ -5,6 +5,13 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.60 — 2026-09-13
+
+- A history read waits at most two seconds for statements still being
+  recorded, then shows what is stored. Against the local database that wait is
+  a few milliseconds; it keeps the history page from hanging when a remote
+  activity store is slow or unreachable.
+
 ## 0.0.59 — 2026-09-13
 
 - The database explorer keeps room at its right edge for the scrollbar macOS
