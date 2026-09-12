@@ -5,6 +5,12 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.59 — 2026-09-13
+
+- The database explorer keeps room at its right edge for the scrollbar macOS
+  draws over the content while scrolling, so it no longer covers the column
+  types aligned to that edge.
+
 ## 0.0.58 — 2026-09-13
 
 - **Run on several connections** now runs on the server, up to ten

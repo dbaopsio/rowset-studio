@@ -1075,7 +1075,9 @@ function ExplorerPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto border-t border-slate-200 px-1 text-[12.5px] dark:border-slate-800">
+      {/* macOS draws its scrollbar over the content while scrolling; the
+          right padding keeps it off the column types aligned to that edge. */}
+      <div className="min-h-0 flex-1 overflow-auto border-t border-slate-200 pl-1 pr-3 text-[12.5px] dark:border-slate-800">
         <div className="divide-y divide-slate-100 dark:divide-slate-800/70">
           {Object.entries(groupConnections(visible)).map(([engine, items]) => (
             <EngineBranch
