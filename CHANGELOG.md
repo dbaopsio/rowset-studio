@@ -5,6 +5,19 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.49 — 2026-09-12
+
+- **AI assistant**, set up in Account: either your own Anthropic or OpenAI
+  key, kept encrypted like a connection password, or the `claude` / `codex`
+  command already signed in on this computer, in which case no key reaches
+  Rowset at all.
+- It can write a statement from the schema, explain the one in the editor,
+  rewrite it to run faster using the indexes that exist, say which index
+  would help, and explain a failed statement and correct it.
+- Table and column names, their types and the indexes of the open database
+  are sent as context, never table contents, and sharing the schema can be
+  turned off.
+
 ## 0.0.48 — 2026-09-12
 
 - SQL shown outside the editor is coloured by the editor's own tokenizer

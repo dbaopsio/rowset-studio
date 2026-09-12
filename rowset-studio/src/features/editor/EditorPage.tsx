@@ -26,9 +26,10 @@ import { useShared } from "../../lib/instance";
 import { rowBackupEnabled } from "../../lib/preferences";
 import { useActiveExtensions, type DenialContext } from "../../app/extensions";
 import WorkspaceGate, { exportWorkspace, useWorkspacePersistence } from "./WorkspaceGate";
+import AssistantPanel from "../ai/AssistantPanel";
 import { mergeWorkspace, type WorkspaceDocument, type WorkspaceSnapshot, type WorkspaceTab } from "./workspace";
 
-type BottomTab = "results" | "history" | "messages" | "plan";
+type BottomTab = "results" | "history" | "messages" | "plan" | "assistant";
 
 type QueryTab = WorkspaceTab;
 
@@ -242,6 +243,14 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     leaveByBack.current = historyAction === "POP";
     return leaveByBack.current || runningTabs > 0 || openTransactions > 0;
   });
+
+  // Opens SQL the assistant wrote in a tab of its own, so nothing you typed
+  // is replaced.
+  function openSqlTab(sql: string, title: string) {
+    const id = crypto.randomUUID();
+    setTabs((docs) => [...docs, { id, title, sql, connectionId: activeConnectionId, database: selectedDb }]);
+    setActiveTabId(id);
+  }
 
   function patchRun(tabId: string, patch: Partial<TabRunState>) {
     setRunStates((current) => ({ ...current, [tabId]: { ...(current[tabId] ?? IDLE_RUN), ...patch } }));
@@ -779,6 +788,16 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
               plan={plans[activeTabId]}
               rowEditing={rowEditing}
               onSelectResult={(index) => patchRun(activeTabId, { activeResult: index })}
+              assistant={
+                <AssistantPanel
+                  sql={(selectedSql.trim() || currentSql).trim()}
+                  connectionId={activeConnectionId}
+                  database={selectedDb || undefined}
+                  error={activeRun.messageError ? activeRun.message : undefined}
+                  plan={plans[activeTabId]?.result?.plan}
+                  onInsert={(sql) => openSqlTab(sql, "From assistant")}
+                />
+              }
               onExportAllRows={activeRun.sql && activeConnectionId && !transactionIDs[activeTabId] ? () => exportTable(activeConnectionId, { database: selectedDb || undefined, sql: activeRun.sql!, format: "csv" }).then((blob) => {
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
@@ -1343,6 +1362,7 @@ function BottomPanel({
   rowEditing,
   onSelectResult,
   onExportAllRows,
+  assistant,
 }: {
   activeTab: BottomTab;
   onChange: (tab: BottomTab) => void;
@@ -1355,6 +1375,8 @@ function BottomPanel({
   onSelectResult?: (index: number) => void;
   /** Downloads every row of the statement's result. */
   onExportAllRows?: () => Promise<void>;
+  /** The assistant, shown in its own tab. */
+  assistant?: React.ReactNode;
 }) {
   // Several statements ran: show one result at a time, picked from a strip.
   const results = run.results && run.results.length > 1 ? run.results : undefined;
@@ -1369,11 +1391,12 @@ function BottomPanel({
     messages: { label: "Messages", icon: "text" },
     history: { label: "History", icon: "history" },
     plan: { label: "Plan", icon: "explain" },
+    assistant: { label: "Assistant", icon: "wand" },
   };
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-8 items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 text-xs dark:border-slate-800 dark:bg-slate-950">
-        {(["results", "messages", "history", "plan"] as BottomTab[]).filter((tab) => tab !== "plan" || plan).map((tab) => (
+        {(["results", "messages", "history", "plan", "assistant"] as BottomTab[]).filter((tab) => tab !== "plan" || plan).map((tab) => (
           <button
             key={tab}
             onClick={() => onChange(tab)}
@@ -1422,6 +1445,7 @@ function BottomPanel({
         )}
         {visibleTab === "history" && <HistoryPanel connectionId={connectionId} onPick={onPickHistory} />}
         {visibleTab === "plan" && <PlanPanel plan={plan} />}
+        {visibleTab === "assistant" && assistant}
         {visibleTab === "messages" && (
           <MessagePanel message={run.message} error={run.messageError ? run.message : ""} />
         )}

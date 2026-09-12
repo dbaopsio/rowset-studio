@@ -7,6 +7,7 @@ import { useInstance } from "../lib/instance";
 import { Button, ErrorText, Field, Input, PageHeader, Panel } from "../components/ui";
 import { Icon, type IconName } from "../components/Icon";
 import { rowBackupEnabled, setRowBackupEnabled } from "../lib/preferences";
+import AiSettingsPanel from "../features/ai/AiSettingsPanel";
 
 const appVersion = import.meta.env.VITE_ROWSET_VERSION || "dev";
 
@@ -86,6 +87,8 @@ export default function Account() {
           </button>
         </div>
       </Panel>}
+
+      {!shared && <AiSettingsPanel />}
 
       {!desktop && <Panel className="p-4">
         <h2 className="text-[14px] font-semibold text-slate-900 dark:text-slate-100">Change password</h2>
