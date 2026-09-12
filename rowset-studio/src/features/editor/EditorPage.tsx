@@ -1156,6 +1156,8 @@ function DatabaseBranch({
   search: string;
   onSelect: () => void;
 } & TreeProps) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const treeKey = `database:${connectionId}:${name}`;
   const open = treeValue(treeState, treeKey, false);
   const shouldLoadSchema = open || active;
@@ -1163,12 +1165,20 @@ function DatabaseBranch({
   const tableCount = schema?.schemas.reduce((count, item) => count + (item.tables?.length ?? 0), 0);
   return (
     <div>
-      <div className={`flex h-6 items-center gap-1.5 rounded-md px-1 ${active ? "text-slate-900 dark:text-slate-100" : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900"}`}>
+      <div className={`group flex h-6 items-center gap-1.5 rounded-md px-1 ${active ? "text-slate-900 dark:text-slate-100" : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900"}`}>
         <TreeChevron open={open} onClick={() => onTreeStateChange((current) => ({ ...current, [treeKey]: !open }))} />
         <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-2 text-left">
           <Icon name="database" size={13} className={`shrink-0 ${active ? "text-slate-600 dark:text-slate-300" : "text-slate-400"}`} />
           <span className={`truncate ${active ? "font-medium" : ""}`}>{name}</span>
         </button>
+        <RowMenu
+          label={`${name} actions`}
+          className="opacity-0 group-hover:opacity-100"
+          items={[
+            { label: "Show diagram", onSelect: () => navigate(`/diagram?connection=${encodeURIComponent(connectionId)}&database=${encodeURIComponent(name)}`) },
+            { label: "Refresh schema", onSelect: () => void queryClient.invalidateQueries({ queryKey: ["schema", connectionId, name] }) },
+          ]}
+        />
         <CountPill>{!shouldLoadSchema ? "—" : isFetching && tableCount === undefined ? "…" : tableCount ?? 0}</CountPill>
       </div>
       {open && (

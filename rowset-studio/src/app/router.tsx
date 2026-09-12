@@ -29,6 +29,7 @@ const PoliciesPage = lazy(() => import("../features/policies/PoliciesPage"));
 const ActivityPage = lazy(() => import("../features/activity/ActivityPage"));
 const NotebooksPage = lazy(() => import("../features/notebooks/NotebooksPage"));
 const SchedulesPage = lazy(() => import("../features/schedules/SchedulesPage"));
+const ErDiagramPage = lazy(() => import("../features/diagram/ErDiagramPage"));
 
 const extensionRoutes: RouteObject[] = extensions.flatMap((item) => item.routes ?? []);
 
@@ -47,6 +48,7 @@ export const router = createBrowserRouter([
       { path: "activity", element: <ActivityPage /> },
       { path: "notebooks", element: <NotebooksPage /> },
       { path: "schedules", element: <SchedulesPage /> },
+      { path: "diagram", element: <ErDiagramPage /> },
       { path: "history", element: <WorkspaceHome /> },
       {
         path: "policies",

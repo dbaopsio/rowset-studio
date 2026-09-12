@@ -5,6 +5,13 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.45 — 2026-09-12
+
+- **Diagram**: a map of a database's tables and the foreign keys between
+  them, with primary and foreign key columns marked. Open it from a
+  database's ⋯ menu in the explorer; drag to move, scroll to zoom, filter by
+  name, and click a table to pick out what it is related to.
+
 ## 0.0.44 — 2026-09-12
 
 - **Add and delete rows in the result grid**, next to editing cells: Add row
