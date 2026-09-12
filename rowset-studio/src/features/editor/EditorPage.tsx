@@ -1361,6 +1361,9 @@ function BottomPanel({
   const activeResult = results ? Math.min(run.activeResult ?? results.length - 1, results.length - 1) : -1;
   const selected = results && run.status !== "running" ? results[activeResult] : undefined;
   const shownRun: TabRunState = selected ? { ...run, status: selected.status, data: selected.data, error: selected.error } : run;
+  // The plan tab appears once Explain has produced one, and goes away with
+  // the next run.
+  const visibleTab: BottomTab = activeTab === "plan" && !plan ? "results" : activeTab;
   const tabMeta: Record<BottomTab, { label: string; icon: IconName }> = {
     results: { label: "Results", icon: "grid" },
     messages: { label: "Messages", icon: "text" },
@@ -1370,12 +1373,12 @@ function BottomPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-8 items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 text-xs dark:border-slate-800 dark:bg-slate-950">
-        {(["results", "messages", "history", "plan"] as BottomTab[]).map((tab) => (
+        {(["results", "messages", "history", "plan"] as BottomTab[]).filter((tab) => tab !== "plan" || plan).map((tab) => (
           <button
             key={tab}
             onClick={() => onChange(tab)}
             className={`flex h-8 items-center gap-1.5 border-b-2 px-2 transition ${
-              activeTab === tab
+              visibleTab === tab
                 ? "border-slate-900 text-slate-900 dark:border-cyan-500 dark:text-slate-100"
                 : "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
             }`}
@@ -1387,7 +1390,7 @@ function BottomPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {activeTab === "results" && (
+        {visibleTab === "results" && (
           <>
             {results && (
               <div role="tablist" aria-label="Statement results" className="flex gap-1 overflow-x-auto border-b border-slate-200 px-2 py-1 dark:border-slate-800">
@@ -1417,9 +1420,9 @@ function BottomPanel({
             )}
           </>
         )}
-        {activeTab === "history" && <HistoryPanel connectionId={connectionId} onPick={onPickHistory} />}
-        {activeTab === "plan" && <PlanPanel plan={plan} />}
-        {activeTab === "messages" && (
+        {visibleTab === "history" && <HistoryPanel connectionId={connectionId} onPick={onPickHistory} />}
+        {visibleTab === "plan" && <PlanPanel plan={plan} />}
+        {visibleTab === "messages" && (
           <MessagePanel message={run.message} error={run.messageError ? run.message : ""} />
         )}
       </div>

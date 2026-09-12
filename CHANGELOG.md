@@ -5,6 +5,11 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.47 — 2026-09-12
+
+- The Plan tab appears only once Explain has produced a plan, and goes away
+  with the next run.
+
 ## 0.0.46 — 2026-09-12
 
 - SQL shown outside the editor (an object's DDL, the statements to review
