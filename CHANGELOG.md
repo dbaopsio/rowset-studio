@@ -5,6 +5,14 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.53 — 2026-09-12
+
+- Columns of the tables in the statement are offered through their alias, and
+  a column that several of those tables share is offered only that way, since
+  the bare name would not resolve.
+- A SELECT that aggregates without a GROUP BY offers one: the quick fix on the
+  statement fills in the columns it has to group by.
+
 ## 0.0.52 — 2026-09-12
 
 - Autocomplete follows the clause you are in: columns come first while

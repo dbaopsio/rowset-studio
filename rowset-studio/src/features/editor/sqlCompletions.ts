@@ -159,6 +159,103 @@ function shortAlias(name: string, used: Set<string>, index: number) {
   return used.has(base) ? `${base}${index + 1}` : base;
 }
 
+/** A column offered on its own or through the table it belongs to. */
+export interface ColumnSuggestion {
+  label: string;
+  insertText: string;
+  detail: string;
+  /** The bare name would be ambiguous, so only the qualified one is offered. */
+  qualifiedOnly: boolean;
+}
+
+/**
+ * Columns of the tables the statement already names. With more than one
+ * table they are offered through their alias, and a name that exists in
+ * several of them is offered only that way, since the bare name would not
+ * resolve.
+ */
+export function columnSuggestions(sql: string, completions: SqlCompletions): ColumnSuggestion[] {
+  const aliases = aliasMap(sql);
+  const tables = new Map<string, string>();
+  for (const [name, target] of Object.entries(aliases)) {
+    const key = completions.tableColumns[target] ? target : undefined;
+    if (!key) continue;
+    // The shortest name for the table: its alias when it has one.
+    const current = tables.get(key);
+    if (!current || name.length < current.length) tables.set(key, name === key ? completions.tableNames[key] ?? key : name);
+  }
+  const owners = new Map<string, string[]>();
+  for (const [key] of tables) {
+    for (const column of completions.tableColumns[key] ?? []) {
+      (owners.get(column) ?? owners.set(column, []).get(column)!).push(key);
+    }
+  }
+  const out: ColumnSuggestion[] = [];
+  for (const [column, keys] of owners) {
+    const ambiguous = keys.length > 1;
+    // With a single table there is nothing to tell apart, so the bare name is
+    // the only one worth offering.
+    for (const key of tables.size > 1 ? keys : []) {
+      const owner = tables.get(key) ?? key;
+      out.push({ label: `${owner}.${column}`, insertText: `${owner}.${column}`, detail: completions.tableNames[key] ?? key, qualifiedOnly: ambiguous });
+    }
+    if (!ambiguous) {
+      const key = keys[0];
+      out.push({ label: column, insertText: column, detail: completions.tableNames[key] ?? key, qualifiedOnly: false });
+    }
+  }
+  return out;
+}
+
+/**
+ * The columns a GROUP BY needs: everything selected that is not an
+ * aggregate, with any alias dropped, so they can be inserted in one go.
+ */
+export function groupByColumns(sql: string): string[] {
+  const tokens = sqlTokens(sql);
+  let start = -1;
+  let end = tokens.length;
+  let depth = 0;
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (token.kind === "symbol") {
+      if (token.text === "(") depth++;
+      else if (token.text === ")") depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (token.kind !== "word" || depth > 0) continue;
+    const word = token.text.toLowerCase();
+    if (word === "select" && start < 0) start = index + 1;
+    else if (start >= 0 && (word === "from" || word === "into")) { end = index; break; }
+  }
+  if (start < 0) return [];
+  const parts: string[][] = [[]];
+  depth = 0;
+  for (const token of tokens.slice(start, end)) {
+    if (token.kind === "symbol") {
+      if (token.text === "(") depth++;
+      else if (token.text === ")") depth = Math.max(0, depth - 1);
+      else if (token.text === "," && depth === 0) { parts.push([]); continue; }
+    }
+    if (token.kind === "space" || token.kind === "comment") continue;
+    parts[parts.length - 1].push(token.text);
+  }
+  const aggregates = /^(count|sum|avg|min|max|array_agg|string_agg|group_concat|listagg|stddev|variance|every|bool_and|bool_or)$/i;
+  const out: string[] = [];
+  for (const part of parts) {
+    if (part.length === 0) continue;
+    if (part.some((piece, index) => aggregates.test(piece) && part[index + 1] === "(")) continue;
+    // Drop a trailing alias, written with or without AS.
+    let pieces = part;
+    const last = pieces[pieces.length - 1]?.toLowerCase();
+    if (pieces.length >= 2 && pieces[pieces.length - 2].toLowerCase() === "as") pieces = pieces.slice(0, -2);
+    else if (pieces.length >= 2 && /^[a-z_][\w$]*$/i.test(last ?? "") && !/^[.,]$/.test(pieces[pieces.length - 2])) pieces = pieces.slice(0, -1);
+    const expression = pieces.join("");
+    if (expression && expression !== "*" && !/^\d/.test(expression)) out.push(expression);
+  }
+  return out;
+}
+
 export function dotSuggestions(sql: string, identifier: string, completions: SqlCompletions): { kind: "column" | "table" | "schema"; values: string[]; owner?: string } {
   const ident = identifier.toLowerCase();
   const table = aliasMap(sql)[ident];

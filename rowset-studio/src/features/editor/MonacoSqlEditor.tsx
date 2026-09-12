@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import Editor, { type Monaco } from "@monaco-editor/react";
 import { ROWSET_SQL_LANGUAGE, defineThemes } from "./monacoSetup";
-import { aliasMap, clauseAt, dotSuggestions, joinSuggestions, type SqlCompletions } from "./sqlCompletions";
+import { aliasMap, clauseAt, columnSuggestions, dotSuggestions, groupByColumns, joinSuggestions, type SqlCompletions } from "./sqlCompletions";
+import { splitStatements } from "./sqlText";
 
 // Warm SQL themes matched to the app palette (terracotta/ink on paper) so the
 // editor reads as one surface with the rest of the product — no cool default blue.
@@ -79,13 +80,16 @@ function registerCompletion(monaco: Monaco) {
       const columnRank = wantsTables ? "2" : "0";
       const tableRank = wantsTables ? "0" : "1";
       const referenced = new Set(Object.values(aliases).map((table) => table.toLowerCase()));
-      const localColumns = new Set<string>();
-      for (const t of referenced) for (const c of tableColumns[t] ?? []) localColumns.add(c);
+      // Columns of the tables in the statement, qualified where the bare name
+      // would not resolve on its own.
+      const local = columnSuggestions(fullText, schemaRef.current);
+      const localColumns = new Set(local.map((item) => item.label));
       const otherColumns = new Set<string>();
       for (const [t, cols] of Object.entries(tableColumns)) {
         if (!referenced.has(t)) for (const c of cols) otherColumns.add(c);
       }
       for (const c of localColumns) otherColumns.delete(c);
+      for (const item of local) otherColumns.delete(item.insertText);
 
       const suggestions = [
         // A join the foreign keys allow, with its ON clause already written.
@@ -97,7 +101,16 @@ function registerCompletion(monaco: Monaco) {
           range,
           sortText: "0" + join.label,
         })),
-        ...[...localColumns].map((c) => ({ label: { label: c, description: "column" }, kind: K.Field, insertText: c, range, sortText: columnRank + c })),
+        ...local.map((item) => ({
+          label: { label: item.label, description: "column" },
+          kind: K.Field,
+          insertText: item.insertText,
+          detail: item.detail,
+          range,
+          // A qualified name that is the only way to reach the column ranks
+          // with the plain ones; the rest sit just behind them.
+          sortText: columnRank + (item.qualifiedOnly || !item.label.includes(".") ? "" : "~") + item.label,
+        })),
         ...Object.entries(schemaNames).map(([key, name]) => ({ label: { label: name, description: "schema" }, kind: K.Module, insertText: name, range, sortText: "1" + key })),
         ...Object.entries(databaseNames).map(([key, name]) => ({ label: { label: name, description: "database" }, kind: K.Module, insertText: name, range, sortText: "1" + key })),
         ...Object.keys(tableColumns).map((t) => {
@@ -109,6 +122,43 @@ function registerCompletion(monaco: Monaco) {
         ...[...otherColumns].map((c) => ({ label: { label: c, description: "column" }, kind: K.Field, insertText: c, range, sortText: (wantsTables ? "4" : "3") + c })),
       ];
       return { suggestions };
+    },
+  });
+}
+
+let actionsRegistered = false;
+
+// One quick fix, offered on the statement under the cursor: a SELECT that
+// aggregates without a GROUP BY gets the columns it must group by.
+function registerCodeActions(monaco: Monaco) {
+  if (actionsRegistered) return;
+  actionsRegistered = true;
+  monaco.languages.registerCodeActionProvider(ROWSET_SQL_LANGUAGE, {
+    provideCodeActions: (model, range) => {
+      const text = model.getValue();
+      const offset = model.getOffsetAt({ lineNumber: range.startLineNumber, column: range.startColumn });
+      const statement = splitStatements(text).find((item) => offset >= item.start && offset <= item.end);
+      const none = { actions: [], dispose: () => undefined };
+      if (!statement) return none;
+      const body = statement.sql;
+      if (/\bgroup\s+by\b/i.test(body)) return none;
+      if (!/^\s*select\b/i.test(body)) return none;
+      if (!/\b(count|sum|avg|min|max|array_agg|string_agg|group_concat|listagg)\s*\(/i.test(body)) return none;
+      const columns = groupByColumns(body);
+      if (columns.length === 0) return none;
+      // GROUP BY belongs before whatever closes the statement.
+      const tail = body.search(/\b(order\s+by|limit|fetch\s+first|for\s+update)\b/i);
+      const cut = tail >= 0 ? tail : body.replace(/[\s;]+$/, "").length;
+      const at = model.getPositionAt(statement.start + cut);
+      const newline = tail >= 0 ? "" : "\n";
+      return {
+        actions: [{
+          title: `Group by ${columns.join(", ")}`,
+          kind: "quickfix",
+          edit: { edits: [{ resource: model.uri, versionId: model.getVersionId(), textEdit: { range: { startLineNumber: at.lineNumber, startColumn: at.column, endLineNumber: at.lineNumber, endColumn: at.column }, text: `${newline}GROUP BY ${columns.join(", ")}${tail >= 0 ? "\n" : ""}` } }] },
+        }],
+        dispose: () => undefined,
+      };
     },
   });
 }
@@ -155,7 +205,7 @@ export default function MonacoSqlEditor({
       defaultLanguage={ROWSET_SQL_LANGUAGE}
       theme={theme === "light" ? "rowset-light" : "rowset-dark"}
       value={value}
-      beforeMount={(monaco) => { defineThemes(monaco); registerCompletion(monaco); }}
+      beforeMount={(monaco) => { defineThemes(monaco); registerCompletion(monaco); registerCodeActions(monaco); }}
       onChange={(v) => onChange(v ?? "")}
       onMount={(editor, monaco) => {
         // Cmd/Ctrl+Enter runs the selection (or the whole statement).
