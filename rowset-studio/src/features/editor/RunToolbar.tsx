@@ -16,6 +16,7 @@ export default function RunToolbar({
   onConnectionChange,
   onRun,
   onRunAll,
+  onRunOnConnections,
   onExplain,
   onSchedule,
   onOpenFile,
@@ -45,6 +46,8 @@ export default function RunToolbar({
   onConnectionChange: (id: string | null) => void;
   onRun: () => void;
   onRunAll: () => void;
+  /** Pick connections and run the selection, or the editor, on each. */
+  onRunOnConnections?: () => void;
   /** Explain the current statement; analyze runs it to measure actual rows. */
   onExplain: (analyze: boolean) => void;
   /** Open the statement under the cursor as a new schedule. */
@@ -167,6 +170,7 @@ export default function RunToolbar({
         <ToolbarButton onClick={onSave} icon="save" label="Save" />
         <MoreMenu items={[
           { label: "Run all statements", hint: "⇧⌘↵ · stops at the first error", onSelect: onRunAll, disabled: !connectionId || running || transactionBusy },
+          ...(onRunOnConnections ? [{ label: "Run on several connections…", hint: "Same SQL on each, results side by side", onSelect: onRunOnConnections, disabled: running || transactionBusy }] : []),
           { label: "Explain with actual rows", hint: "Runs the SELECT to measure it", onSelect: () => onExplain(true), disabled: !connectionId || running || transactionBusy },
           ...(onSchedule ? [{ label: "Schedule this query…", hint: "Save its result to a file on a schedule", onSelect: onSchedule, disabled: !connectionId }] : []),
           { label: "Open .sql file…", onSelect: onOpenFile },

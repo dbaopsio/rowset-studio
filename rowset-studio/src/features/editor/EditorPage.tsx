@@ -27,9 +27,12 @@ import { rowBackupEnabled } from "../../lib/preferences";
 import { useActiveExtensions, type DenialContext } from "../../app/extensions";
 import WorkspaceGate, { exportWorkspace, useWorkspacePersistence } from "./WorkspaceGate";
 import AssistantPanel from "../ai/AssistantPanel";
+import MultiRunDialog from "./MultiRunDialog";
+import MultiRunPanel, { type MultiRunState } from "./MultiRunPanel";
+import { runOnConnections, scriptChanges, type MultiRunTarget, type TargetOutcome } from "./multiRun";
 import { mergeWorkspace, type WorkspaceDocument, type WorkspaceSnapshot, type WorkspaceTab } from "./workspace";
 
-type BottomTab = "results" | "history" | "messages" | "plan";
+type BottomTab = "results" | "history" | "messages" | "plan" | "connections";
 
 type QueryTab = WorkspaceTab;
 
@@ -140,6 +143,10 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   const [transactionIDs, setTransactionIDs] = useState<Record<string, string>>({});
   const [abortedTransactions, setAbortedTransactions] = useState<Record<string, boolean>>({});
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  // A script run on several connections, one per tab.
+  const [multiRunDialog, setMultiRunDialog] = useState<{ sql: string; source: "selection" | "editor" } | null>(null);
+  const [multiRuns, setMultiRuns] = useState<Record<string, MultiRunState>>({});
+  const multiControllers = useRef<Record<string, AbortController>>({});
   // Manual-commit tabs open a transaction lazily with their next statement.
   const [manualCommitTabs, setManualCommitTabs] = useState<Record<string, boolean>>({});
   const manualCommit = useRef<Record<string, boolean>>({});
@@ -192,15 +199,16 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   useEffect(() => {
     mounted.current = true;
     const leaving = (event: BeforeUnloadEvent) => {
-      if (Object.keys(transactions.current).length || Object.keys(controllers.current).length || transactionOperations.current.size || Object.values(scripts.current).some(Boolean)) { event.preventDefault(); event.returnValue = ""; }
+      if (Object.keys(transactions.current).length || Object.keys(controllers.current).length || Object.keys(multiControllers.current).length || transactionOperations.current.size || Object.values(scripts.current).some(Boolean)) { event.preventDefault(); event.returnValue = ""; }
     };
     window.addEventListener("beforeunload", leaving);
-    const running = controllers.current, txns = transactions.current, batches = scripts.current;
+    const running = controllers.current, txns = transactions.current, batches = scripts.current, multi = multiControllers.current;
     return () => {
       mounted.current = false;
       Object.keys(batches).forEach(id => { batches[id] = false; });
       window.removeEventListener("beforeunload", leaving);
       Object.values(running).forEach(c => c.abort());
+      Object.values(multi).forEach(c => c.abort());
       Object.values(txns).forEach(t => void rollbackTxn(t.connectionId, t.id).catch(() => undefined));
     };
   }, []);
@@ -242,7 +250,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
 
   // The browser's Back button always asks before leaving the editor; a link
   // asks only when leaving would stop a query or roll back a transaction.
-  const runningTabs = Object.values(runStates).filter((run) => run.status === "running").length;
+  const runningTabs = Object.values(runStates).filter((run) => run.status === "running").length + Object.values(multiRuns).filter((run) => run.running).length;
   const openTransactions = Object.keys(transactionIDs).length;
   const leaveByBack = useRef(false);
   const leaveBlocker = useBlocker(({ currentLocation, nextLocation, historyAction }) => {
@@ -297,10 +305,11 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
 
   async function closeTab(id: string) {
     if (tabs.length === 1 || transactionOperations.current.has(id) || closingTabs.current.has(id)) return;
-    if ((transactions.current[id] || controllers.current[id] || scripts.current[id]) && !window.confirm("This tab has an active query or transaction. Cancel and roll back before closing?")) return;
+    if ((transactions.current[id] || controllers.current[id] || multiControllers.current[id] || scripts.current[id]) && !window.confirm("This tab has an active query or transaction. Cancel and roll back before closing?")) return;
     closingTabs.current.add(id);
     scripts.current[id] = false;
     controllers.current[id]?.abort();
+    multiControllers.current[id]?.abort();
     // Invalidate callbacks immediately, including while rollback is in flight.
     delete runSeq.current[id];
     const tx = transactions.current[id];
@@ -518,6 +527,47 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     }
   }
 
+  // The same statements on several connections. Each goes through the same
+  // endpoint as a normal run, so policies, row backups and history apply to
+  // every connection on its own.
+  async function startMultiRun(targets: MultiRunTarget[], statements: string[]) {
+    const tabId = activeTabId;
+    setMultiRunDialog(null);
+    if (!tabId || multiControllers.current[tabId]) return;
+    const controller = new AbortController();
+    multiControllers.current[tabId] = controller;
+    const backup = !shared && rowBackupEnabled();
+    const publish = (outcomes: TargetOutcome[], running: boolean) =>
+      setMultiRuns((current) => ({ ...current, [tabId]: { outcomes, statements: statements.length, running } }));
+    setBottomTab("connections");
+    try {
+      const outcomes = await runOnConnections(
+        targets,
+        statements,
+        (target, sql, signal) => runQuery(target.connectionId, sql, target.database || undefined, undefined, signal, undefined, backup),
+        { signal: controller.signal, onChange: (outcomes) => publish(outcomes, true) },
+      );
+      publish(outcomes, false);
+    } finally {
+      if (multiControllers.current[tabId] === controller) delete multiControllers.current[tabId];
+      const changed = scriptChanges(statements);
+      for (const target of targets) {
+        void queryClient.invalidateQueries({ queryKey: ["history", target.connectionId] });
+        if (changed) void queryClient.invalidateQueries({ queryKey: ["schema", target.connectionId] });
+      }
+    }
+  }
+
+  function onRunOnConnections() {
+    const selected = selectedSql.trim();
+    const sql = selected || currentSql;
+    if (!sql.trim()) {
+      setActiveMessage("Nothing to run: the editor is empty.", true);
+      return;
+    }
+    setMultiRunDialog({ sql, source: selected ? "selection" : "editor" });
+  }
+
   function onRunAll() {
     void runStatements(splitStatements(currentSql));
   }
@@ -730,6 +780,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
           onExportWorkspace={() => exportWorkspace(workspace)}
           onImportWorkspace={() => workspaceFileInput.current?.click()}
           onRunAll={onRunAll}
+          onRunOnConnections={onRunOnConnections}
           onExplain={(analyze) => void onExplain(analyze)}
           onSchedule={!shared ? () => navigate("/schedules", { state: { newSchedule: { sql: statementUnderCursor(), connectionId: activeConnectionId, database: selectedDb } } }) : undefined}
           onStop={() => {
@@ -796,6 +847,8 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
               }}
               denialContext={denialContext}
               plan={plans[activeTabId]}
+              multiRun={multiRuns[activeTabId]}
+              onStopMultiRun={() => multiControllers.current[activeTabId]?.abort()}
               rowEditing={rowEditing}
               onSelectResult={(index) => patchRun(activeTabId, { activeResult: index })}
               onExportAllRows={activeRun.sql && activeConnectionId && !transactionIDs[activeTabId] ? () => exportTable(activeConnectionId, { database: selectedDb || undefined, sql: activeRun.sql!, format: "csv" }).then((blob) => {
@@ -833,6 +886,16 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
         </div>
       </Panel>
     </div>
+    {multiRunDialog && (
+      <MultiRunDialog
+        sql={multiRunDialog.sql}
+        source={multiRunDialog.source}
+        connections={connections}
+        initialIds={activeConnectionId ? [activeConnectionId] : []}
+        onClose={() => setMultiRunDialog(null)}
+        onRun={(targets, statements) => void startMultiRun(targets, statements)}
+      />
+    )}
     {saveDialogOpen && (
       <SaveToNotebookDialog
         sql={selectedSql.trim() || currentSql}
@@ -1381,6 +1444,8 @@ function BottomPanel({
   onPickHistory,
   denialContext,
   plan,
+  multiRun,
+  onStopMultiRun,
   rowEditing,
   onSelectResult,
   onExportAllRows,
@@ -1392,6 +1457,9 @@ function BottomPanel({
   onPickHistory: (sql: string) => void;
   denialContext?: DenialContext;
   plan?: PlanState;
+  /** The last run of a script on several connections in this tab. */
+  multiRun?: MultiRunState;
+  onStopMultiRun?: () => void;
   rowEditing?: RowEditing;
   onSelectResult?: (index: number) => void;
   /** Downloads every row of the statement's result. */
@@ -1404,17 +1472,18 @@ function BottomPanel({
   const shownRun: TabRunState = selected ? { ...run, status: selected.status, data: selected.data, error: selected.error } : run;
   // The plan tab appears once Explain has produced one, and goes away with
   // the next run.
-  const visibleTab: BottomTab = activeTab === "plan" && !plan ? "results" : activeTab;
+  const visibleTab: BottomTab = (activeTab === "plan" && !plan) || (activeTab === "connections" && !multiRun) ? "results" : activeTab;
   const tabMeta: Record<BottomTab, { label: string; icon: IconName }> = {
     results: { label: "Results", icon: "grid" },
     messages: { label: "Messages", icon: "text" },
     history: { label: "History", icon: "history" },
     plan: { label: "Plan", icon: "explain" },
+    connections: { label: "Connections", icon: "database" },
   };
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-8 items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 text-xs dark:border-slate-800 dark:bg-slate-950">
-        {(["results", "messages", "history", "plan"] as BottomTab[]).filter((tab) => tab !== "plan" || plan).map((tab) => (
+        {(["results", "messages", "history", "plan", "connections"] as BottomTab[]).filter((tab) => (tab !== "plan" || plan) && (tab !== "connections" || multiRun)).map((tab) => (
           <button
             key={tab}
             onClick={() => onChange(tab)}
@@ -1463,6 +1532,7 @@ function BottomPanel({
         )}
         {visibleTab === "history" && <HistoryPanel connectionId={connectionId} onPick={onPickHistory} />}
         {visibleTab === "plan" && <PlanPanel plan={plan} />}
+        {visibleTab === "connections" && multiRun && <MultiRunPanel state={multiRun} onStop={() => onStopMultiRun?.()} />}
         {visibleTab === "messages" && (
           <MessagePanel message={run.message} error={run.messageError ? run.message : ""} />
         )}

@@ -5,6 +5,23 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.56 — 2026-09-12
+
+- **Run on several connections** (editor ⋯ menu) runs the selection, or the
+  whole editor, on the connections you pick, each in its own database. Up to
+  four run at a time; on each one the statements run in order in auto-commit
+  and stop at the first error without stopping the others. Every statement
+  goes through the normal query endpoint, so policies, row backups and history
+  apply to each connection as usual.
+- A script that changes data or schema asks for confirmation first and names
+  the production connections among the targets; changing the choice asks
+  again. Anything not recognisably a read counts as a change — procedure
+  calls, SET, EXPLAIN ANALYZE, SELECT … INTO, a CTE ending in DELETE.
+- The Connections tab lists every connection with its status, statements,
+  rows and time next to the result of the one picked, showing a failure first.
+  Results whose columns match can be combined into one grid with the
+  connection in the first column. Stop all cancels every running statement.
+
 ## 0.0.55 — 2026-09-12
 
 - Statements are recorded by one background writer in batches instead of two
