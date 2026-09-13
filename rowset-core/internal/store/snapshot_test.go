@@ -147,12 +147,10 @@ func TestPendingMigrationsAreBackedUpBeforeTheyRun(t *testing.T) {
 	if entries, _ := os.ReadDir(backups); len(entries) != 0 {
 		t.Fatalf("a new database was backed up: %d files", len(entries))
 	}
-	var latest int64
-	if err := data.db.QueryRowContext(ctx, "SELECT MAX(version) FROM rowset_go_migrations").Scan(&latest); err != nil {
-		t.Fatal(err)
-	}
-	// Pretend this database predates the latest migration. The newest one is
-	// written to run again safely.
+	// Pretend this database predates one already-applied migration whose SQL is
+	// safe to run again (028 creates indexes with IF NOT EXISTS), so reopening
+	// treats it as pending and re-applies it after taking a backup.
+	const latest int64 = 28
 	if _, err := data.db.ExecContext(ctx, "DELETE FROM rowset_go_migrations WHERE version=?", latest); err != nil {
 		t.Fatal(err)
 	}

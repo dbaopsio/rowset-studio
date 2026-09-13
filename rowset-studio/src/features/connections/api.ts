@@ -26,6 +26,12 @@ export interface Connection {
   nodes: ConnectionNode[];
   nodePolicy?: "primary_only" | "secondary_only" | "user_selectable";
   defaultNodeRole?: "primary" | "secondary";
+  sshHost?: string;
+  sshPort?: number;
+  sshUser?: string;
+  sshAuthMethod?: string;
+  sshKnownHost?: string;
+  sshConfigured?: boolean;
 }
 
 export interface ConnectionNode {
@@ -60,6 +66,15 @@ export interface ConnectionInput {
   password: string;
   queryTimeoutSeconds: number;
   nodes: ConnectionNodeInput[];
+  // SSH tunnel. sshHost "" turns it off. The credentials are write-only.
+  sshHost?: string;
+  sshPort?: number;
+  sshUser?: string;
+  sshAuthMethod?: "password" | "key";
+  sshKnownHost?: string;
+  sshPassword?: string;
+  sshPrivateKey?: string;
+  sshPassphrase?: string;
 }
 
 export interface TestResult {
@@ -80,6 +95,17 @@ export function createConnection(input: ConnectionInput) {
 
 export function updateConnection(id: string, input: ConnectionInput) {
   return api<Connection>(`/connections/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export interface SSHHostKeyResult {
+  ok: boolean;
+  hostKey?: string;
+  fingerprint?: string;
+  error?: string;
+}
+
+export function discoverSSHHostKey(input: { sshHost: string; sshPort?: number; sshUser?: string; sshAuthMethod?: string; sshPassword?: string; sshPrivateKey?: string; sshPassphrase?: string }) {
+  return api<SSHHostKeyResult>("/connections/ssh/host-key", { method: "POST", body: JSON.stringify(input) });
 }
 
 export function deleteConnection(id: string) {

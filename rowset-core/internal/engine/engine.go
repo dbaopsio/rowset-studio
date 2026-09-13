@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	mssql "github.com/microsoft/go-mssqldb"
 	"github.com/microsoft/go-mssqldb/msdsn"
+	"golang.org/x/crypto/ssh"
 )
 
 type Connection struct {
@@ -34,6 +35,8 @@ type Connection struct {
 	Database, Username, Password string
 	TLS                          TLSSettings
 	PoolSize                     int
+	// SSH, when enabled, is an SSH server the database is reached through.
+	SSH SSHConfig
 }
 type Result struct {
 	Columns      []string `json:"columns,omitempty"`
@@ -121,10 +124,13 @@ type Schema struct {
 type Manager struct {
 	mu      sync.Mutex
 	pools   map[string]*sql.DB
+	tunnels map[string]*ssh.Client
 	schemas schemaCache
 }
 
-func NewManager() *Manager { return &Manager{pools: make(map[string]*sql.DB)} }
+func NewManager() *Manager {
+	return &Manager{pools: make(map[string]*sql.DB), tunnels: make(map[string]*ssh.Client)}
+}
 func (m *Manager) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -132,6 +138,10 @@ func (m *Manager) Close() error {
 	for key, db := range m.pools {
 		joined = errors.Join(joined, db.Close())
 		delete(m.pools, key)
+	}
+	for key, tunnel := range m.tunnels {
+		joined = errors.Join(joined, tunnel.Close())
+		delete(m.tunnels, key)
 	}
 	return joined
 }
@@ -151,6 +161,12 @@ func (m *Manager) Invalidate(connectionID string) error {
 		if strings.HasPrefix(key, prefix) {
 			joined = errors.Join(joined, db.Close())
 			delete(m.pools, key)
+		}
+	}
+	for key, tunnel := range m.tunnels {
+		if strings.HasPrefix(key, prefix) {
+			joined = errors.Join(joined, tunnel.Close())
+			delete(m.tunnels, key)
 		}
 	}
 	return joined
@@ -792,6 +808,38 @@ func ReturnsRows(query string) bool {
 
 func returnsRows(query string) bool { return ReturnsRows(query) }
 
+// DiscoverHostKey dials the SSH server and returns its host key line, even if
+// the credentials are wrong, so it can be trusted before the connection is
+// saved. The server presents its host key during the handshake, before
+// authentication.
+func (m *Manager) DiscoverHostKey(ctx context.Context, config SSHConfig) (string, error) {
+	var key string
+	client, err := dialSSH(ctx, config, func(line string) { key = line })
+	if client != nil {
+		_ = client.Close()
+	}
+	if key != "" {
+		return key, nil
+	}
+	return "", err
+}
+
+// TestTunnel opens the SSH tunnel only, to check the server is reachable and
+// to learn its host key. It returns the key line to trust; the caller stores
+// it so later connections can verify against it.
+func (m *Manager) TestTunnel(ctx context.Context, connection Connection) (string, error) {
+	if !connection.SSH.enabled() {
+		return "", nil
+	}
+	var hostKey string
+	client, err := dialSSH(ctx, connection.SSH, func(line string) { hostKey = line })
+	if err != nil {
+		return "", err
+	}
+	_ = client.Close()
+	return hostKey, nil
+}
+
 func (m *Manager) database(connection Connection) (*sql.DB, error) {
 	key := poolKey(connection)
 	m.mu.Lock()
@@ -799,9 +847,22 @@ func (m *Manager) database(connection Connection) (*sql.DB, error) {
 	if db := m.pools[key]; db != nil {
 		return db, nil
 	}
-	db, err := openDatabase(connection)
+	var tunnel *ssh.Client
+	if connection.SSH.enabled() {
+		var err error
+		if tunnel, err = dialSSH(context.Background(), connection.SSH, nil); err != nil {
+			return nil, err
+		}
+	}
+	db, err := openDatabase(connection, tunnel)
 	if err != nil {
+		if tunnel != nil {
+			_ = tunnel.Close()
+		}
 		return nil, err
+	}
+	if tunnel != nil {
+		m.tunnels[key] = tunnel
 	}
 	poolSize := connection.PoolSize
 	if poolSize <= 0 {
@@ -817,7 +878,7 @@ func (m *Manager) database(connection Connection) (*sql.DB, error) {
 
 // openDatabase hands every driver the same *tls.Config through a connector;
 // DSN flags meant different verification guarantees on each engine.
-func openDatabase(connection Connection) (*sql.DB, error) {
+func openDatabase(connection Connection, tunnel *ssh.Client) (*sql.DB, error) {
 	config, err := tlsConfig(connection.TLS, connection.Host)
 	if err != nil {
 		return nil, err
@@ -833,6 +894,11 @@ func openDatabase(connection Connection) (*sql.DB, error) {
 			return nil, err
 		}
 		parsed.TLSConfig, parsed.Fallbacks = config, nil
+		if tunnel != nil {
+			parsed.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return tunnelDial(ctx, tunnel, network, addr)
+			}
+		}
 		return stdlib.OpenDB(*parsed), nil
 	case "mysql", "mariadb":
 		parsed, err := gosqlmysql.ParseDSN(dsn)
@@ -840,6 +906,14 @@ func openDatabase(connection Connection) (*sql.DB, error) {
 			return nil, err
 		}
 		parsed.TLS = config
+		if tunnel != nil {
+			// A per-connection network name so each tunnel dials its own server.
+			network := "rowset-ssh-" + connection.ID
+			gosqlmysql.RegisterDialContext(network, func(ctx context.Context, addr string) (net.Conn, error) {
+				return tunnelDial(ctx, tunnel, "tcp", addr)
+			})
+			parsed.Net = network
+		}
 		connector, err := gosqlmysql.NewConnector(parsed)
 		if err != nil {
 			return nil, err
@@ -853,8 +927,19 @@ func openDatabase(connection Connection) (*sql.DB, error) {
 		if config != nil {
 			parsed.Encryption, parsed.TLSConfig, parsed.HostInCertificateProvided = msdsn.EncryptionRequired, config, true
 		}
-		return sql.OpenDB(mssql.NewConnectorConfig(parsed)), nil
+		connector := mssql.NewConnectorConfig(parsed)
+		if tunnel != nil {
+			connector.Dialer = sshMSSQLDialer{tunnel}
+		}
+		return sql.OpenDB(connector), nil
 	}
+}
+
+// sshMSSQLDialer lets the SQL Server driver dial through the tunnel.
+type sshMSSQLDialer struct{ client *ssh.Client }
+
+func (d sshMSSQLDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	return tunnelDial(ctx, d.client, network, addr)
 }
 
 // connectionString returns a plaintext DSN; openDatabase layers TLS on top.
@@ -893,5 +978,6 @@ func connectionString(connection Connection) (string, string, error) {
 
 func poolKey(connection Connection) string {
 	digest := sha256.Sum256([]byte(connection.Password))
-	return fmt.Sprintf("%s|%s:%s:%d/%s/%s/%x/%s/%d", connection.ID, connection.Engine, connection.Host, connection.Port, connection.Database, connection.Username, digest[:8], connection.TLS.digest(), connection.PoolSize)
+	ssh := sha256.Sum256([]byte(connection.SSH.Host + "|" + fmt.Sprint(connection.SSH.Port) + "|" + connection.SSH.User + "|" + connection.SSH.AuthMethod + "|" + connection.SSH.Password + "|" + connection.SSH.PrivateKey + "|" + connection.SSH.Passphrase + "|" + connection.SSH.KnownHost))
+	return fmt.Sprintf("%s|%s:%s:%d/%s/%s/%x/%s/%d/%x", connection.ID, connection.Engine, connection.Host, connection.Port, connection.Database, connection.Username, digest[:8], connection.TLS.digest(), connection.PoolSize, ssh[:8])
 }

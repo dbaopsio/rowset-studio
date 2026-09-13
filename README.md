@@ -1,7 +1,8 @@
 # Rowset Studio
 
 Rowset Studio is a SQL workspace for PostgreSQL, MySQL, MariaDB and SQL Server
-that runs on your own computer. One executable serves the Studio web interface
+that runs on your own computer. Personal workspaces also support SQLite,
+DuckDB (CGO builds), ClickHouse and a read-only MongoDB document explorer. One executable serves the Studio web interface
 on the loopback address and opens it in your browser; there is nothing else to
 install or run.
 
@@ -10,7 +11,9 @@ install or run.
 - **Connections** — PostgreSQL, MySQL, MariaDB and SQL Server. Paste a
   connection URL or fill in the form. TLS modes `disable`, `require`,
   `verify-ca` and `verify-full`, custom CA and client certificates. Several
-  nodes per connection with primary/secondary detection and routing.
+  nodes per connection with primary/secondary detection and routing. Reach a
+  database through an **SSH tunnel** (password or private key), with the
+  server's host key trusted the first time and verified on every connection.
 - **SQL editor** — run the statement at the cursor, the selection, or every
   statement in the tab (each keeps its own result). Auto-commit or manual commit
   mode with explicit Commit/Rollback, cancellation, formatting, open/download
@@ -40,6 +43,36 @@ install or run.
   window are detected instead of overwritten. Tabs can be exported and imported.
 
 Credentials, notebooks and workspaces are encrypted in a local SQLite database.
+
+## Additional databases and schema comparison
+
+**Schema comparison** is available in the sidebar and a database's menu.
+Choose the desired source structure and the target database/schema. The page
+compares table/column metadata and index summaries, and shows each table's DDL
+side by side. A migration draft opens in the target SQL editor without running.
+Only simple nullable column additions are generated; other changes remain
+explicit manual steps. This is not a complete dependency-aware migration tool:
+CHECK constraints, complete index/FK definitions, views and routines need
+separate DDL review. Failed metadata reads are shown and disable drafts.
+
+| Engine | Connection | Initial support |
+| --- | --- | --- |
+| SQLite | Absolute path to an existing file | SQL, transactions, schema, keys, indexes, DDL, CSV/JSON export |
+| DuckDB | Absolute path to an existing file; CGO build | SQL, transactions, tables/views, DDL, CSV/JSON export |
+| ClickHouse | Native TCP: 9440 with TLS, 9000 without | SQL, databases, tables/views, DDL, CSV/JSON export |
+| MongoDB | Host/port; credentials use `authSource=admin` | Database/collection browser, find/filter/sort, cancellation, Extended JSON export |
+
+The new engines are available in personal workspaces, with one configured
+endpoint. MongoDB has its own **Documents** page and is read-only; aggregation,
+SRV URLs and SSH are not yet supported. DuckDB/ClickHouse key and index metadata
+is not yet loaded. Inline grid editing, CSV import and SQL INSERT export remain
+available only for the original four engines. Query the SQL engines directly
+for other supported operations.
+
+Native `build-local-binary.sh` builds include DuckDB and require a working C/C++
+compiler. `CGO_ENABLED=0` builds, including the portable cross-platform release
+script, omit DuckDB; the UI only offers it when the server includes it.
+Cross-compiling with DuckDB requires a C/C++ toolchain for the target platform.
 
 ## Install
 

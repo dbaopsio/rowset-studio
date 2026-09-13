@@ -158,6 +158,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/connections/{id}", s.requireAdmin(http.HandlerFunc(s.updateConnection)))
 	mux.Handle("DELETE /api/connections/{id}", s.requireAdmin(http.HandlerFunc(s.deleteConnection)))
 	mux.Handle("POST /api/connections/{id}/test", s.requireAdmin(http.HandlerFunc(s.testConnection)))
+	mux.Handle("POST /api/connections/ssh/host-key", s.requireAdmin(http.HandlerFunc(s.discoverSSHHostKey)))
 	mux.Handle("GET /api/connections/{id}/schema", s.authenticated(http.HandlerFunc(s.connectionSchema)))
 	mux.Handle("POST /api/connections/{id}/schema/refresh", s.authenticated(http.HandlerFunc(s.refreshConnectionSchema)))
 	mux.Handle("GET /api/connections/{id}/ddl", s.authenticated(http.HandlerFunc(s.objectDDL)))

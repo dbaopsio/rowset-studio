@@ -169,7 +169,7 @@ func TestLiveScheduledQueryWritesFiles(t *testing.T) {
 	connectionID := scheduleConnection(t, s, identity)
 	dir := t.TempDir()
 	for format, want := range map[string]string{
-		"csv":  "one,two\n1,\"a,b\"\n",
+		"csv":  "\ufeffone,two\n1,\"a,b\"\n",
 		"json": "[\n{\"one\":1,\"two\":\"a,b\"}\n]\n",
 	} {
 		w := scheduleRequest(t, s, identity, "POST", "", scheduleBody(connectionID, "SELECT 1 AS one, 'a,b' AS two", dir, map[string]any{"format": format, "name": "Report " + format}), s.createScheduled)

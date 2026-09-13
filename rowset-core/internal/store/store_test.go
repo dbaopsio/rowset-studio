@@ -161,7 +161,7 @@ func TestMigrationChecksumsAreImmutable(t *testing.T) {
 			t.Fatalf("bad checksum for %s: %s", migration.name, migration.checksum)
 		}
 	}
-	if len(migrations) != 25 {
+	if len(migrations) != 26 {
 		t.Fatalf("migration inventory changed: got %d", len(migrations))
 	}
 }

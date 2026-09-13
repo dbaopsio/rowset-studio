@@ -5,6 +5,36 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.63 — 2026-09-13
+
+- **Schema comparison** in the sidebar and a database's menu compares two
+  selected schemas, showing added, changed and removed tables, columns and
+  index summaries. Inspect the table DDL side by side. Migration drafts open
+  in the existing SQL editor on the target connection without running them.
+  Only simple nullable column additions are generated automatically; other
+  changes are marked MANUAL. Incomplete metadata disables draft generation.
+  CHECK constraints, full index/FK definitions, views and routines are outside
+  this initial metadata comparison.
+- **SQLite** connections open an existing local file, with SQL queries,
+  transactions, table/view/trigger discovery, keys, indexes and original DDL.
+- **DuckDB** connections open an existing local file, with SQL queries,
+  transactions, table/view discovery and DDL. Native builds include the Go
+  driver using CGO; portable non-CGO builds hide DuckDB in the new-connection
+  form and reject it on the API. Index/key discovery is not yet available.
+- **ClickHouse** connections use the native TCP protocol (9440 with TLS,
+  9000 without), with database/table/view discovery, DDL and SQL queries.
+  Interactive transactions and index/key discovery are not yet available.
+- **MongoDB Documents** lists databases and collections, finds and sorts
+  documents with Extended JSON filters, cancels reads and exports results as
+  JSON. BSON types are preserved as canonical Extended JSON. SELECT, table,
+  schema, timeout and row-limit policies apply to finds. This initial version
+  is read-only, uses authSource=admin, and does not support aggregation,
+  SRV URLs or SSH tunnels.
+- Additional engines currently run in personal workspaces with one configured
+  endpoint. SQL INSERT export, CSV import and inline row editing are not yet
+  available for the new engines; SQL engines can export CSV/JSON. Application
+  settings and query-result storage are unchanged.
+
 ## 0.0.62 — 2026-09-13
 
 - `#` starts a comment only on MySQL and MariaDB. On PostgreSQL and SQL Server

@@ -73,6 +73,14 @@ type Connection struct {
 	SecretID            string  `json:"-"`
 	CreatedAt           string  `json:"createdAt"`
 	QueryTimeoutSeconds int64   `json:"queryTimeoutSeconds"`
+	// SSH tunnel. SSHHost empty means the database is reached directly.
+	SSHHost               string `json:"sshHost"`
+	SSHPort               int    `json:"sshPort"`
+	SSHUser               string `json:"sshUser"`
+	SSHAuthMethod         string `json:"sshAuthMethod"`
+	SSHKnownHost          string `json:"sshKnownHost"`
+	SSHSecretID           string `json:"-"`
+	SSHPassphraseSecretID string `json:"-"`
 }
 
 // LegacyTLSMode reproduces the verification each engine applied when only an

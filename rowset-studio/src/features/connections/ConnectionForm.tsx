@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Button, ErrorText, Field, Input, Modal, Select, Textarea } from "../../components/ui";
 import { ApiError } from "../../lib/api";
-import { Connection, ConnectionInput, Engine, TlsMode } from "./api";
+import { Connection, ConnectionInput, Engine, TlsMode, discoverSSHHostKey } from "./api";
 import { useCreateConnection, useUpdateConnection } from "./useConnections";
 import { useActiveExtensions } from "../../app/extensions";
 import { parseConnectionURL } from "./connectionURL";
@@ -51,6 +51,11 @@ export default function ConnectionForm({
           password: "",
           queryTimeoutSeconds: connection.queryTimeoutSeconds,
           nodes: connection.nodes.map(({ id, name, host, port }) => ({ id, name, host, port })),
+          sshHost: connection.sshHost ?? "",
+          sshPort: connection.sshPort || 22,
+          sshUser: connection.sshUser ?? "",
+          sshAuthMethod: (connection.sshAuthMethod as "password" | "key") || "password",
+          sshKnownHost: connection.sshKnownHost ?? "",
         }
       : {
           name: "",
@@ -68,10 +73,29 @@ export default function ConnectionForm({
           password: "",
           queryTimeoutSeconds: 600,
           nodes: [{ name: "node-1", host: "localhost", port: 5432 }],
+          sshHost: "",
+          sshPort: 22,
+          sshUser: "",
+          sshAuthMethod: "password",
+          sshKnownHost: "",
         },
   );
   const [error, setError] = useState("");
   const pending = create.isPending || update.isPending;
+  const [sshEnabled, setSshEnabled] = useState(Boolean(connection?.sshHost));
+  const [hostKeyState, setHostKeyState] = useState<{ status: "" | "fetching" | "found" | "error"; fingerprint?: string; message?: string }>({ status: "" });
+
+  async function fetchHostKey() {
+    setHostKeyState({ status: "fetching" });
+    try {
+      const result = await discoverSSHHostKey({ sshHost: form.sshHost ?? "", sshPort: form.sshPort, sshUser: form.sshUser, sshAuthMethod: form.sshAuthMethod, sshPassword: form.sshPassword, sshPrivateKey: form.sshPrivateKey, sshPassphrase: form.sshPassphrase });
+      if (!result.ok || !result.hostKey) { setHostKeyState({ status: "error", message: result.error ?? "The SSH server could not be reached." }); return; }
+      set("sshKnownHost", result.hostKey);
+      setHostKeyState({ status: "found", fingerprint: result.fingerprint });
+    } catch (err) {
+      setHostKeyState({ status: "error", message: err instanceof ApiError ? err.body.message : "The SSH server could not be reached." });
+    }
+  }
 
   function set<K extends keyof ConnectionInput>(key: K, value: ConnectionInput[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -100,7 +124,9 @@ export default function ConnectionForm({
     setError("");
     try {
       const first = form.nodes[0];
-      const input = { ...(first ? { ...form, host: first.host, port: first.port } : form), ...extra };
+      const base = first ? { ...form, host: first.host, port: first.port } : { ...form };
+      if (!sshEnabled) { base.sshHost = ""; }
+      const input = { ...base, ...extra };
       if (connection) await update.mutateAsync({ id: connection.id, input });
       else await create.mutateAsync(input);
       onClose();
@@ -233,6 +259,61 @@ export default function ConnectionForm({
             </div>
           </details>
         )}
+        <details className="rounded border border-slate-200 p-2 dark:border-slate-800" open={sshEnabled}>
+          <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">SSH tunnel (optional)</summary>
+          <div className="mt-2 space-y-3">
+            <label className="flex items-center gap-2 text-[12px] text-slate-600 dark:text-slate-300">
+              <input type="checkbox" checked={sshEnabled} onChange={(e) => { setSshEnabled(e.target.checked); setHostKeyState({ status: "" }); }} />
+              Reach the database through an SSH server
+            </label>
+            {sshEnabled && (
+              <div className="space-y-3">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <Field label="SSH host"><Input value={form.sshHost ?? ""} onChange={(e) => { set("sshHost", e.target.value); setHostKeyState({ status: "" }); }} placeholder="bastion.example.com" /></Field>
+                  <Field label="SSH port"><Input type="number" min={1} max={65535} value={form.sshPort ?? 22} onChange={(e) => set("sshPort", Number(e.target.value) || 22)} /></Field>
+                  <Field label="SSH user"><Input value={form.sshUser ?? ""} onChange={(e) => set("sshUser", e.target.value)} placeholder="ubuntu" /></Field>
+                </div>
+                <Field label="Authentication">
+                  <Select value={form.sshAuthMethod ?? "password"} onChange={(e) => set("sshAuthMethod", e.target.value as "password" | "key")}>
+                    <option value="password">Password</option>
+                    <option value="key">Private key</option>
+                  </Select>
+                </Field>
+                {form.sshAuthMethod === "key" ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Field label="Private key (PEM)">
+                      <Textarea rows={4} spellCheck={false} autoComplete="off" value={form.sshPrivateKey ?? ""} onChange={(e) => set("sshPrivateKey", e.target.value || undefined)}
+                        placeholder={connection?.sshConfigured ? "Stored encrypted. Leave blank to keep it." : "-----BEGIN OPENSSH PRIVATE KEY-----"} />
+                    </Field>
+                    <Field label="Key passphrase (optional)"><Input type="password" autoComplete="off" value={form.sshPassphrase ?? ""} onChange={(e) => set("sshPassphrase", e.target.value || undefined)} placeholder={connection?.sshConfigured ? "Leave blank to keep" : ""} /></Field>
+                  </div>
+                ) : (
+                  <Field label={connection?.sshConfigured ? "SSH password (leave blank to keep current)" : "SSH password"}>
+                    <Input type="password" autoComplete="off" value={form.sshPassword ?? ""} onChange={(e) => set("sshPassword", e.target.value || undefined)} />
+                  </Field>
+                )}
+                <div className="rounded border border-slate-200 p-2 dark:border-slate-800">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[12px] font-medium text-slate-700 dark:text-slate-200">Host key</span>
+                    <button type="button" onClick={() => void fetchHostKey()} disabled={hostKeyState.status === "fetching" || !form.sshHost} className="rounded border px-2.5 py-1 text-[11px] disabled:opacity-50">
+                      {hostKeyState.status === "fetching" ? "Fetching…" : "Fetch host key"}
+                    </button>
+                  </div>
+                  {form.sshKnownHost ? (
+                    <p className="mt-1 break-all text-[11px] text-emerald-600 dark:text-emerald-400">
+                      Trusted{hostKeyState.fingerprint ? `: ${hostKeyState.fingerprint}` : ""}. The tunnel is refused if the server's key ever changes.
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                      The host key is not trusted yet. Fetch it and check the fingerprint before saving; a connection cannot open without it.
+                    </p>
+                  )}
+                  {hostKeyState.status === "error" && <p className="mt-1 text-[11px] text-rose-600 dark:text-rose-400">{hostKeyState.message}</p>}
+                </div>
+              </div>
+            )}
+          </div>
+        </details>
         <Field label="HA nodes">
           <div className="space-y-2">
             {form.nodes.map((node, index) => {

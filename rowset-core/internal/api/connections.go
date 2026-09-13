@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/engine"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/id"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/store"
+	"golang.org/x/crypto/ssh"
 )
 
 type connectionInput struct {
@@ -37,6 +39,16 @@ type connectionInput struct {
 	Password            string       `json:"password"`
 	QueryTimeoutSeconds *int64       `json:"queryTimeoutSeconds"`
 	Nodes               *[]nodeInput `json:"nodes"`
+	// SSH tunnel. sshHost "" turns it off. The credential fields are
+	// write-only: nil keeps what is stored, "" clears it.
+	SSHHost       *string `json:"sshHost"`
+	SSHPort       *int    `json:"sshPort"`
+	SSHUser       *string `json:"sshUser"`
+	SSHAuthMethod *string `json:"sshAuthMethod"`
+	SSHKnownHost  *string `json:"sshKnownHost"`
+	SSHPassword   *string `json:"sshPassword"`
+	SSHPrivateKey *string `json:"sshPrivateKey"`
+	SSHPassphrase *string `json:"sshPassphrase"`
 }
 type nodeInput struct {
 	ID   *string `json:"id"`
@@ -87,7 +99,7 @@ func (s *Server) connectionJSON(r *http.Request, connection domain.Connection, i
 	if connection.Alias != nil {
 		alias = *connection.Alias
 	}
-	result := map[string]any{"id": connection.ID, "name": connection.Name, "alias": alias, "engine": connection.Engine, "host": connection.Host, "port": connection.Port, "database": connection.Database, "environment": connection.Environment, "tlsRequired": connection.EffectiveTLSMode() != engine.TLSDisable, "tlsMode": connection.EffectiveTLSMode(), "tlsServerName": connection.TLSServerName, "tlsCaPem": connection.TLSCAPEM, "tlsClientCertPem": connection.TLSClientCertPEM, "tlsClientKeyConfigured": connection.TLSClientKeySecret != "", "connectionUsername": connection.ConnectionUsername, "techUsername": connection.ConnectionUsername, "createdAt": connection.CreatedAt, "queryTimeoutSeconds": connection.QueryTimeoutSeconds, "nodes": nodes}
+	result := map[string]any{"id": connection.ID, "name": connection.Name, "alias": alias, "engine": connection.Engine, "host": connection.Host, "port": connection.Port, "database": connection.Database, "environment": connection.Environment, "tlsRequired": connection.EffectiveTLSMode() != engine.TLSDisable, "tlsMode": connection.EffectiveTLSMode(), "tlsServerName": connection.TLSServerName, "tlsCaPem": connection.TLSCAPEM, "tlsClientCertPem": connection.TLSClientCertPEM, "tlsClientKeyConfigured": connection.TLSClientKeySecret != "", "connectionUsername": connection.ConnectionUsername, "techUsername": connection.ConnectionUsername, "createdAt": connection.CreatedAt, "queryTimeoutSeconds": connection.QueryTimeoutSeconds, "sshHost": connection.SSHHost, "sshPort": connection.SSHPort, "sshUser": connection.SSHUser, "sshAuthMethod": connection.SSHAuthMethod, "sshKnownHost": connection.SSHKnownHost, "sshConfigured": connection.SSHSecretID != "", "nodes": nodes}
 	for _, detail := range s.connectionDetails {
 		detail(r.Context(), connection, result)
 	}
@@ -124,10 +136,18 @@ func (s *Server) createConnection(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	createdSSH, _, ok := s.applySSHSecrets(w, r, input, &connection, nil)
+	if !ok {
+		if createdKey != "" {
+			_ = s.store.DeleteSecret(r.Context(), createdKey)
+		}
+		return
+	}
 	discardKey := func() {
 		if createdKey != "" {
 			_ = s.store.DeleteSecret(r.Context(), createdKey)
 		}
+		s.rollbackSecrets(r, createdSSH)
 	}
 	ciphertext, nonce, err := s.vault.Encrypt([]byte(input.Password))
 	if err != nil {
@@ -187,10 +207,18 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	createdSSH, replacedSSH, ok := s.applySSHSecrets(w, r, input, &connection, &existing)
+	if !ok {
+		if createdKey != "" {
+			_ = s.store.DeleteSecret(r.Context(), createdKey)
+		}
+		return
+	}
 	discardKey := func() {
 		if createdKey != "" {
 			_ = s.store.DeleteSecret(r.Context(), createdKey)
 		}
+		s.rollbackSecrets(r, createdSSH)
 	}
 	var newSecret *domain.Secret
 	if input.Password != "" {
@@ -239,6 +267,7 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request) {
 	if replacedKey != "" {
 		_ = s.store.DeleteSecret(r.Context(), replacedKey)
 	}
+	s.rollbackSecrets(r, replacedSSH)
 	_ = s.engines.Invalidate(connection.ID)
 	if err := s.runConnectionSaveHooks(r.Context(), connection, false, body); err != nil {
 		writeStoreError(w, err)
@@ -261,6 +290,11 @@ func (s *Server) deleteConnection(w http.ResponseWriter, r *http.Request) {
 	_ = s.store.DeleteSecret(r.Context(), connection.SecretID)
 	if connection.TLSClientKeySecret != "" {
 		_ = s.store.DeleteSecret(r.Context(), connection.TLSClientKeySecret)
+	}
+	for _, secretID := range []string{connection.SSHSecretID, connection.SSHPassphraseSecretID} {
+		if secretID != "" {
+			_ = s.store.DeleteSecret(r.Context(), secretID)
+		}
 	}
 	_ = s.engines.Invalidate(connection.ID)
 	s.closeConnectionTransactions(connection.ID)
@@ -298,12 +332,128 @@ func (s *Server) engineConnectionAt(ctx context.Context, connection domain.Conne
 		}
 		settings.ClientKeyPEM = string(key)
 	}
-	return engine.Connection{ID: connection.ID, Engine: connection.Engine, Host: host, Port: port, Database: database, Username: connection.ConnectionUsername, Password: string(plaintext), TLS: settings, PoolSize: s.poolSize(connection.Engine)}, nil
+	sshConfig, err := s.sshConfigForConnection(ctx, connection)
+	if err != nil {
+		return engine.Connection{}, err
+	}
+	return engine.Connection{ID: connection.ID, Engine: connection.Engine, Host: host, Port: port, Database: database, Username: connection.ConnectionUsername, Password: string(plaintext), TLS: settings, PoolSize: s.poolSize(connection.Engine), SSH: sshConfig}, nil
+}
+
+func (s *Server) sshConfigForConnection(ctx context.Context, connection domain.Connection) (engine.SSHConfig, error) {
+	if connection.SSHHost == "" {
+		return engine.SSHConfig{}, nil
+	}
+	config := engine.SSHConfig{Host: connection.SSHHost, Port: connection.SSHPort, User: connection.SSHUser, AuthMethod: connection.SSHAuthMethod, KnownHost: connection.SSHKnownHost}
+	if connection.SSHSecretID != "" {
+		secret, err := s.store.SSHSecretForConnection(ctx, connection.OrgID, connection.ID)
+		if err != nil {
+			return engine.SSHConfig{}, err
+		}
+		plain, err := s.vault.Decrypt(secret.Ciphertext, secret.Nonce)
+		if err != nil {
+			return engine.SSHConfig{}, err
+		}
+		if connection.SSHAuthMethod == "key" {
+			config.PrivateKey = string(plain)
+		} else {
+			config.Password = string(plain)
+		}
+	}
+	if connection.SSHPassphraseSecretID != "" {
+		secret, err := s.store.SSHPassphraseSecretForConnection(ctx, connection.OrgID, connection.ID)
+		if err != nil {
+			return engine.SSHConfig{}, err
+		}
+		plain, err := s.vault.Decrypt(secret.Ciphertext, secret.Nonce)
+		if err != nil {
+			return engine.SSHConfig{}, err
+		}
+		config.Passphrase = string(plain)
+	}
+	return config, nil
 }
 
 // applyTLSClientKey validates the client certificate/key pair and stores a
 // replacement key. It returns the secret this request created and the stored
 // secret it replaced, which the caller deletes only after a successful save.
+func (s *Server) applySSHSecrets(w http.ResponseWriter, r *http.Request, input connectionInput, connection *domain.Connection, existing *domain.Connection) (created, replaced []string, ok bool) {
+	if connection.SSHHost == "" {
+		if existing != nil {
+			for _, secretID := range []string{existing.SSHSecretID, existing.SSHPassphraseSecretID} {
+				if secretID != "" {
+					replaced = append(replaced, secretID)
+				}
+			}
+		}
+		connection.SSHSecretID, connection.SSHPassphraseSecretID = "", ""
+		return nil, replaced, true
+	}
+	store := func(value string) (string, bool) {
+		ciphertext, nonce, err := s.vault.Encrypt([]byte(value))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL", "secret encryption failed")
+			return "", false
+		}
+		secret := domain.Secret{ID: id.New(), Ciphertext: ciphertext, Nonce: nonce}
+		if err := s.store.CreateSecret(r.Context(), secret); err != nil {
+			writeStoreError(w, err)
+			return "", false
+		}
+		return secret.ID, true
+	}
+	credential := input.SSHPassword
+	if connection.SSHAuthMethod == "key" {
+		credential = input.SSHPrivateKey
+	}
+	if credential != nil && strings.TrimSpace(*credential) != "" {
+		newID, done := store(strings.TrimSpace(*credential))
+		if !done {
+			return created, nil, false
+		}
+		created = append(created, newID)
+		if connection.SSHSecretID != "" {
+			replaced = append(replaced, connection.SSHSecretID)
+		}
+		connection.SSHSecretID = newID
+	} else if credential != nil {
+		if connection.SSHSecretID != "" {
+			replaced = append(replaced, connection.SSHSecretID)
+		}
+		connection.SSHSecretID = ""
+	}
+	if connection.SSHSecretID == "" {
+		s.rollbackSecrets(r, created)
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "an SSH tunnel needs a password or a private key")
+		return nil, nil, false
+	}
+	if input.SSHPassphrase != nil && strings.TrimSpace(*input.SSHPassphrase) != "" {
+		newID, done := store(strings.TrimSpace(*input.SSHPassphrase))
+		if !done {
+			s.rollbackSecrets(r, created)
+			return nil, nil, false
+		}
+		created = append(created, newID)
+		if connection.SSHPassphraseSecretID != "" {
+			replaced = append(replaced, connection.SSHPassphraseSecretID)
+		}
+		connection.SSHPassphraseSecretID = newID
+	} else if input.SSHPassphrase != nil || connection.SSHAuthMethod != "key" {
+		if connection.SSHPassphraseSecretID != "" {
+			replaced = append(replaced, connection.SSHPassphraseSecretID)
+		}
+		connection.SSHPassphraseSecretID = ""
+	}
+	return created, replaced, true
+}
+
+func (s *Server) rollbackSecrets(r *http.Request, ids []string) {
+	for _, secretID := range ids {
+		if secretID != "" {
+			_ = s.store.DeleteSecret(r.Context(), secretID)
+		}
+	}
+}
+
 func (s *Server) applyTLSClientKey(w http.ResponseWriter, r *http.Request, input connectionInput, connection *domain.Connection, existing *domain.Connection) (created, replaced string, ok bool) {
 	keyPEM := ""
 	switch {
@@ -410,6 +560,64 @@ func (s *Server) testConnection(w http.ResponseWriter, r *http.Request) {
 		response["error"] = err.Error()
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+type sshHostKeyInput struct {
+	SSHHost       string `json:"sshHost"`
+	SSHPort       int    `json:"sshPort"`
+	SSHUser       string `json:"sshUser"`
+	SSHAuthMethod string `json:"sshAuthMethod"`
+	SSHPassword   string `json:"sshPassword"`
+	SSHPrivateKey string `json:"sshPrivateKey"`
+	SSHPassphrase string `json:"sshPassphrase"`
+}
+
+func (s *Server) discoverSSHHostKey(w http.ResponseWriter, r *http.Request) {
+	var input sshHostKeyInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if strings.TrimSpace(input.SSHHost) == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "an SSH host is required")
+		return
+	}
+	port := input.SSHPort
+	if port == 0 {
+		port = 22
+	}
+	method := strings.ToLower(strings.TrimSpace(input.SSHAuthMethod))
+	if method == "" {
+		method = "password"
+	}
+	config := engine.SSHConfig{Host: strings.TrimSpace(input.SSHHost), Port: port, User: strings.TrimSpace(input.SSHUser), AuthMethod: method, Password: input.SSHPassword, PrivateKey: input.SSHPrivateKey, Passphrase: input.SSHPassphrase}
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	hostKey, err := s.engines.DiscoverHostKey(ctx, config)
+	if err != nil || hostKey == "" {
+		message := "the SSH server could not be reached"
+		if err != nil {
+			message = err.Error()
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": message})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "hostKey": hostKey, "fingerprint": sshFingerprint(hostKey)})
+}
+
+func sshFingerprint(hostKey string) string {
+	fields := strings.Fields(hostKey)
+	if len(fields) < 2 {
+		return hostKey
+	}
+	decoded, err := base64.StdEncoding.DecodeString(fields[1])
+	if err != nil {
+		return hostKey
+	}
+	key, err := ssh.ParsePublicKey(decoded)
+	if err != nil {
+		return hostKey
+	}
+	return ssh.FingerprintSHA256(key)
 }
 
 func (s *Server) connectionSchema(w http.ResponseWriter, r *http.Request) {
@@ -559,12 +767,60 @@ func normalizeConnectionInput(input connectionInput, existing *domain.Connection
 		return domain.Connection{}, nil, "queryTimeoutSeconds must be between 1 and 86400"
 	}
 	connection := domain.Connection{ID: connectionID, OrgID: orgID, Name: input.Name, Alias: alias, Engine: input.Engine, Host: input.Host, Port: input.Port, Database: database, Environment: environment, TLSRequired: tlsMode != engine.TLSDisable, TLSMode: tlsMode, TLSServerName: serverName, TLSCAPEM: caPEM, TLSClientCertPEM: clientCert, TLSClientKeySecret: clientKeySecret, ConnectionUsername: input.ConnectionUsername, CreatedAt: createdAt, QueryTimeoutSeconds: timeout}
+	if existing != nil {
+		connection.SSHHost, connection.SSHPort, connection.SSHUser = existing.SSHHost, existing.SSHPort, existing.SSHUser
+		connection.SSHAuthMethod, connection.SSHKnownHost = existing.SSHAuthMethod, existing.SSHKnownHost
+		connection.SSHSecretID, connection.SSHPassphraseSecretID = existing.SSHSecretID, existing.SSHPassphraseSecretID
+	}
+	if message := applySSHFields(input, &connection); message != "" {
+		return domain.Connection{}, nil, message
+	}
 	var nodeInputs []nodeInput
 	if input.Nodes != nil {
 		nodeInputs = *input.Nodes
 	}
 	nodes, message := buildNodes(connectionID, input.Host, input.Port, nodeInputs)
 	return connection, nodes, message
+}
+
+func applySSHFields(input connectionInput, connection *domain.Connection) string {
+	if input.SSHHost != nil {
+		connection.SSHHost = strings.TrimSpace(*input.SSHHost)
+	}
+	if connection.SSHHost == "" {
+		connection.SSHHost, connection.SSHPort, connection.SSHUser = "", 0, ""
+		connection.SSHAuthMethod, connection.SSHKnownHost = "", ""
+		connection.SSHSecretID, connection.SSHPassphraseSecretID = "", ""
+		return ""
+	}
+	if input.SSHPort != nil {
+		connection.SSHPort = *input.SSHPort
+	}
+	if connection.SSHPort == 0 {
+		connection.SSHPort = 22
+	}
+	if input.SSHUser != nil {
+		connection.SSHUser = strings.TrimSpace(*input.SSHUser)
+	}
+	if input.SSHAuthMethod != nil {
+		connection.SSHAuthMethod = strings.ToLower(strings.TrimSpace(*input.SSHAuthMethod))
+	}
+	if connection.SSHAuthMethod == "" {
+		connection.SSHAuthMethod = "password"
+	}
+	if input.SSHKnownHost != nil {
+		connection.SSHKnownHost = strings.TrimSpace(*input.SSHKnownHost)
+	}
+	if connection.SSHUser == "" {
+		return "an SSH tunnel needs a user"
+	}
+	if connection.SSHPort < 1 || connection.SSHPort > 65535 {
+		return "the SSH port must be between 1 and 65535"
+	}
+	if connection.SSHAuthMethod != "password" && connection.SSHAuthMethod != "key" {
+		return "the SSH authentication method must be password or key"
+	}
+	return ""
 }
 
 func buildNodes(connectionID, fallbackHost string, fallbackPort int, input []nodeInput) ([]domain.ConnectionNode, string) {
