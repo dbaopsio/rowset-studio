@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatSql, splitStatements, statementAt, sqlTokens } from './sqlText.ts';
+import { formatSql, hashComments, splitStatements, statementAt, sqlTokens } from './sqlText.ts';
 
 test('format preserves every quoted token and comment', () => {
   const sql = " SELECT 'a  b, WHERE c', \"Case Name\", $$begin;  end$$ FROM t -- keep  this\n WHERE x='it''s  safe' /* nested /* text */ remains */;";
@@ -22,4 +22,16 @@ test("routine bodies are not split at their semicolons", () => {
   const mssql = "CREATE OR ALTER TRIGGER tr ON t AFTER INSERT AS\nBEGIN\n  BEGIN TRANSACTION;\n  UPDATE t SET a = 1;\n  COMMIT;\nEND;\nSELECT 2";
   assert.equal(splitStatements(mssql).length, 2);
   assert.equal(splitStatements("SELECT 1; SELECT 2").length, 2);
+});
+
+test("'#' is a comment only on MySQL and MariaDB", () => {
+  // SQL Server '#temp' tables and PostgreSQL '#>' are not comments.
+  assert.equal(splitStatements("SELECT * INTO #temp FROM orders; SELECT * FROM #temp", "mssql").length, 2);
+  assert.equal(splitStatements("SELECT a #> b FROM t; SELECT c FROM t", "postgres").length, 2);
+  // On MySQL/MariaDB the rest of the line, ';' and all, is a comment.
+  assert.equal(splitStatements("SELECT 1 # a ; b\nFROM t", "mysql").length, 1);
+  assert.equal(splitStatements("SELECT 1 # a ; b\nFROM t", "mariadb").length, 1);
+  // With no engine the historical behaviour (comment) is kept.
+  assert.equal(splitStatements("SELECT 1 # x ; y").length, 1);
+  assert.deepEqual([hashComments("mysql"), hashComments("mssql"), hashComments("postgres"), hashComments()], [true, false, false, true]);
 });

@@ -247,7 +247,7 @@ func writeScheduledResult(item store.ScheduledQuery, stream queryRowStream, tran
 		return 0, "", fmt.Errorf("output file: %w", err)
 	}
 	buffered := bufio.NewWriter(file)
-	rows, _, writeErr := writeRows(buffered, item.OutputFormat, stream, transforms, limit)
+	rows, _, writeErr := writeRows(buffered, item.OutputFormat, stream, transforms, limit, "", "exported_rows")
 	if writeErr == nil {
 		writeErr = buffered.Flush()
 	}
@@ -267,10 +267,13 @@ func writeScheduledResult(item store.ScheduledQuery, stream queryRowStream, tran
 
 // writeRows writes every row, or limit rows when a policy caps the result.
 // It reports whether rows were left behind.
-func writeRows(out *bufio.Writer, format string, stream queryRowStream, transforms ResultTransforms, limit int) (int64, bool, error) {
+func writeRows(out *bufio.Writer, format string, stream queryRowStream, transforms ResultTransforms, limit int, engine, table string) (int64, bool, error) {
 	columns := stream.Columns()
 	var rows int64
 	truncated := false
+	if format == "sql" {
+		return writeInsertRows(out, stream, transforms, limit, engine, table, columns)
+	}
 	if format == "json" {
 		if _, err := out.WriteString("[\n"); err != nil {
 			return 0, truncated, err
@@ -311,6 +314,11 @@ func writeRows(out *bufio.Writer, format string, stream queryRowStream, transfor
 		_, err := out.WriteString("\n]\n")
 		return rows, truncated, err
 	}
+	// A UTF-8 byte-order mark so Excel opens the file as UTF-8; without it
+	// non-ASCII text (Turkish, say) is shown in the wrong encoding.
+	if _, err := out.WriteString("\ufeff"); err != nil {
+		return 0, truncated, err
+	}
 	writer := csv.NewWriter(out)
 	if err := writer.Write(columns); err != nil {
 		return 0, truncated, err
@@ -342,6 +350,90 @@ func writeRows(out *bufio.Writer, format string, stream queryRowStream, transfor
 	}
 	writer.Flush()
 	return rows, truncated, writer.Error()
+}
+
+// writeInsertRows writes the result as INSERT statements for the table,
+// batching rows so the file is a handful of multi-row inserts rather than one
+// statement per row.
+func writeInsertRows(out *bufio.Writer, stream queryRowStream, transforms ResultTransforms, limit int, engine, table string, columns []string) (int64, bool, error) {
+	const batch = 200
+	quoted := make([]string, len(columns))
+	for index, column := range columns {
+		quoted[index] = quoteSQLIdentifier(engine, column)
+	}
+	prefix := "INSERT INTO " + table + " (" + strings.Join(quoted, ", ") + ") VALUES\n"
+	var rows int64
+	inBatch := 0
+	truncated := false
+	for {
+		if limit > 0 && rows >= int64(limit) {
+			truncated = true
+			break
+		}
+		row, ok, err := stream.Next()
+		if err != nil {
+			return rows, truncated, err
+		}
+		if !ok {
+			break
+		}
+		transforms.apply(row)
+		if inBatch == 0 {
+			if _, err := out.WriteString(prefix); err != nil {
+				return rows, truncated, err
+			}
+		} else if _, err := out.WriteString(",\n"); err != nil {
+			return rows, truncated, err
+		}
+		values := make([]string, len(columns))
+		for index := range values {
+			var value any
+			if index < len(row) {
+				value = row[index]
+			}
+			values[index] = sqlValueLiteral(engine, value)
+		}
+		if _, err := out.WriteString("  (" + strings.Join(values, ", ") + ")"); err != nil {
+			return rows, truncated, err
+		}
+		rows++
+		inBatch++
+		if inBatch == batch {
+			if _, err := out.WriteString(";\n"); err != nil {
+				return rows, truncated, err
+			}
+			inBatch = 0
+		}
+	}
+	if inBatch > 0 {
+		if _, err := out.WriteString(";\n"); err != nil {
+			return rows, truncated, err
+		}
+	}
+	return rows, truncated, nil
+}
+
+// sqlValueLiteral renders one value as a SQL literal: NULL for nothing, an
+// unquoted number for numeric types, 1/0 for a boolean, and an escaped string
+// otherwise.
+func sqlValueLiteral(engine string, value any) string {
+	switch v := fileValue(value).(type) {
+	case nil:
+		return "NULL"
+	case bool:
+		if v {
+			return "1"
+		}
+		return "0"
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return fmt.Sprintf("%d", v)
+	case float32, float64:
+		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%f", v), "0"), ".")
+	case string:
+		return importLiteral(engine, v)
+	default:
+		return importLiteral(engine, fmt.Sprint(v))
+	}
 }
 
 func fileValue(value any) any {

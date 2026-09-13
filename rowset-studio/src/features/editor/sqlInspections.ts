@@ -62,7 +62,7 @@ export function inspectSql(sql: string, completions?: SqlCompletions): Inspectio
   const engine = completions?.engine ?? "";
   const hashComments = !engine || HASH_COMMENT_ENGINES.has(engine);
   const schemaLoaded = Boolean(completions && Object.keys(completions.schemaTables).length > 0);
-  const statements = splitStatements(sql).map((statement) => {
+  const statements = splitStatements(sql, engine).map((statement) => {
     const tokens = sqlTokens(sql.slice(statement.start, statement.end), { hashComments }).map((token) => ({ ...token, start: token.start + statement.start, end: token.end + statement.start }));
     return { tokens, meaningful: tokens.filter((token) => token.kind !== "space" && token.kind !== "comment" && token.text !== ";") };
   });

@@ -363,7 +363,7 @@ function TableItem({ engine, schemaName, table, triggers = [], connectionId, dat
       .then(() => setCopyState("copied"), () => setCopyState("failed"))
       .finally(() => window.setTimeout(() => setCopyState(""), 1500));
   };
-  const download = (format: "csv" | "json") => {
+  const download = (format: "csv" | "json" | "sql") => {
     setExportState({ status: "running" });
     exportTable(connectionId, { database, schema: schemaName, table: table.name, format })
       .then((blob) => {
@@ -403,6 +403,7 @@ function TableItem({ engine, schemaName, table, triggers = [], connectionId, dat
               { label: "Show DDL", onSelect: () => setShowingDDL(true) },
               { label: "Export as CSV", onSelect: () => download("csv"), disabled: exportState.status === "running" },
               { label: "Export as JSON", onSelect: () => download("json"), disabled: exportState.status === "running" },
+              { label: "Export as SQL (INSERT)", onSelect: () => download("sql"), disabled: exportState.status === "running" },
               ...(icon === "table" ? [{ label: "Import CSV…", onSelect: () => setImporting(true) }] : []),
             ]}
           />

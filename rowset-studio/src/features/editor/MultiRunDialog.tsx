@@ -34,7 +34,11 @@ export default function MultiRunDialog({
     return Number.isInteger(saved) && saved >= 1 && saved <= MAX_CONCURRENCY ? saved : 4;
   });
 
-  const statements = useMemo(() => splitStatements(sql).map((statement) => statement.sql.trim()).filter(Boolean), [sql]);
+  const sharedEngine = useMemo(() => {
+    const engines = new Set(connections.filter((connection) => selected.has(connection.id)).map((connection) => connection.engine.toLowerCase()));
+    return engines.size === 1 ? [...engines][0] : undefined;
+  }, [connections, selected]);
+  const statements = useMemo(() => splitStatements(sql, sharedEngine).map((statement) => statement.sql.trim()).filter(Boolean), [sql, sharedEngine]);
   const changes = scriptChanges(statements);
   const changing = statements.filter((statement) => statementEffect(statement) === "change").length;
   const chosen = connections.filter((connection) => selected.has(connection.id));

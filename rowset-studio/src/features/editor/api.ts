@@ -193,7 +193,7 @@ export function explainQuery(connectionId: string, sql: string, options: { datab
 
 // Downloads a whole table, or the full result of one SELECT; the server
 // applies policies as for any SELECT.
-export async function exportTable(connectionId: string, request: { database?: string; schema?: string; table?: string; sql?: string; format: "csv" | "json" }) {
+export async function exportTable(connectionId: string, request: { database?: string; schema?: string; table?: string; sql?: string; format: "csv" | "json" | "sql" }) {
   const response = await apiResponse(`/connections/${connectionId}/export`, { method: "POST", body: JSON.stringify({ ...request, database: request.database ?? "" }) });
   return response.blob();
 }

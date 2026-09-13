@@ -17,6 +17,15 @@ an entry here.
   the row-count policy is what bounds a result.
 - Updated the build dependencies flagged by npm audit (browserslist, nanoid);
   they are development-only and not part of the app.
+- Export a table as SQL: **Export as SQL (INSERT)** writes multi-row INSERT
+  statements that quote the table and columns for the engine, write NULL for
+  null and keep every value's type; a database can replay them. CSV exports now
+  begin with a UTF-8 byte-order mark so Excel shows non-ASCII text (Turkish,
+  say) correctly.
+- The dialect-aware "#" handling now reaches every place statements are split:
+  the editor's run and quick-fix paths, inline problem checks, autocomplete and
+  Run on several connections. So a SQL Server "#temp" table and PostgreSQL "#>"
+  are never mistaken for a comment, on any screen.
 
 ## 0.0.61 — 2026-09-13
 

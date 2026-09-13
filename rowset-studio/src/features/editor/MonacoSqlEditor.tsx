@@ -76,7 +76,7 @@ function registerCompletion(monaco: Monaco) {
 
       // Plain context. What ranks first follows the clause the cursor is in:
       // columns while selecting or filtering, tables after FROM and JOIN.
-      const clause = clauseAt(fullText, model.getOffsetAt(position));
+      const clause = clauseAt(fullText, model.getOffsetAt(position), schemaRef.current.engine);
       const wantsTables = clause === "from";
       const columnRank = wantsTables ? "2" : "0";
       const tableRank = wantsTables ? "0" : "1";
@@ -190,14 +190,15 @@ function registerCodeActions(monaco: Monaco) {
 // A SELECT that aggregates without a GROUP BY gets the columns it must group by.
 function groupByAction(model: ReturnType<Monaco["editor"]["createModel"]>, range: { startLineNumber: number; startColumn: number }) {
   const text = model.getValue();
+  const engine = schemaRef.current.engine;
   const offset = model.getOffsetAt({ lineNumber: range.startLineNumber, column: range.startColumn });
-  const statement = splitStatements(text).find((item) => offset >= item.start && offset <= item.end);
+  const statement = splitStatements(text, engine).find((item) => offset >= item.start && offset <= item.end);
   if (!statement) return null;
   const body = statement.sql;
   if (/\bgroup\s+by\b/i.test(body)) return null;
   if (!/^\s*select\b/i.test(body)) return null;
   if (!/\b(count|sum|avg|min|max|array_agg|string_agg|group_concat|listagg)\s*\(/i.test(body)) return null;
-  const columns = groupByColumns(body);
+  const columns = groupByColumns(body, engine);
   if (columns.length === 0) return null;
   // GROUP BY belongs before whatever closes the statement. The statement's
   // text is trimmed, so its position is found again in the editor.

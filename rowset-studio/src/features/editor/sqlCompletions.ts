@@ -1,5 +1,5 @@
 import type { SchemaInfo } from "./api";
-import { sqlTokens } from "./sqlText.ts";
+import { hashComments, sqlTokens } from "./sqlText.ts";
 
 /** One foreign key, in the direction it is written. */
 export interface ForeignKey {
@@ -108,10 +108,10 @@ const CLAUSE_WORDS: Record<string, SqlClause> = {
  * Reads the clause the cursor sits in, ignoring anything inside brackets so a
  * subquery does not change the answer for the statement around it.
  */
-export function clauseAt(sql: string, offset: number): SqlClause {
+export function clauseAt(sql: string, offset: number, engine?: string): SqlClause {
   let depth = 0;
   let clause: SqlClause = "other";
-  for (const token of sqlTokens(sql.slice(0, offset))) {
+  for (const token of sqlTokens(sql.slice(0, offset), { hashComments: hashComments(engine) })) {
     if (token.kind === "symbol") {
       if (token.text === "(") depth++;
       else if (token.text === ")") depth = Math.max(0, depth - 1);
@@ -213,8 +213,8 @@ export function columnSuggestions(sql: string, completions: SqlCompletions): Col
  * The columns a GROUP BY needs: everything selected that is not an
  * aggregate, with any alias dropped, so they can be inserted in one go.
  */
-export function groupByColumns(sql: string): string[] {
-  const tokens = sqlTokens(sql);
+export function groupByColumns(sql: string, engine?: string): string[] {
+  const tokens = sqlTokens(sql, { hashComments: hashComments(engine) });
   let start = -1;
   let end = tokens.length;
   let depth = 0;

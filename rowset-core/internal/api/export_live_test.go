@@ -55,13 +55,44 @@ func TestLiveTableExport(t *testing.T) {
 				t.Fatal("could not turn off deny_select_without_where")
 			}
 			w = export("csv")
-			if w.Code != http.StatusOK || w.Header().Get("X-Rowset-Rows") != "3" || !strings.HasPrefix(w.Body.String(), "id,name\n") || !strings.Contains(w.Body.String(), `1,"a, b"`) {
+			// A UTF-8 BOM leads the file so Excel reads the encoding right.
+			if w.Code != http.StatusOK || w.Header().Get("X-Rowset-Rows") != "3" || !strings.HasPrefix(w.Body.String(), "\ufeffid,name\n") || !strings.Contains(w.Body.String(), `1,"a, b"`) {
 				t.Fatalf("csv export: %d %v %q", w.Code, w.Header(), w.Body.String())
 			}
 			w = export("json")
 			var rows []map[string]any
 			if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &rows) != nil || len(rows) != 3 || rows[1]["name"] != nil {
 				t.Fatalf("json export: %d %s", w.Code, w.Body.String())
+			}
+			// SQL export: INSERT statements that quote the table and columns for
+			// the engine, keep a comma inside a value, and write NULL for null.
+			w = export("sql")
+			sqlBody := w.Body.String()
+			if w.Code != http.StatusOK || w.Header().Get("X-Rowset-Rows") != "3" {
+				t.Fatalf("sql export: %d %v %q", w.Code, w.Header(), sqlBody)
+			}
+			wantTable := quoteSQLIdentifier(engine.engine, table)
+			if engine.schema != "" {
+				wantTable = quoteSQLIdentifier(engine.engine, engine.schema) + "." + wantTable
+			}
+			if !strings.Contains(sqlBody, "INSERT INTO "+wantTable+" ("+quoteSQLIdentifier(engine.engine, "id")+", "+quoteSQLIdentifier(engine.engine, "name")+") VALUES") {
+				t.Fatalf("sql export header: %q", sqlBody)
+			}
+			if !strings.Contains(sqlBody, "(1, "+importLiteral(engine.engine, "a, b")+")") || !strings.Contains(sqlBody, "(2, NULL)") {
+				t.Fatalf("sql export values: %q", sqlBody)
+			}
+			// The statements a database wrote must run again on the same engine.
+			roundtrip := fmt.Sprintf("export_roundtrip_%d", rand.Intn(1_000_000))
+			query(fmt.Sprintf("CREATE TABLE %s(id int primary key, name %s)", roundtrip, text))
+			replay := strings.ReplaceAll(sqlBody, wantTable, quoteSQLIdentifier(engine.engine, roundtrip))
+			for _, statement := range strings.Split(replay, ";\n") {
+				if strings.TrimSpace(statement) == "" {
+					continue
+				}
+				encoded, _ := json.Marshal(map[string]any{"sql": statement})
+				if r := importCall(t, s, identity, s.runQuery, "POST", connection.ID, "", string(encoded)); r.Code != http.StatusOK {
+					t.Fatalf("replaying the export failed: %d %s\n%s", r.Code, r.Body.String(), statement)
+				}
 			}
 			// Policies apply to exports like any SELECT.
 			policy, _ := json.Marshal(map[string]any{"name": "No export", "kind": "deny_table", "config": table})

@@ -35,8 +35,8 @@ func (s *Server) exportTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Table, input.Schema, input.Database, input.SQL = strings.TrimSpace(input.Table), strings.TrimSpace(input.Schema), strings.TrimSpace(input.Database), strings.TrimSpace(input.SQL)
-	if (input.Table == "" && input.SQL == "") || (input.Format != "csv" && input.Format != "json") {
-		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "a table or a SELECT, and a csv or json format, are required")
+	if (input.Table == "" && input.SQL == "") || (input.Format != "csv" && input.Format != "json" && input.Format != "sql") {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "a table or a SELECT, and a csv, json or sql format, are required")
 		return
 	}
 	identity := identityFromContext(r.Context())
@@ -46,6 +46,12 @@ func (s *Server) exportTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sql, name := input.SQL, "query-result"
+	// INSERT statements need a table to insert into: the exported table, or a
+	// name made from the query's for a query export.
+	target := qualifiedTable(connection.Engine, input.Schema, "exported_rows")
+	if input.Table != "" {
+		target = qualifiedTable(connection.Engine, input.Schema, input.Table)
+	}
 	if sql == "" {
 		sql, name = "SELECT * FROM "+qualifiedTable(connection.Engine, input.Schema, input.Table), fileSlug(input.Table)
 	}
@@ -70,7 +76,7 @@ func (s *Server) exportTable(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(file.Name())
 	}()
 	buffered := bufio.NewWriter(file)
-	rows, truncated, err := writeRows(buffered, input.Format, selected.stream, selected.transforms, selected.limit)
+	rows, truncated, err := writeRows(buffered, input.Format, selected.stream, selected.transforms, selected.limit, connection.Engine, target)
 	if err == nil {
 		err = buffered.Flush()
 	}
@@ -84,8 +90,11 @@ func (s *Server) exportTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	contentType := "text/csv; charset=utf-8"
-	if input.Format == "json" {
+	switch input.Format {
+	case "json":
 		contentType = "application/json"
+	case "sql":
+		contentType = "application/sql"
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.%s"`, name, input.Format))
