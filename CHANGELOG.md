@@ -5,6 +5,14 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.61 — 2026-09-13
+
+- Fixed: Run on several connections and the SQL assistant were given the
+  60-second limit ordinary API requests have. A script that ran longer was cut
+  off, its statements cancelled, and progress reached the page only when the
+  whole run had finished. Both now stream and run for as long as they need,
+  like a single query.
+
 ## 0.0.60 — 2026-09-13
 
 - A history read waits at most two seconds for statements still being

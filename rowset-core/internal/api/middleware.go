@@ -160,10 +160,17 @@ func isAPIPath(path string) bool {
 // otherwise cut them off and buffer whole downloads in memory.
 func isQueryExecutionPath(path string) bool {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) < 3 || parts[0] != "api" {
+	if len(parts) < 2 || parts[0] != "api" {
 		return false
 	}
 	switch {
+	// A script on several connections streams its progress for as long as
+	// its statements run, and an assistant run on this computer can take
+	// minutes to answer.
+	case len(parts) == 2:
+		return parts[1] == "multirun"
+	case parts[1] == "ai" && len(parts) == 3:
+		return parts[2] == "ask"
 	case parts[1] == "connections" && len(parts) == 4:
 		return parts[3] == "query" || parts[3] == "export" || parts[3] == "explain" || parts[3] == "schema"
 	case parts[1] == "connections" && len(parts) == 6:
