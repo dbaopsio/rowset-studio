@@ -173,7 +173,7 @@ func (g *governedSelect) Close() {
 // openGovernedSelect runs sql, which must be one SELECT, for a caller that has
 // already checked access to the connection. finish records the activity.
 func (s *Server) openGovernedSelect(ctx context.Context, r *http.Request, identity domain.Identity, role domain.Role, connection domain.Connection, database, sql, source string, timeout time.Duration) (*governedSelect, error) {
-	info, err := sqlguard.Parse(sql)
+	info, err := sqlguard.ParseDialect(sqlguard.DialectForEngine(connection.Engine), sql)
 	if err != nil {
 		return nil, err
 	}

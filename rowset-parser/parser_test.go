@@ -145,3 +145,31 @@ func TestRoutineBodiesAreOneStatement(t *testing.T) {
 		}
 	}
 }
+
+func TestHashCommentIsDialectAware(t *testing.T) {
+	// On PostgreSQL and SQL Server "#" is not a comment, so a ";" after it is
+	// a second statement the parser must see and refuse.
+	for _, dialect := range []Dialect{DialectPostgres, DialectMSSQL} {
+		info, err := ParseDialect(dialect, "SELECT data #> '{a}' FROM t; DELETE FROM t")
+		if err != nil {
+			t.Fatalf("%s: %v", dialect, err)
+		}
+		if info.Kind != Multi {
+			t.Fatalf("%s: hid a second statement behind '#', kind=%s", dialect, info.Kind)
+		}
+		// The "#>" operator on its own is a single readable statement.
+		single, err := ParseDialect(dialect, "SELECT data #> '{a}' AS v FROM t")
+		if err != nil || single.Kind != Select {
+			t.Fatalf("%s: '#>' query misread: kind=%s err=%v", dialect, single.Kind, err)
+		}
+	}
+	// On MySQL and MariaDB "#" starts a comment, so the rest of the line,
+	// semicolon and all, is not a second statement.
+	info, err := ParseDialect(DialectMySQL, "SELECT 1 AS n # ; DROP TABLE users")
+	if err != nil || info.Kind != Select {
+		t.Fatalf("mysql: '#' comment mishandled: kind=%s err=%v", info.Kind, err)
+	}
+	if DialectForEngine("mariadb") != DialectMySQL || DialectForEngine("postgresql") != DialectPostgres || DialectForEngine("sqlserver") != DialectMSSQL {
+		t.Fatal("engine to dialect mapping is wrong")
+	}
+}

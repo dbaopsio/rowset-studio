@@ -40,7 +40,7 @@ func (s *Server) explainQuery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "nodeRole must be primary or secondary")
 		return
 	}
-	info, err := sqlguard.Parse(sql)
+	info, err := sqlguard.ParseDialect(sqlguard.DialectForEngine(connection.Engine), sql)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "PARSE_ERROR", err.Error())
 		return

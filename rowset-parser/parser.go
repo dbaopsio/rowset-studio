@@ -118,7 +118,7 @@ func ParseDialect(dialect Dialect, sql string) (Info, error) {
 }
 
 func parseDialect(dialect Dialect, sql string) (Info, error) {
-	statements, err := splitStatements(sql)
+	statements, err := splitStatements(dialect, sql)
 	if err != nil {
 		return Info{Dialect: dialect, Kind: Unknown, Raw: sql}, err
 	}
@@ -129,7 +129,7 @@ func parseDialect(dialect Dialect, sql string) (Info, error) {
 		return Info{Dialect: dialect, Kind: Multi, Raw: sql}, nil
 	}
 	raw := strings.TrimSpace(statements[0])
-	tokens, err := Lex(raw)
+	tokens, err := LexDialect(dialect, raw)
 	if err != nil || len(tokens) == 0 {
 		return Info{Dialect: dialect, Kind: Unknown, Raw: raw}, fmt.Errorf("unclassifiable SQL: %w", err)
 	}
@@ -205,6 +205,30 @@ func cacheParsed(key parseCacheKey, info Info) {
 		shard.next = (shard.next + 1) % parseCacheShardLimit
 	}
 	shard.entries[key] = info
+}
+
+// DialectForEngine maps a connection engine to the dialect whose lexing
+// rules it follows. MariaDB shares MySQL's rules, including "#" comments.
+func DialectForEngine(engine string) Dialect {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case "postgres", "postgresql", "cockroach", "cockroachdb":
+		return DialectPostgres
+	case "mysql", "mariadb":
+		return DialectMySQL
+	case "mssql", "sqlserver":
+		return DialectMSSQL
+	default:
+		return DialectGeneric
+	}
+}
+
+// hashStartsComment reports whether "#" begins a line comment in dialect. It
+// does on MySQL and MariaDB; on PostgreSQL "#" is an operator and on SQL
+// Server it belongs to temporary-table names, so treating it as a comment
+// there would hide a trailing ";" and the statement after it. Generic keeps
+// the historical behaviour for callers with no known engine.
+func hashStartsComment(dialect Dialect) bool {
+	return dialect == DialectMySQL || dialect == DialectGeneric
 }
 
 func (dialect Dialect) Valid() bool {
@@ -458,8 +482,8 @@ func SecondarySafe(info Info) bool {
 	return true
 }
 
-func splitStatements(sql string) ([]string, error) {
-	tokens, err := Lex(sql)
+func splitStatements(dialect Dialect, sql string) ([]string, error) {
+	tokens, err := LexDialect(dialect, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -529,7 +553,14 @@ func routineDefinition(tokens []Token) bool {
 	return false
 }
 
+// Lex tokenizes with the generic dialect. Use LexDialect when the engine is
+// known so "#" is a comment only where it should be.
 func Lex(sql string) ([]Token, error) {
+	return LexDialect(DialectGeneric, sql)
+}
+
+// LexDialect tokenizes sql using dialect's comment rules.
+func LexDialect(dialect Dialect, sql string) ([]Token, error) {
 	var out []Token
 	depth := 0
 	for i := 0; i < len(sql); {
@@ -544,7 +575,7 @@ func Lex(sql string) ([]Token, error) {
 			}
 			continue
 		}
-		if sql[i] == '#' {
+		if sql[i] == '#' && hashStartsComment(dialect) {
 			i++
 			for i < len(sql) && sql[i] != '\n' {
 				i++

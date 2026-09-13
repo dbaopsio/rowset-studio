@@ -27,10 +27,8 @@ export async function readQueryStream(response: Response, onProgress?: (result: 
   const result: StreamResult = { columns: [], rows: [], rowCount: 0, durationMs: 0 };
   const reader = response.body.getReader(), decoder = new TextDecoder();
   let buffer = "", complete = false, receivedColumns = false;
-  let receivedBytes = 0;
   let lastProgress = 0;
   function accept(line: string) {
-    if (line.length > 16 * 1024 * 1024) throw new Error("A query batch exceeds the 16 MB display limit");
     if (!line.trim()) return;
     if (complete) throw new Error("Unexpected data after query completion");
     const event = JSON.parse(line);
@@ -58,12 +56,9 @@ export async function readQueryStream(response: Response, onProgress?: (result: 
   try {
     while (true) {
       const { done, value } = await reader.read();
-      receivedBytes += value?.byteLength ?? 0;
-      if (receivedBytes > 32 * 1024 * 1024) throw new Error("Query exceeded the 32 MB display limit. Select fewer rows or columns.");
       buffer += decoder.decode(value, { stream: !done });
       let newline: number;
       while ((newline = buffer.indexOf("\n")) >= 0) { accept(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1); }
-      if (buffer.length > 16 * 1024 * 1024) throw new Error("A query row exceeds the 16 MB display limit");
       if (done) break;
     }
     if (buffer.trim()) accept(buffer);

@@ -59,7 +59,7 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "role missing")
 		return
 	}
-	info, parseErr := sqlguard.Parse(input.SQL)
+	info, parseErr := sqlguard.ParseDialect(sqlguard.DialectForEngine(connection.Engine), input.SQL)
 	if parseErr != nil {
 		s.recordActivity(r, connection.ID, input.SQL, "parse_error", 0, 0, "", "", auditMeta{decision: "deny", reason: parseErr.Error(), policyID: "parse_error", errorMessage: parseErr.Error()})
 		writeError(w, http.StatusBadRequest, "PARSE_ERROR", parseErr.Error())

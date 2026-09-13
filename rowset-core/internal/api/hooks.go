@@ -78,7 +78,7 @@ func (s *Server) prepareStatement(ctx context.Context, request StatementRequest)
 		if next == info.Raw {
 			continue
 		}
-		parsed, err := sqlguard.Parse(next)
+		parsed, err := sqlguard.ParseDialect(sqlguard.DialectForEngine(request.Connection.Engine), next)
 		if err != nil {
 			return info, notes, err
 		}

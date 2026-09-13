@@ -223,7 +223,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     : activeConnection?.nodePolicy === "secondary_only" ? "secondary"
     : activeTabNodeRole ?? activeConnection?.defaultNodeRole ?? "primary";
   const activeRun = runStates[activeTabId] ?? IDLE_RUN;
-  const selectionStatements = useMemo(() => (selectedSql.trim() ? splitStatements(selectedSql).length : 0), [selectedSql]);
+  const selectionStatements = useMemo(() => (selectedSql.trim() ? splitStatements(selectedSql, activeConnection?.engine).length : 0), [selectedSql, activeConnection?.engine]);
 
   useEffect(() => {
     if (connections.length === 0 || !activeTab) return;
@@ -497,10 +497,10 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     const selected = selectedSql.trim();
     if (!selected) {
       const offset = currentSql.split("\n").slice(0, cursor.line - 1).reduce((n, line) => n + line.length + 1, 0) + cursor.column - 1;
-      void execute(statementAt(currentSql, offset));
+      void execute(statementAt(currentSql, offset, activeConnection?.engine));
       return;
     }
-    const statements = splitStatements(selected);
+    const statements = splitStatements(selected, activeConnection?.engine);
     if (statements.length > 1) void runStatements(statements);
     else void execute(selected);
   }
@@ -509,7 +509,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   function statementUnderCursor() {
     const selected = selectedSql.trim();
     const offset = currentSql.split("\n").slice(0, cursor.line - 1).reduce((n, line) => n + line.length + 1, 0) + cursor.column - 1;
-    return (selected ? splitStatements(selected)[0]?.sql ?? selected : statementAt(currentSql, offset)).trim();
+    return (selected ? splitStatements(selected, activeConnection?.engine)[0]?.sql ?? selected : statementAt(currentSql, offset, activeConnection?.engine)).trim();
   }
 
   async function onExplain(analyze: boolean) {
@@ -575,7 +575,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   }
 
   function onRunAll() {
-    void runStatements(splitStatements(currentSql));
+    void runStatements(splitStatements(currentSql, activeConnection?.engine));
   }
 
   // Statements run one by one, each keeping its own result; the first error

@@ -5,6 +5,19 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.62 — 2026-09-13
+
+- `#` starts a comment only on MySQL and MariaDB. On PostgreSQL and SQL Server
+  it is read as written, so the `#>` operator works and a `;` after it is seen
+  as a second statement — which the multiple-statements guard then refuses,
+  rather than the parser hiding it behind a comment. The statement classifier
+  and the editor both split by the connection's engine.
+- Results are no longer cut off at a hidden size. The 16 MB per-row and 32 MB
+  per-result display limits, which stopped a large result mid-stream, are gone;
+  the row-count policy is what bounds a result.
+- Updated the build dependencies flagged by npm audit (browserslist, nanoid);
+  they are development-only and not part of the app.
+
 ## 0.0.61 — 2026-09-13
 
 - Fixed: Run on several connections and the SQL assistant were given the

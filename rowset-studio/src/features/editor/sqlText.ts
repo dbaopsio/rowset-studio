@@ -69,9 +69,19 @@ export function formatSql(sql: string): string {
 // Routine and trigger definitions keep the semicolons of their body.
 const ROUTINE_START = /^create\s+(?:or\s+(?:replace|alter)\s+)?(?:definer\s*=\s*\S+\s+)?(?:procedure|proc|function|trigger|event)\b/i;
 
-export function splitStatements(sql: string): { sql: string; start: number; end: number }[] {
+// "#" begins a comment only on MySQL and MariaDB; elsewhere it is an operator
+// (PostgreSQL "#>") or part of a temporary-table name (SQL Server), so a
+// statement must not be split there. Pass the connection engine to split the
+// way that engine's server does.
+export function hashComments(engine?: string): boolean {
+  const e = (engine ?? "").toLowerCase();
+  return e === "" || e === "mysql" || e === "mariadb";
+}
+
+export function splitStatements(sql: string, engine?: string): { sql: string; start: number; end: number }[] {
   const result: { sql: string; start: number; end: number }[] = [];
-  const tokens = sqlTokens(sql);
+  const hash = hashComments(engine);
+  const tokens = sqlTokens(sql, { hashComments: hash });
   let start = 0;
   // Within a routine body, BEGIN/CASE open a block and END closes it; END IF,
   // END LOOP and the like close their own statements, and BEGIN TRAN starts
@@ -79,7 +89,7 @@ export function splitStatements(sql: string): { sql: string; start: number; end:
   let routine: boolean | null = null, depth = 0;
   const add = (end: number) => {
     const part = sql.slice(start, end);
-    if (sqlTokens(part).some((t) => t.kind !== "space" && t.kind !== "comment" && t.text !== ";")) result.push({ sql: part.trim(), start, end });
+    if (sqlTokens(part, { hashComments: hash }).some((t) => t.kind !== "space" && t.kind !== "comment" && t.text !== ";")) result.push({ sql: part.trim(), start, end });
     start = end;
     routine = null;
     depth = 0;
@@ -104,7 +114,7 @@ export function splitStatements(sql: string): { sql: string; start: number; end:
   return result;
 }
 
-export function statementAt(sql: string, offset: number): string {
-  const statements = splitStatements(sql);
+export function statementAt(sql: string, offset: number, engine?: string): string {
+  const statements = splitStatements(sql, engine);
   return (statements.find((s) => offset >= s.start && offset < s.end) ?? statements.at(-1))?.sql ?? "";
 }
