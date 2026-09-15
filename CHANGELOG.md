@@ -5,6 +5,17 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.73 — 2026-09-15
+
+- **JSON view for query results**: a third view next to Grid and Text,
+  syntax-colored, showing one JSON object per row. MongoDB and
+  Elasticsearch results open in it by default, since their Grid view is
+  a single "document" column of stringified JSON; every other engine
+  still opens in Grid and can switch to JSON from the same toolbar.
+- Fixed two lint errors from the previous change set (a useless
+  assignment in the Elasticsearch query bar, and `eslint-disable`
+  comments referencing a rule this project's config never registers).
+
 ## 0.0.72 — 2026-09-15
 
 - **Query editors for Redis, Cassandra and Elasticsearch**: all three engines
