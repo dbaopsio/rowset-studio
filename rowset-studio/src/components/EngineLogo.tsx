@@ -63,6 +63,20 @@ export default function EngineLogo({
       />
     );
   }
+  // Engines that don't have a traced logo yet still get a distinct color and
+  // initial instead of the same generic disc, so they're tellable apart in a
+  // list (the connections picker, the command palette, the schema tree).
+  const badge = badgeColors[key];
+  if (badge) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" className={`shrink-0 ${className}`} aria-hidden="true">
+        <rect x="1" y="1" width="22" height="22" rx="6" fill={badge} />
+        <text x="12" y="16.5" textAnchor="middle" fontSize="12" fontWeight="600" fontFamily="system-ui, sans-serif" fill={key === "elasticsearch" ? "#1a1a1a" : "#fff"}>
+          {(labels[key] ?? engine).slice(0, 1).toUpperCase()}
+        </text>
+      </svg>
+    );
+  }
   return (
     <svg
       width={size}
@@ -75,6 +89,14 @@ export default function EngineLogo({
     </svg>
   );
 }
+
+const badgeColors: Record<string, string> = {
+  cockroachdb: "#6933FF",
+  snowflake: "#29B5E8",
+  redis: "#DC382D",
+  cassandra: "#1287B1",
+  elasticsearch: "#FEC514",
+};
 
 const fallbackGlyph: ReactNode = (
   <>

@@ -102,6 +102,7 @@ export default function RunToolbar({
 
   const current = connections?.find((c) => c.id === connectionId);
   const isMongo = current?.engine === "mongodb";
+  const pendingEngine = ["redis", "cassandra", "elasticsearch"].includes(current?.engine ?? "");
   const dbOptions = databases.length ? databases : current ? [current.database] : [];
   const longestDatabaseName = Math.max(database.length, ...dbOptions.map((item) => item.length), 14);
   const databaseWidth = Math.min(560, Math.max(160, longestDatabaseName * 8.5 + 48));
@@ -155,7 +156,7 @@ export default function RunToolbar({
           {runLabel}
         </button>
         {running && <button onClick={onStop} className="h-8 rounded-md border border-rose-300 px-2.5 text-[12px] text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950">Stop</button>}
-        {current?.engine !== "mongodb" && <CommitModeSwitch
+        {current?.engine !== "mongodb" && !pendingEngine && <CommitModeSwitch
           manual={manualCommit}
           open={transactionOpen}
           aborted={transactionAborted}

@@ -5,6 +5,16 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.70 — 2026-09-15
+
+- Redis, Cassandra and Elasticsearch pseudo-tables no longer show "Open
+  SELECT", "Show DDL" or export actions in the schema tree — none of those
+  paths work yet for these engines, and showing them just led to a confusing
+  error. The auto-commit/transaction toggle is likewise hidden for them.
+- CockroachDB, Snowflake, Redis, Cassandra and Elasticsearch get a colored
+  initial badge instead of all sharing the same generic gray icon, so they
+  are tellable apart in the connection list, sidebar and command palette.
+
 ## 0.0.69 — 2026-09-15
 
 - **MongoDB query bar** now also populates itself from a query opened from
