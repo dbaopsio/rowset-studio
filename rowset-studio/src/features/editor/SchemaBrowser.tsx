@@ -358,9 +358,9 @@ function TableItem({ engine, schemaName, table, triggers = [], connectionId, dat
   const [importing, setImporting] = useState(false);
   const qualifiedName = qualifyName(engine, schemaName, table.name);
   const quotedName = [schemaName, table.name].map(n => quoteIdentifier(engine, n)).join(".");
-  // These engines have no query editor, DDL viewer or export path yet; showing
-  // those actions would just lead to a confusing "not supported" error.
-  const pendingEngine = ["redis", "cassandra", "elasticsearch"].includes(engine);
+  // These engines have a query editor now, but no DDL viewer or export path
+  // yet (both use the pooled SQL connection these engines don't have).
+  const noDdlOrExport = ["redis", "cassandra", "elasticsearch"].includes(engine);
   const copyName = () => {
     navigator.clipboard.writeText(quotedName)
       .then(() => setCopyState("copied"), () => setCopyState("failed"))
@@ -397,9 +397,9 @@ function TableItem({ engine, schemaName, table, triggers = [], connectionId, dat
         {exportState.status === "running" && <span className="shrink-0 pr-1 text-[11px] text-slate-400">Exporting…</span>}
         {exportState.status === "failed" && <button type="button" onClick={() => setExportState({ status: "" })} title={exportState.message} className="shrink-0 pr-1 text-[11px] text-rose-500">Export failed</button>}
         <span className={`shrink-0 items-center gap-0.5 pr-0.5 ${copyState ? "flex" : "hidden group-hover:flex group-focus-within:flex"}`}>
-          {!pendingEngine && <RowAction icon="sql" title={engine === "mongodb" ? "Open find query in a new tab" : "Open SELECT in a new tab (does not run it)"} onClick={() => action({ connectionId, database, sql: tableSelect(engine, schemaName, table.name, table.columns.map(c => c.name)) })} />}
+          <RowAction icon="sql" title={engine === "mongodb" ? "Open find query in a new tab" : engine === "redis" ? "Open a key scan in a new tab" : engine === "elasticsearch" ? "Open a search in a new tab" : "Open SELECT in a new tab (does not run it)"} onClick={() => action({ connectionId, database, sql: tableSelect(engine, schemaName, table.name, table.columns.map(c => c.name)) })} />
           <RowAction icon={copyState === "copied" ? "check" : "copy"} title={copyState === "failed" ? "Clipboard unavailable" : copyState === "copied" ? "Copied" : `Copy name: ${quotedName}`} onClick={copyName} tone={copyState === "failed" ? "text-rose-500" : copyState === "copied" ? "text-emerald-600" : undefined} />
-          {!pendingEngine && <RowMenu
+          {!noDdlOrExport && <RowMenu
             label={`More actions for ${qualifiedName}`}
             className="h-5 w-5"
             items={engine === "mongodb" ? [{ label: "Find documents", onSelect: () => action({ connectionId, database, sql: tableSelect(engine, schemaName, table.name) }) }] : [

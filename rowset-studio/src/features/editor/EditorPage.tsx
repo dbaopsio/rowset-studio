@@ -25,6 +25,8 @@ import { useAuth } from "../../lib/auth";
 import { SchemaActions } from "./schemaActions";
 import { mongoQuery, mongoRequest, formatMongoQuery } from "./mongoQuery";
 import MongoQueryBar from "./MongoQueryBar";
+import RedisQueryBar, { redisQuery } from "./RedisQueryBar";
+import ElasticsearchQueryBar, { elasticsearchQuery } from "./ElasticsearchQueryBar";
 import SnippetsMenu from "./SnippetsMenu";
 import { api, ApiError } from "../../lib/api";
 import { useShared } from "../../lib/instance";
@@ -118,7 +120,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
       openedFromNavigation.current = location.key;
       const connection = connections.find((item) => item.id === state.connectionId);
       const id = crypto.randomUUID();
-      setTabs((docs) => [...docs, { id, title: "New Query", sql: connection?.engine === "mongodb" ? mongoQuery() : "", connectionId: state.connectionId ?? null, database: connection?.database ?? "" }]);
+      setTabs((docs) => [...docs, { id, title: "New Query", sql: defaultSql(connection?.engine), connectionId: state.connectionId ?? null, database: connection?.database ?? "" }]);
       setActiveTabId(id);
       setActiveConnection(state.connectionId);
       navigate(location.pathname, { replace: true, state: null });
@@ -239,7 +241,9 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   const activeConnection = connections.find((c) => c.id === activeConnectionId) ?? null;
   const [tabParameters, setTabParameters] = useState<Record<string, ParameterValues>>({});
   const isMongo = activeConnection?.engine === "mongodb";
-  const pendingEngine = ["redis", "cassandra", "elasticsearch"].includes(activeConnection?.engine ?? "") ? activeConnection?.engine : undefined;
+  const isCassandra = activeConnection?.engine === "cassandra";
+  const isElasticsearch = activeConnection?.engine === "elasticsearch";
+  const isRedis = activeConnection?.engine === "redis";
   const parameters = tabParameters[activeTabId] ?? {};
   const parameterList = isMongo ? [] : parameterNames(currentSql, activeConnection?.engine ?? "");
   const selectedDb = activeTabDatabase || activeConnection?.database || defaultDatabase(activeConnection?.engine);
@@ -256,7 +260,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
       setTabs((current) => current.map((tab) => tab.id === activeTab.id ? {
         ...tab,
         connectionId: connection.id,
-        sql: !tab.sql.trim() && connection.engine === "mongodb" ? mongoQuery() : tab.sql,
+        sql: !tab.sql.trim() ? defaultSql(connection.engine) : tab.sql,
         database: activeTabDatabase || connection.database || defaultDatabase(connection.engine),
       } : tab));
     }
@@ -318,7 +322,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
       {
         id: next,
         title: `Query ${docs.length + 1}`,
-        sql: isMongo ? mongoQuery() : "",
+        sql: defaultSql(activeConnection?.engine),
         connectionId: activeConnectionId,
         database: selectedDb,
       },
@@ -470,7 +474,21 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
       const response = await api<{ documents: unknown[]; truncated: boolean; durationMs: number; limit: number }>(`/connections/${connectionId}/documents/find`, { method: "POST", signal: controller.signal, body: mongoRequest(sql, selectedDb) });
       return { columns: ["document"], columnTypes: ["BSON"], rows: response.documents.map(document => [document]), rowCount: response.documents.length, durationMs: response.durationMs, truncated: response.truncated, policyNotice: response.truncated ? `Document limit: ${response.limit}` : undefined };
     };
-    return (isMongo ? runMongo() : tx ? txnQuery(tx.connectionId, tx.id, sql, tx.database, controller.signal, progress, backup) : runQuery(connectionId, sql, database, nodeRole, controller.signal, progress, backup))
+    const runElasticsearch = async (): Promise<QueryResult> => {
+      const response = await api<{ documents: unknown[]; truncated: boolean; durationMs: number; limit: number }>(`/connections/${connectionId}/elasticsearch/search`, { method: "POST", signal: controller.signal, body: sql });
+      return { columns: ["document"], columnTypes: ["JSON"], rows: response.documents.map(document => [document]), rowCount: response.documents.length, durationMs: response.durationMs, truncated: response.truncated, policyNotice: response.truncated ? `Result size: ${response.limit}` : undefined };
+    };
+    const runRedis = async (): Promise<QueryResult> => {
+      const input = JSON.parse(sql) as { pattern?: string; type?: string; limit?: number };
+      const body = JSON.stringify({ database: selectedDb, pattern: input.pattern, type: input.type, limit: input.limit });
+      const response = await api<{ entries: { key: string; type: string; ttl: number; value: unknown }[]; cursor: number; durationMs: number; limit: number }>(`/connections/${connectionId}/redis/scan`, { method: "POST", signal: controller.signal, body });
+      return { columns: ["key", "type", "ttl", "value"], rows: response.entries.map(e => [e.key, e.type, e.ttl, e.value]), rowCount: response.entries.length, durationMs: response.durationMs, truncated: response.cursor !== 0, policyNotice: response.cursor !== 0 ? `Scan limit: ${response.limit}; more keys remain (cursor ${response.cursor})` : undefined };
+    };
+    const runCassandra = async (): Promise<QueryResult> => {
+      const response = await api<{ columns: string[]; rows: unknown[][]; durationMs: number; truncated: boolean }>(`/connections/${connectionId}/cassandra/query`, { method: "POST", signal: controller.signal, body: JSON.stringify({ keyspace: selectedDb, query: sql, limit: 1000 }) });
+      return { columns: response.columns ?? [], rows: response.rows ?? [], rowCount: (response.rows ?? []).length, durationMs: response.durationMs, truncated: response.truncated };
+    };
+    return (isMongo ? runMongo() : isElasticsearch ? runElasticsearch() : isRedis ? runRedis() : isCassandra ? runCassandra() : tx ? txnQuery(tx.connectionId, tx.id, sql, tx.database, controller.signal, progress, backup) : runQuery(connectionId, sql, database, nodeRole, controller.signal, progress, backup))
       .then((res) => {
         if (runSeq.current[tabId] !== seq) return false;
         patchRun(tabId, {
@@ -528,11 +546,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
 
   // Run: the selection (every statement in it) or the statement at the cursor.
   function onRun() {
-    if (pendingEngine) {
-      patchRun(activeTabId, { status: "error", message: `The ${pendingEngine} query editor is not available yet in this build; the connection can be tested and its schema browsed.`, messageError: true });
-      return;
-    }
-    if (isMongo) { void execute(selectedSql.trim() || currentSql); return; }
+    if (isMongo || isCassandra || isElasticsearch || isRedis) { void execute(selectedSql.trim() || currentSql); return; }
     const selected = selectedSql.trim();
     if (!selected) {
       const offset = currentSql.split("\n").slice(0, cursor.line - 1).reduce((n, line) => n + line.length + 1, 0) + cursor.column - 1;
@@ -619,7 +633,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   }
 
   function onRunAll() {
-    if (isMongo) { void execute(currentSql); return; }
+    if (isMongo || isRedis || isElasticsearch) { void execute(currentSql); return; }
     void runStatements(splitStatements(currentSql, activeConnection?.engine));
   }
 
@@ -706,7 +720,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     setTabs((current) => current.map((tab) => tab.id === activeTab.id ? {
       ...tab,
       connectionId: id,
-      sql: !tab.sql.trim() && connection?.engine === "mongodb" ? mongoQuery() : tab.sql,
+      sql: !tab.sql.trim() ? defaultSql(connection?.engine) : tab.sql,
       database: connection?.database || defaultDatabase(connection?.engine),
       nodeRole: connection?.defaultNodeRole ?? "primary",
     } : tab));
@@ -862,11 +876,8 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
           snippetsMenu={<SnippetsMenu connectionId={activeConnectionId} database={selectedDb} sql={selectedSql.trim() || currentSql} />}
         />
 
-        {pendingEngine && (
-          <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-            A dedicated query editor for {activeConnection ? activeConnection.engine : pendingEngine} is not available yet in this build. The connection can be tested and its schema browsed from the sidebar.
-          </div>
-        )}
+        {isRedis && <RedisQueryBar tabKey={activeTabId} sql={currentSql} onChange={updateActiveSql} onRun={onRun} />}
+        {isElasticsearch && <ElasticsearchQueryBar tabKey={activeTabId} sql={currentSql} onChange={updateActiveSql} onRun={onRun} />}
         {isMongo && <MongoQueryBar tabKey={activeTabId} sql={currentSql} onChange={updateActiveSql} onRun={onRun} />}
         <QueryParameters names={parameterList} values={parameters} onChange={values => setTabParameters(current => ({ ...current, [activeTabId]: values }))} />
         <div className="flex min-h-0 flex-1">
@@ -877,8 +888,8 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
               fallback={<div className="grid h-full place-items-center text-xs text-slate-500">Loading editor...</div>}
             >
               <MonacoSqlEditor
-                key={`${activeTabId}:${isMongo}`}
-                language={isMongo ? "json" : "sql"}
+                key={`${activeTabId}:${isMongo || isRedis || isElasticsearch}`}
+                language={isMongo || isRedis || isElasticsearch ? "json" : "sql"}
                 value={currentSql}
                 onChange={updateActiveSql}
                 onSelectionChange={setSelectedSql}
@@ -893,7 +904,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
                 Ln {cursor.line}, Col {cursor.column}
                 {selectedSql ? ` · ${selectedSql.length} selected` : ""}
               </span>
-              <span>{currentSql.length} chars · UTF-8 · {isMongo ? "MongoDB · Extended JSON" : "SQL"}</span>
+              <span>{currentSql.length} chars · UTF-8 · {isMongo ? "MongoDB · Extended JSON" : isRedis ? "Redis · JSON" : isElasticsearch ? "Elasticsearch · JSON" : isCassandra ? "CQL" : "SQL"}</span>
             </div>
           </div>
 
@@ -1725,6 +1736,13 @@ function loadBooleanRecord(key: string) {
 
 function treeValue(tree: Record<string, boolean>, key: string, fallback: boolean) {
   return tree[key] ?? fallback;
+}
+
+function defaultSql(engine?: string) {
+  if (engine === "mongodb") return mongoQuery();
+  if (engine === "redis") return redisQuery();
+  if (engine === "elasticsearch") return elasticsearchQuery();
+  return "";
 }
 
 function defaultDatabase(engine?: string) {

@@ -105,6 +105,9 @@ export default function RunToolbar({
 
   const current = connections?.find((c) => c.id === connectionId);
   const isMongo = current?.engine === "mongodb";
+  // Single-JSON-object engines: run the whole buffer as one request, same as
+  // Mongo, rather than splitting/running SQL statements.
+  const isDocumentEngine = isMongo || current?.engine === "redis" || current?.engine === "elasticsearch";
   const pendingEngine = ["redis", "cassandra", "elasticsearch"].includes(current?.engine ?? "");
   const dbOptions = databases.length ? databases : current ? [current.database] : [];
   const longestDatabaseName = Math.max(database.length, ...dbOptions.map((item) => item.length), 14);
@@ -173,7 +176,7 @@ export default function RunToolbar({
           <button onClick={() => onTransaction("rollback")} disabled={running || transactionBusy} className={secondaryButton} title="Discard the pending changes">Rollback</button>
         </>}
         <span className="h-5 w-px bg-slate-200 dark:bg-slate-800" />
-        {!isMongo && <ToolbarButton onClick={() => onExplain(false)} disabled={!connectionId || running || transactionBusy || ["sqlite", "duckdb", "clickhouse", "redis", "cassandra", "elasticsearch"].includes(current?.engine ?? "")} icon="explain" label="Explain" />}
+        {!isDocumentEngine && current?.engine !== "cassandra" && <ToolbarButton onClick={() => onExplain(false)} disabled={!connectionId || running || transactionBusy || ["sqlite", "duckdb", "clickhouse", "redis", "cassandra", "elasticsearch"].includes(current?.engine ?? "")} icon="explain" label="Explain" />}
         <ToolbarButton onClick={onFormat} icon="format" label="Format" />
         {onAssistantToggle && (
           <button
@@ -193,12 +196,12 @@ export default function RunToolbar({
         {snippetsMenu}
         <ToolbarButton onClick={onSave} icon="save" label="Save" />
         <MoreMenu items={[
-          { label: isMongo ? "Run query" : "Run all statements", hint: "⇧⌘↵ · stops at the first error", onSelect: onRunAll, disabled: !connectionId || running || transactionBusy },
+          { label: isDocumentEngine ? "Run query" : "Run all statements", hint: "⇧⌘↵ · stops at the first error", onSelect: onRunAll, disabled: !connectionId || running || transactionBusy },
           ...(onRunOnConnections ? [{ label: "Run on several connections…", hint: "Same SQL on each, results side by side", onSelect: onRunOnConnections, disabled: running || transactionBusy }] : []),
-          ...(isMongo ? [] : [{ label: "Explain with actual rows", hint: "Runs the SELECT to measure it", onSelect: () => onExplain(true), disabled: !connectionId || running || transactionBusy || ["sqlite", "duckdb", "clickhouse", "redis", "cassandra", "elasticsearch"].includes(current?.engine ?? "") }]),
+          ...(isDocumentEngine || current?.engine === "cassandra" ? [] : [{ label: "Explain with actual rows", hint: "Runs the SELECT to measure it", onSelect: () => onExplain(true), disabled: !connectionId || running || transactionBusy || ["sqlite", "duckdb", "clickhouse", "redis", "cassandra", "elasticsearch"].includes(current?.engine ?? "") }]),
           ...(onSchedule ? [{ label: "Schedule this query…", hint: "Save its result to a file on a schedule", onSelect: onSchedule, disabled: !connectionId }] : []),
-          { label: isMongo ? "Open .json file…" : "Open .sql file…", onSelect: onOpenFile },
-          { label: isMongo ? "Download as .json" : "Download as .sql", onSelect: onSaveFile },
+          { label: isDocumentEngine ? "Open .json file…" : "Open .sql file…", onSelect: onOpenFile },
+          { label: isDocumentEngine ? "Download as .json" : "Download as .sql", onSelect: onSaveFile },
           { label: "Export workspace (JSON)", onSelect: onExportWorkspace, hint: "All open tabs, not encrypted" },
           { label: "Import workspace…", onSelect: onImportWorkspace, hint: "Adds tabs; never replaces" },
         ]} />

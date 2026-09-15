@@ -5,6 +5,18 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.72 — 2026-09-15
+
+- **Query editors for Redis, Cassandra and Elasticsearch**: all three engines
+  had a schema browser and a "not available yet" placeholder where the query
+  editor should be; now they have real editors (a scan bar for Redis, CQL for
+  Cassandra, a search bar for Elasticsearch), wired into `Run`, `Run all`,
+  Monaco syntax highlighting and the "Open" row action in the schema tree,
+  the same as every other engine.
+- Fixed the Elasticsearch query bar sending an empty `{}` query clause (which
+  Elasticsearch rejects as malformed) when the bar's fields hadn't been
+  edited yet — it now defaults to `{"match_all":{}}`.
+
 ## 0.0.71 — 2026-09-15
 
 - **Real logos** for CockroachDB, Snowflake, Redis, Cassandra and
