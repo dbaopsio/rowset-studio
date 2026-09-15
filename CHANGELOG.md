@@ -5,6 +5,19 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.75 — 2026-09-15
+
+- **Results filter redesign**: Filter and Edit rows are real bordered
+  buttons now; Filter toggles a panel instead of adding a new
+  condition on every click, with a dedicated "+ Add condition" button
+  for additional ones; "Clear filters" reads as a (subdued) destructive
+  action; and the row count moved out of the toolbar into the status
+  bar, where it only lights up as "X of Y rows filtered" once a filter
+  actually narrows something.
+- The Primary/Secondary node picker no longer shows (disabled) for
+  every single-node connection — only when the connection actually has
+  more than one node to route between.
+
 ## 0.0.74 — 2026-09-15
 
 - **Results Filter button is now visible**: it was plain text with no
