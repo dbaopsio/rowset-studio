@@ -5,6 +5,13 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.82 — 2026-09-15
+
+- HA nodes are opt-in now: a new connection shows a plain Host + Port
+  row instead of always showing the multi-node "name / host / port /
+  Remove" editor. A "This connection has more than one node" checkbox
+  reveals the full editor when it's actually needed.
+
 ## 0.0.81 — 2026-09-15
 
 - **Fixed Windows opening Internet Explorer instead of the default
