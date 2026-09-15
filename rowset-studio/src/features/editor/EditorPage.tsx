@@ -917,6 +917,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
               onChange={setBottomTab}
               run={activeRun}
               connectionId={activeConnectionId}
+              engine={activeConnection?.engine}
               onPickHistory={(sql) => {
                 updateActiveSql(sql);
                 setBottomTab("results");
@@ -1520,6 +1521,7 @@ function BottomPanel({
   onChange,
   run,
   connectionId,
+  engine,
   onPickHistory,
   denialContext,
   plan,
@@ -1533,6 +1535,8 @@ function BottomPanel({
   onChange: (tab: BottomTab) => void;
   run: TabRunState;
   connectionId: string | null;
+  /** The tab's connection engine, so results can pick a sensible default view. */
+  engine?: string;
   onPickHistory: (sql: string) => void;
   denialContext?: DenialContext;
   plan?: PlanState;
@@ -1601,7 +1605,7 @@ function BottomPanel({
             {(shownRun.status === "error" || shownRun.status === "pending") && shownRun.error ? (
               <PolicyBanner error={shownRun.error} context={denialContext} />
             ) : shownRun.data ? (
-              <ResultsGrid key={`${run.startedAt}:${activeResult}`} result={shownRun.data} editing={editingFor(rowEditing, selected ? selected.sql : run.sql)} />
+              <ResultsGrid key={`${run.startedAt}:${activeResult}`} result={shownRun.data} editing={editingFor(rowEditing, selected ? selected.sql : run.sql)} engine={engine} />
             ) : (
               run.status !== "running" && (
                 <EmptyState title="No results yet" text="Run a query to populate the result grid." />

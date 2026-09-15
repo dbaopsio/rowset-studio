@@ -45,7 +45,8 @@ export type IconName =
   | "refresh"
   | "more"
   | "notebook"
-  | "bookmark";
+  | "bookmark"
+  | "braces";
 
 const paths: Record<IconName, ReactNode> = {
   "chevron-right": <path d="M6 4l4 4-4 4" />,
@@ -201,6 +202,7 @@ const paths: Record<IconName, ReactNode> = {
     </>
   ),
   text: <path d="M3 4h10M3 8h10M3 12h6" />,
+  braces: <path d="M6 2.5c-1.5 0-2 .8-2 2v2c0 .8-.4 1.5-1.5 1.5.9 0 1.5.7 1.5 1.5v2c0 1.2.5 2 2 2M10 2.5c1.5 0 2 .8 2 2v2c0 .8.4 1.5 1.5 1.5-.9 0-1.5.7-1.5 1.5v2c0 1.2-.5 2-2 2" />,
   filter: <path d="M2.5 3.5h11l-4.2 5V13l-2.6-1.3V8.5z" />,
   check: <path d="M3 8.5l3 3 7-7" />,
   pencil: <path d="M11.5 2.5l2 2L5 13l-2.5.5L3 11z" />,

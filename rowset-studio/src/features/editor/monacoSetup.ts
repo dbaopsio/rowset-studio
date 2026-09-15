@@ -97,3 +97,10 @@ monaco.editor.setTheme(document.documentElement.classList.contains("dark") ? "ro
 export function colorizeSql(sql: string): Promise<string> {
   return monaco.editor.colorize(sql, ROWSET_SQL_LANGUAGE, { tabSize: 2 });
 }
+
+// Same, for JSON, used by the results panel's JSON view. "json" itself isn't
+// registered (see the trimmed language catalog above); "rowset-json" is the
+// same grammar already used by the Mongo/Redis/Elasticsearch query editors.
+export function colorizeJson(json: string): Promise<string> {
+  return monaco.editor.colorize(json, "rowset-json", { tabSize: 2 });
+}

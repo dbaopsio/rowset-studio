@@ -5,6 +5,7 @@ import { Modal } from "../../components/ui";
 import { QueryResult } from "./api";
 import { deleteStatements, editTarget, insertStatements, updateStatements, type EditTarget } from "./rowEdits";
 import SqlCode from "./SqlCode";
+import { colorizeJson } from "./monacoSetup";
 import { resultCSV, resultJSON } from "./resultExport";
 import { filteredIndexes, type ResultFilter, type FilterOperator } from "./resultFilter";
 import { compareCells } from "./resultSort";
@@ -25,11 +26,15 @@ function cellText(value: unknown) {
   return value == null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
-export default function ResultsGrid({ result, editing }: { result: QueryResult; editing?: ResultEditing }) {
+export default function ResultsGrid({ result, editing, engine }: { result: QueryResult; editing?: ResultEditing; engine?: string }) {
   const [filters, setFilters] = useState<ResultFilter[]>([]);
   const indexes = useMemo(() => filteredIndexes(result.rows, filters, result.columnTypes), [result.rows, result.rowCount, result.columnTypes, filters]);
   const visibleResult = useMemo(() => ({ ...result, rows: indexes.map(index => result.rows[index]), rowCount: indexes.length }), [result, indexes]);
-  const [view, setView] = useState<"grid" | "text">("grid");
+  // Document engines return one JSON document per row; that reads better as
+  // JSON than as a grid with a single stringified column, so it's the default
+  // view for them. Every other engine still opens as Grid.
+  const jsonByDefault = engine === "mongodb" || engine === "elasticsearch";
+  const [view, setView] = useState<"grid" | "text" | "json">(jsonByDefault ? "json" : "grid");
   const target = useMemo(() => (editing ? editTarget(result.columnOrigins, editing.primaryKey) : null), [editing, result.columnOrigins]);
   const [editMode, setEditMode] = useState(false);
   const [edits, setEdits] = useState<CellEdits>(() => new Map());
@@ -101,6 +106,7 @@ export default function ResultsGrid({ result, editing }: { result: QueryResult; 
         <div className="flex items-center gap-0.5 rounded-md border border-slate-200 p-0.5 dark:border-slate-800">
           <ViewToggle active={view === "grid"} onClick={() => setView("grid")} icon="grid" label="Grid" />
           <ViewToggle active={view === "text"} onClick={() => setView("text")} icon="text" label="Text" />
+          <ViewToggle active={view === "json"} onClick={() => setView("json")} icon="braces" label="JSON" />
         </div>
         <span className="h-4 w-px bg-slate-200 dark:bg-slate-800" />
         {editing && (
@@ -154,7 +160,7 @@ export default function ResultsGrid({ result, editing }: { result: QueryResult; 
       <div className="min-h-0 flex-1 overflow-auto">
         {view === "grid" ? (
           <GridView result={result} indexes={indexes} filterKey={filters} editable={editMode ? target : null} edits={edits} onEdit={setCell} drafts={drafts} onDraftEdit={setDraftCell} deletions={deletions} onToggleDelete={toggleDeletion} />
-        ) : <TextView result={visibleResult} />}
+        ) : view === "text" ? <TextView result={visibleResult} /> : <JsonView result={visibleResult} />}
       </div>
       {reviewing && editing && (
         <Modal title="Apply changes" onClose={() => setReviewing(false)} size="lg">
@@ -387,7 +393,45 @@ function TextView({ result }: { result: QueryResult }) {
   );
 }
 
-function ViewToggle({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: "grid" | "text"; label: string }) {
+// A single-column result (Mongo, Elasticsearch and Redis all shape their
+// rows this way) is one JSON value per row already — parse it back out
+// instead of nesting it in a {"document": "...(escaped)..."} object. A
+// multi-column result becomes one object per row, keyed by column name.
+function resultToJsonRows(result: QueryResult): unknown[] {
+  return result.rows.map((row) => {
+    if (result.columns.length === 1) {
+      const cell = row[0];
+      // Already an object/array cell (Mongo, Elasticsearch): unwrap as-is.
+      if (cell !== null && typeof cell === "object") return cell;
+      // A JSON-text cell (e.g. a jsonb column) that parses to an
+      // object/array: unwrap the same way. A plain string or number keeps
+      // its column name below, same as any other single-column result.
+      if (typeof cell === "string") {
+        try {
+          const parsed: unknown = JSON.parse(cell);
+          if (parsed !== null && typeof parsed === "object") return parsed;
+        } catch { /* not JSON text; fall through to the named-column form */ }
+      }
+    }
+    const doc: Record<string, unknown> = {};
+    result.columns.forEach((column, i) => { doc[column] = row[i]; });
+    return doc;
+  });
+}
+
+function JsonView({ result }: { result: QueryResult }) {
+  const [html, setHtml] = useState("");
+  const json = useMemo(() => JSON.stringify(resultToJsonRows(result), null, 2), [result]);
+  useEffect(() => {
+    let alive = true;
+    colorizeJson(json).then((result) => { if (alive) setHtml(result); }, () => undefined);
+    return () => { alive = false; };
+  }, [json]);
+  const classes = "whitespace-pre p-3 font-mono text-xs leading-5 text-slate-700 dark:text-slate-200";
+  return html ? <pre className={classes} dangerouslySetInnerHTML={{ __html: html }} /> : <pre className={classes}>{json}</pre>;
+}
+
+function ViewToggle({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: "grid" | "text" | "braces"; label: string }) {
   return (
     <button
       onClick={onClick}
