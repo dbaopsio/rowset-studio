@@ -106,10 +106,177 @@ func additionalSchema(ctx context.Context, db *sql.DB, connection Connection) (S
 		}
 		result.Views[tableKey(schema, name)] = true
 	}
-	// These engines have richer index/key definitions than this generic catalog.
-	// Explicitly report incomplete enrichment to prevent unsafe migration drafts.
-	result.Warnings = append(result.Warnings, "Index, primary-key and foreign-key metadata is not yet loaded for "+connection.Engine+". Inspect table DDL for complete definitions.")
-	return result, views.Err()
+	if err := views.Err(); err != nil {
+		return result, err
+	}
+	if connection.Engine == "duckdb" {
+		if err := loadDuckDBConstraints(ctx, db, &result); err != nil {
+			result.Warnings = append(result.Warnings, metadataWarning("primary-key and foreign-key", err))
+		}
+		if err := loadDuckDBIndexes(ctx, db, &result); err != nil {
+			result.Warnings = append(result.Warnings, metadataWarning("index", err))
+		}
+	}
+	if connection.Engine == "clickhouse" {
+		// ClickHouse has no enforced foreign keys, so there's nothing missing
+		// to warn about there - only primary/sorting key metadata applies.
+		if err := loadClickHouseKeys(ctx, db, &result); err != nil {
+			result.Warnings = append(result.Warnings, metadataWarning("primary-key", err))
+		}
+	}
+	return result, nil
+}
+
+// loadDuckDBConstraints fills in primary keys (Column.PrimaryKey) and foreign
+// keys (Column.References, as "schema.table.column") from duckdb_constraints().
+func loadDuckDBConstraints(ctx context.Context, db *sql.DB, result *Schema) error {
+	rows, err := db.QueryContext(ctx, `SELECT schema_name,table_name,constraint_type,constraint_column_names,referenced_table,referenced_column_names FROM duckdb_constraints() WHERE constraint_type IN ('PRIMARY KEY','FOREIGN KEY')`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var schemaName, table, kind string
+		var columnNames, refColumnNames any
+		var refTable sql.NullString
+		if err := rows.Scan(&schemaName, &table, &kind, &columnNames, &refTable, &refColumnNames); err != nil {
+			return err
+		}
+		columns := duckDBStringList(columnNames)
+		key := tableKey(schemaName, table)
+		if kind == "PRIMARY KEY" {
+			for _, name := range columns {
+				for i := range result.Tables[key] {
+					if result.Tables[key][i].Name == name {
+						result.Tables[key][i].PrimaryKey = true
+					}
+				}
+			}
+			continue
+		}
+		if !refTable.Valid {
+			continue
+		}
+		refColumns := duckDBStringList(refColumnNames)
+		for i, name := range columns {
+			refColumn := ""
+			if i < len(refColumns) {
+				refColumn = refColumns[i]
+			}
+			for j := range result.Tables[key] {
+				if result.Tables[key][j].Name == name {
+					result.Tables[key][j].References = schemaName + "." + refTable.String + "." + refColumn
+				}
+			}
+		}
+	}
+	return rows.Err()
+}
+
+// loadDuckDBIndexes fills in result.Indexes from duckdb_indexes(). expressions
+// comes back as a formatted string like "[col1, col2]" or "['quoted col']"
+// rather than a scannable list, so it's parsed with duckDBExpressionList.
+func loadDuckDBIndexes(ctx context.Context, db *sql.DB, result *Schema) error {
+	rows, err := db.QueryContext(ctx, `SELECT schema_name,table_name,index_name,is_unique,is_primary,expressions FROM duckdb_indexes()`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var schemaName, table, name, expressions string
+		var unique, primary bool
+		if err := rows.Scan(&schemaName, &table, &name, &unique, &primary, &expressions); err != nil {
+			return err
+		}
+		key := tableKey(schemaName, table)
+		result.Indexes[key] = append(result.Indexes[key], Index{Name: name, Columns: duckDBExpressionList(expressions), Unique: unique, Primary: primary})
+	}
+	return rows.Err()
+}
+
+// duckDBStringList reads a duckdb_constraints() LIST(VARCHAR) column, which
+// the driver scans as []any of strings.
+func duckDBStringList(value any) []string {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if s, ok := item.(string); ok {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+// duckDBExpressionList parses duckdb_indexes().expressions, a string shaped
+// like a list literal - "[col1, col2]", with identifiers that need quoting
+// wrapped in their own quotes, e.g. "['\"my col\"']".
+func duckDBExpressionList(expressions string) []string {
+	trimmed := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(expressions), "["), "]")
+	if trimmed == "" {
+		return nil
+	}
+	parts := strings.Split(trimmed, ", ")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.Trim(strings.TrimSpace(part), "'")
+		part = strings.Trim(part, `"`)
+		result = append(result, part)
+	}
+	return result
+}
+
+// loadClickHouseKeys marks primary-key columns (system.columns is exact per
+// column) and adds one Index per table for its sorting/primary key, which is
+// the closest ClickHouse concept to a traditional index.
+func loadClickHouseKeys(ctx context.Context, db *sql.DB, result *Schema) error {
+	rows, err := db.QueryContext(ctx, `SELECT database,table,name FROM system.columns WHERE database=currentDatabase() AND is_in_primary_key=1`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var schemaName, table, name string
+		if err := rows.Scan(&schemaName, &table, &name); err != nil {
+			rows.Close()
+			return err
+		}
+		key := tableKey(schemaName, table)
+		for i := range result.Tables[key] {
+			if result.Tables[key][i].Name == name {
+				result.Tables[key][i].PrimaryKey = true
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	keyRows, err := db.QueryContext(ctx, `SELECT database,name,primary_key FROM system.tables WHERE database=currentDatabase() AND primary_key!=''`)
+	if err != nil {
+		return err
+	}
+	defer keyRows.Close()
+	for keyRows.Next() {
+		var schemaName, table, primaryKey string
+		if err := keyRows.Scan(&schemaName, &table, &primaryKey); err != nil {
+			return err
+		}
+		var columns []string
+		for _, column := range strings.Split(primaryKey, ",") {
+			if column = strings.TrimSpace(column); column != "" {
+				columns = append(columns, column)
+			}
+		}
+		if len(columns) == 0 {
+			continue
+		}
+		key := tableKey(schemaName, table)
+		result.Indexes[key] = append(result.Indexes[key], Index{Name: "primary key", Columns: columns, Unique: true, Primary: true})
+	}
+	return keyRows.Err()
 }
 
 func sqliteSchema(ctx context.Context, db *sql.DB, result Schema) (Schema, error) {

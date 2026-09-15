@@ -80,8 +80,32 @@ func cassandraSchema(ctx context.Context, connection Connection) (Schema, error)
 	if err := iter.Close(); err != nil {
 		return result, err
 	}
-	result.Warnings = append(result.Warnings, "Secondary indexes and materialized views are not yet loaded for Cassandra.")
-	return result, nil
+	indexIter := session.Query("SELECT table_name, index_name, options FROM system_schema.indexes WHERE keyspace_name = ?", keyspace).WithContext(ctx).Iter()
+	var idxTable, idxName string
+	var idxOptions map[string]string
+	for indexIter.Scan(&idxTable, &idxName, &idxOptions) {
+		// A CUSTOM index (e.g. a SASI/SAI index) may target an expression
+		// rather than a plain column, or have no "target" at all; skip those
+		// rather than showing a misleading column list.
+		target := strings.Trim(idxOptions["target"], `"`)
+		if target == "" || strings.ContainsAny(target, "(),") {
+			continue
+		}
+		key := tableKey(keyspace, idxTable)
+		result.Indexes[key] = append(result.Indexes[key], Index{Name: idxName, Columns: []string{target}})
+	}
+	if err := indexIter.Close(); err != nil {
+		return result, err
+	}
+	// Materialized views are regular tables under the hood (their columns
+	// were already picked up by the query above under their own name); this
+	// just marks which table names are actually views.
+	viewIter := session.Query("SELECT view_name FROM system_schema.views WHERE keyspace_name = ?", keyspace).WithContext(ctx).Iter()
+	var viewName string
+	for viewIter.Scan(&viewName) {
+		result.Views[tableKey(keyspace, viewName)] = true
+	}
+	return result, viewIter.Close()
 }
 
 type CassandraQueryInput struct {
