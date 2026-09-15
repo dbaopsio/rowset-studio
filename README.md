@@ -1,18 +1,18 @@
 # Rowset Studio
 
-<p align="center">
-  <img src="rowset-studio/src/assets/engines/postgres.png" height="40" alt="PostgreSQL" />
-  <img src="rowset-studio/src/assets/engines/mysql.png" height="40" alt="MySQL" />
-  <img src="rowset-studio/src/assets/engines/mariadb.png" height="40" alt="MariaDB" />
-  <img src="rowset-studio/src/assets/engines/mssql.svg" height="40" alt="SQL Server" />
-  <img src="rowset-studio/src/assets/engines/cockroachdb.svg" height="40" alt="CockroachDB" />
-  <img src="rowset-studio/src/assets/engines/snowflake.svg" height="40" alt="Snowflake" />
-  <img src="rowset-studio/src/assets/engines/clickhouse.svg" height="40" alt="ClickHouse" />
-  <img src="rowset-studio/src/assets/engines/mongodb.svg" height="40" alt="MongoDB" />
-  <img src="rowset-studio/src/assets/engines/redis.svg" height="40" alt="Redis" />
-  <img src="rowset-studio/src/assets/engines/cassandra.svg" height="40" alt="Cassandra" />
-  <img src="rowset-studio/src/assets/engines/elasticsearch.svg" height="40" alt="Elasticsearch" />
-</p>
+<table align="center"><tr>
+  <td align="center" width="72"><img src="rowset-studio/src/assets/engines/postgres.png" height="36" alt="PostgreSQL" /></td>
+  <td align="center" width="72"><img src="rowset-studio/src/assets/engines/mysql.png" height="36" alt="MySQL" /></td>
+  <td align="center" width="72"><img src="rowset-studio/src/assets/engines/mariadb.png" height="36" alt="MariaDB" /></td>
+  <td align="center" width="72"><img src="rowset-studio/src/assets/engines/mssql.svg" height="36" alt="SQL Server" /></td>
+  <td align="center" width="72"><img src="rowset-studio/src/assets/engines/cockroachdb.svg" height="36" alt="CockroachDB" /></td>
+  <td align="center" width="72"><img src="rowset-studio/src/assets/engines/snowflake.svg" height="36" alt="Snowflake" /></td>
+  <td align="center" width="72"><img src="rowset-studio/src/assets/engines/clickhouse.svg" height="36" alt="ClickHouse" /></td>
+  <td align="center" width="72"><img src="rowset-studio/src/assets/engines/mongodb.svg" height="36" alt="MongoDB" /></td>
+  <td align="center" width="72"><img src="rowset-studio/src/assets/engines/redis.svg" height="36" alt="Redis" /></td>
+  <td align="center" width="72"><img src="rowset-studio/src/assets/engines/cassandra.svg" height="36" alt="Cassandra" /></td>
+  <td align="center" width="72"><img src="rowset-studio/src/assets/engines/elasticsearch.svg" height="36" alt="Elasticsearch" /></td>
+</tr></table>
 
 <p align="center">
   <b>A local-first SQL &amp; NoSQL workspace — one executable, no server to run, nothing to sign in to.</b>
