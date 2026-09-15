@@ -5,6 +5,27 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.76 — 2026-09-15
+
+- **Auto-refresh**: a dropdown next to Run (Off/3s/5s/10s/30s) re-runs
+  the current statement on an interval and updates the result in
+  place — for watching a running process, a queue, or anything else
+  worth checking every few seconds without hitting Run by hand. Only
+  enabled for statements that look read-only; editing the statement
+  into a write turns it back off.
+- Fixed a real "index/PK/FK metadata not yet loaded" warning that was
+  shown for every DuckDB and ClickHouse schema load regardless of
+  whether that metadata was actually missing — it wasn't, for either
+  of them. Both now load real primary keys, and DuckDB also loads
+  real foreign keys and indexes; ClickHouse has no foreign keys at
+  all, so there's nothing left to warn about there. Cassandra now
+  also loads its secondary indexes and materialized views, which it
+  previously flagged as simply not implemented.
+- The sidebar and the connections list's "Open" link no longer trigger
+  the browser's own link-target preview on hover — they navigate with
+  the app's router instead of a real `<a href>`, since there's no
+  actual new-tab use case for a one-use local session.
+
 ## 0.0.75 — 2026-09-15
 
 - **Results filter redesign**: Filter and Edit rows are real bordered
