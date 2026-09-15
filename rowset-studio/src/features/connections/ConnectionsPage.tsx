@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { useNavigate } from "react-router";
 import { type ComponentType, useState } from "react";
 import { Button, Input, PageHeader, Panel, Select } from "../../components/ui";
 import { EnvBadge } from "../../components/EnvBadge";
@@ -102,6 +102,7 @@ function ConnectionRow({
   Address?: ComponentType<{ connection: Connection; isAdmin: boolean }>;
   actions: ComponentType<{ connection: Connection }>[];
 }) {
+  const navigate = useNavigate();
   const test = useTestConnection();
   const del = useDeleteConnection();
   const [editing, setEditing] = useState(false);
@@ -133,7 +134,7 @@ function ConnectionRow({
       </td>
       <td className="px-3 py-2.5">
         <div className="flex items-center justify-end gap-2">
-          <Link className="text-xs text-brand-600" to="/editor" state={{ openSql: conn.engine === "mongodb" ? '{\n  "collection": "",\n  "filter": {},\n  "sort": {},\n  "limit": 100\n}' : "-- Write a query here\n", connectionId: conn.id, database: conn.database, title: conn.name }}>Open</Link>
+          <button type="button" className="text-xs text-brand-600" onClick={() => navigate("/editor", { state: { openSql: conn.engine === "mongodb" ? '{\n  "collection": "",\n  "filter": {},\n  "sort": {},\n  "limit": 100\n}' : "-- Write a query here\n", connectionId: conn.id, database: conn.database, title: conn.name } })}>Open</button>
           <TestStatus result={test.data} pending={test.isPending} />
           {actions.map((Action, index) => <Action key={index} connection={conn} />)}
           {isAdmin && (

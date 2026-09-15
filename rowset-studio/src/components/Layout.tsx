@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useState } from "react";
-import { NavLink, Navigate, Outlet, useLocation, useNavigate } from "react-router";
+import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "./Icon";
 import RowsetLogo from "./RowsetLogo";
@@ -103,6 +103,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
   const navigate = useNavigate();
+  const location = useLocation();
   const qc = useQueryClient();
   // Drop all cached server state on sign-out so the next user never sees the
   // previous session's data.
@@ -151,34 +152,36 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
                 </div>
               )}
               <div className="space-y-0.5">
-                {group.items.filter((n) => !n.adminOnly || isAdmin).map((n) => (
-                  <NavLink
-                    key={n.to}
-                    to={n.to}
-                    end={Boolean(n.end)}
-                    title={n.label}
-                    className={({ isActive }) =>
-                      `group flex h-8 items-center ${collapsed ? "justify-center px-0" : "justify-between px-2"} rounded-md border border-transparent text-[13px] transition ${
+                {group.items.filter((n) => !n.adminOnly || isAdmin).map((n) => {
+                  // A plain button navigating with useNavigate, not a real
+                  // <a href>: this is in-app routing only (there's no
+                  // separate session to open in a new tab against a
+                  // one-use local ticket), and a real href makes every
+                  // browser show its target-URL preview on hover.
+                  const isActive = n.end ? location.pathname === n.to : location.pathname === n.to || location.pathname.startsWith(n.to + "/");
+                  return (
+                    <button
+                      key={n.to}
+                      type="button"
+                      onClick={() => navigate(n.to)}
+                      title={n.label}
+                      className={`group flex h-8 w-full items-center ${collapsed ? "justify-center px-0" : "justify-between px-2"} rounded-md border border-transparent text-[13px] transition ${
                         isActive
                           ? "border-brand-100 bg-brand-50 font-medium text-brand-900 dark:border-brand-400/20 dark:bg-brand-500/10 dark:text-slate-50"
                           : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900"
-                      }`
-                    }
-                  >
-                    {({ isActive }) => (
-                      <>
-                        <span className="flex min-w-0 items-center gap-2.5">
-                          <Icon
-                            name={n.icon}
-                            size={16}
-                            className={isActive ? "text-brand-600 dark:text-brand-300" : "text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300"}
-                          />
-                          {!collapsed && <span className="truncate">{n.label}</span>}
-                        </span>
-                      </>
-                    )}
-                  </NavLink>
-                ))}
+                      }`}
+                    >
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <Icon
+                          name={n.icon}
+                          size={16}
+                          className={isActive ? "text-brand-600 dark:text-brand-300" : "text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300"}
+                        />
+                        {!collapsed && <span className="truncate">{n.label}</span>}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           );
