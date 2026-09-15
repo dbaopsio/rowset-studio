@@ -5,6 +5,13 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.78 — 2026-09-15
+
+- Auto-refresh's active state is amber now (a better fit for "live"
+  than the info-blue used elsewhere), and its pulsing dot no longer
+  clips against the button's corner as it fades — it's a proper
+  ping-ring indicator inline with the interval label instead.
+
 ## 0.0.77 — 2026-09-15
 
 - Auto-refresh is now a single clock-icon button next to Run instead of
