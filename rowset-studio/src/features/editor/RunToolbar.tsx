@@ -58,6 +58,9 @@ export default function RunToolbar({
   nodeRole,
   onNodeRoleChange,
   snippetsMenu,
+  autoRefreshMs,
+  onAutoRefreshChange,
+  autoRefreshEligible,
 }: {
   connectionId: string | null;
   onConnectionChange: (id: string | null) => void;
@@ -95,6 +98,11 @@ export default function RunToolbar({
   onNodeRoleChange: (role: "primary" | "secondary") => void;
   /** Saved-query snippets menu for the active connection. */
   snippetsMenu?: ReactNode;
+  /** 0 = off, otherwise the repeat interval in milliseconds. */
+  autoRefreshMs: number;
+  onAutoRefreshChange: (ms: number) => void;
+  /** Whether the current statement looks read-only enough to auto-repeat. */
+  autoRefreshEligible: boolean;
 }) {
   const { data: connections } = useConnections();
   const { data: databases = [] } = useQuery({
@@ -166,6 +174,27 @@ export default function RunToolbar({
           {runLabel}
         </button>
         {running && <button onClick={onStop} className="h-8 rounded-md border border-rose-300 px-2.5 text-[12px] text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950">Stop</button>}
+        <span className="flex items-center gap-1.5">
+          {autoRefreshMs > 0 && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-sky-500" title={`Re-running every ${autoRefreshMs / 1000}s`} />}
+          <Dropdown
+            className="w-36"
+            value={String(autoRefreshMs)}
+            disabled={!connectionId || transactionBusy || (autoRefreshMs === 0 && !autoRefreshEligible)}
+            onChange={(v) => onAutoRefreshChange(Number(v))}
+            options={[
+              { value: "0", label: "Auto-refresh: Off" },
+              { value: "3000", label: "Every 3s" },
+              { value: "5000", label: "Every 5s" },
+              { value: "10000", label: "Every 10s" },
+              { value: "30000", label: "Every 30s" },
+            ]}
+          />
+        </span>
+        {autoRefreshMs === 0 && !autoRefreshEligible && (
+          <span className="text-[11px] text-slate-400" title="Auto-refresh only repeats statements that look read-only (SELECT/WITH/SHOW/EXPLAIN…), so it never turns a query into a recurring write.">
+            Only for read queries
+          </span>
+        )}
         {current?.engine !== "mongodb" && !pendingEngine && <CommitModeSwitch
           manual={manualCommit}
           open={transactionOpen}

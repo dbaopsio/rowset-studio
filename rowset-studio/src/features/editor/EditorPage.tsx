@@ -90,6 +90,19 @@ function editingFor(rowEditing: RowEditing | undefined, sourceSql: string | unde
 
 const IDLE_RUN: TabRunState = { status: "idle", message: "Ready", messageError: false };
 
+// Auto-refresh is a client-side convenience gate, not a security boundary
+// (guardrail policies still run on every request either way) - it just
+// keeps the option from quietly turning a write into a recurring one. Mongo,
+// Redis and Elasticsearch query bars can only ever build a read request, so
+// they're always eligible; everything else needs a recognizably read-only
+// leading keyword.
+function looksReadOnly(sql: string, engine?: string): boolean {
+  if (engine === "mongodb" || engine === "redis" || engine === "elasticsearch") return true;
+  const withoutComments = sql.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  const first = withoutComments.trim().split(/[\s(]/, 1)[0]?.toUpperCase() ?? "";
+  return ["SELECT", "WITH", "SHOW", "EXPLAIN", "DESC", "DESCRIBE", "PRAGMA"].includes(first);
+}
+
 const MonacoSqlEditor = lazy(() => import("./MonacoSqlEditor"));
 const EXPLORER_TREE_KEY = "rowset.editor.explorerTree";
 
@@ -170,6 +183,8 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   const multiControllers = useRef<Record<string, AbortController>>({});
   // Manual-commit tabs open a transaction lazily with their next statement.
   const [manualCommitTabs, setManualCommitTabs] = useState<Record<string, boolean>>({});
+  // Auto-refresh: 0 = off, otherwise the repeat interval in ms, per tab.
+  const [autoRefreshTabs, setAutoRefreshTabs] = useState<Record<string, number>>({});
   const manualCommit = useRef<Record<string, boolean>>({});
   const [pendingStatements, setPendingStatements] = useState<Record<string, number>>({});
   const lastOutcome = useRef<Record<string, Omit<StatementResult, "sql">>>({});
@@ -558,6 +573,28 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     else void execute(selected);
   }
 
+  const autoRefreshMs = autoRefreshTabs[activeTabId] ?? 0;
+  const autoRefreshEligible = looksReadOnly(selectedSql.trim() || currentSql, activeConnection?.engine);
+  // Refs so the interval always calls the latest onRun/runStates without
+  // resetting the timer on every keystroke or result.
+  const onRunRef = useRef(onRun);
+  onRunRef.current = onRun;
+  const runStatesRef = useRef(runStates);
+  runStatesRef.current = runStates;
+  const autoRefreshEligibleRef = useRef(autoRefreshEligible);
+  autoRefreshEligibleRef.current = autoRefreshEligible;
+  useEffect(() => {
+    if (!autoRefreshMs || !activeConnectionId) return;
+    const timer = window.setInterval(() => {
+      // The statement may have been edited since auto-refresh was turned on
+      // (e.g. from a SELECT into an UPDATE); stop rather than keep firing.
+      if (!autoRefreshEligibleRef.current) { setAutoRefreshTabs((current) => ({ ...current, [activeTabId]: 0 })); return; }
+      if (runStatesRef.current[activeTabId]?.status !== "running") onRunRef.current();
+    }, autoRefreshMs);
+    return () => window.clearInterval(timer);
+    // Deliberately not depending on onRun/runStates - see the refs above.
+  }, [autoRefreshMs, activeTabId, activeConnectionId]);
+
   // Explain the first selected statement, or the statement at the cursor.
   function statementUnderCursor() {
     const selected = selectedSql.trim();
@@ -874,6 +911,9 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
           nodeRole={selectedNodeRole}
           onNodeRoleChange={onNodeRoleChange}
           snippetsMenu={<SnippetsMenu connectionId={activeConnectionId} database={selectedDb} sql={selectedSql.trim() || currentSql} />}
+          autoRefreshMs={autoRefreshMs}
+          onAutoRefreshChange={(ms) => setAutoRefreshTabs((current) => ({ ...current, [activeTabId]: ms }))}
+          autoRefreshEligible={autoRefreshEligible}
         />
 
         {isRedis && <RedisQueryBar tabKey={activeTabId} sql={currentSql} onChange={updateActiveSql} onRun={onRun} />}
