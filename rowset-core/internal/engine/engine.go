@@ -177,7 +177,7 @@ func (m *Manager) Test(ctx context.Context, connection Connection) error {
 	if connection.Engine == "mongodb" {
 		return mongoTest(ctx, connection)
 	}
-	if connection.Engine == "redis" {
+	if connection.Engine == "redis" || connection.Engine == "valkey" {
 		return redisTest(ctx, connection)
 	}
 	if connection.Engine == "cassandra" {
@@ -907,7 +907,7 @@ func openDatabase(connection Connection, tunnel *ssh.Client) (*sql.DB, error) {
 		return openAdditional(connection, tunnel)
 	}
 	switch connection.Engine {
-	case "mongodb", "redis", "cassandra", "elasticsearch":
+	case "mongodb", "redis", "valkey", "cassandra", "elasticsearch":
 		return nil, fmt.Errorf("%s does not use a pooled SQL connection", connection.Engine)
 	}
 	config, err := tlsConfig(connection.TLS, connection.Host)

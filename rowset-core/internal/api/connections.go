@@ -780,13 +780,13 @@ func normalizeConnectionInput(input connectionInput, existing *domain.Connection
 	if engine.AdditionalEngine(input.Engine) && input.Nodes != nil && len(*input.Nodes) > 1 {
 		return domain.Connection{}, nil, "additional engines currently support a single configured endpoint"
 	}
-	if input.Name == "" || input.Engine == "" || input.Host == "" || (input.ConnectionUsername == "" && input.Engine != "mongodb" && input.Engine != "redis") || input.Port < 1 || input.Port > 65535 || (existing == nil && input.Password == "" && !engine.AdditionalEngine(input.Engine)) {
+	if input.Name == "" || input.Engine == "" || input.Host == "" || (input.ConnectionUsername == "" && input.Engine != "mongodb" && input.Engine != "redis" && input.Engine != "valkey") || input.Port < 1 || input.Port > 65535 || (existing == nil && input.Password == "" && !engine.AdditionalEngine(input.Engine)) {
 		return domain.Connection{}, nil, "connection fields are required"
 	}
 	if input.Engine == "sqlserver" {
 		input.Engine = "mssql"
 	}
-	defaults := map[string]string{"postgres": "postgres", "mysql": "mysql", "mariadb": "mysql", "mssql": "master", "sqlite": "", "duckdb": "", "clickhouse": "default", "mongodb": "admin", "cockroachdb": "defaultdb", "redis": "0", "cassandra": "system", "elasticsearch": "", "snowflake": ""}
+	defaults := map[string]string{"postgres": "postgres", "mysql": "mysql", "mariadb": "mysql", "mssql": "master", "sqlite": "", "duckdb": "", "clickhouse": "default", "mongodb": "admin", "cockroachdb": "defaultdb", "redis": "0", "valkey": "0", "cassandra": "system", "elasticsearch": "", "snowflake": ""}
 	defaultDB, ok := defaults[input.Engine]
 	if !ok {
 		return domain.Connection{}, nil, "unsupported database engine"

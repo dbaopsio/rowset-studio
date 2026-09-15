@@ -1,6 +1,6 @@
 import { api } from "../../lib/api";
 
-export type Engine = "postgres" | "mysql" | "mariadb" | "sqlserver" | "sqlite" | "duckdb" | "clickhouse" | "mongodb" | "cockroachdb" | "redis" | "cassandra" | "elasticsearch" | "snowflake";
+export type Engine = "postgres" | "mysql" | "mariadb" | "sqlserver" | "sqlite" | "duckdb" | "clickhouse" | "mongodb" | "cockroachdb" | "redis" | "valkey" | "cassandra" | "elasticsearch" | "snowflake";
 
 /** libpq semantics on every engine: require encrypts without verifying the server. */
 export type TlsMode = "disable" | "require" | "verify-ca" | "verify-full";

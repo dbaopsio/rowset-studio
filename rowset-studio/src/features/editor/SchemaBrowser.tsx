@@ -360,7 +360,7 @@ function TableItem({ engine, schemaName, table, triggers = [], connectionId, dat
   const quotedName = [schemaName, table.name].map(n => quoteIdentifier(engine, n)).join(".");
   // These engines have a query editor now, but no DDL viewer or export path
   // yet (both use the pooled SQL connection these engines don't have).
-  const noDdlOrExport = ["redis", "cassandra", "elasticsearch"].includes(engine);
+  const noDdlOrExport = ["redis", "valkey", "cassandra", "elasticsearch"].includes(engine);
   const copyName = () => {
     navigator.clipboard.writeText(quotedName)
       .then(() => setCopyState("copied"), () => setCopyState("failed"))
@@ -397,7 +397,7 @@ function TableItem({ engine, schemaName, table, triggers = [], connectionId, dat
         {exportState.status === "running" && <span className="shrink-0 pr-1 text-[11px] text-slate-400">Exporting…</span>}
         {exportState.status === "failed" && <button type="button" onClick={() => setExportState({ status: "" })} title={exportState.message} className="shrink-0 pr-1 text-[11px] text-rose-500">Export failed</button>}
         <span className={`shrink-0 items-center gap-0.5 pr-0.5 ${copyState ? "flex" : "hidden group-hover:flex group-focus-within:flex"}`}>
-          <RowAction icon="sql" title={engine === "mongodb" ? "Open find query in a new tab" : engine === "redis" ? "Open a key scan in a new tab" : engine === "elasticsearch" ? "Open a search in a new tab" : "Open SELECT in a new tab (does not run it)"} onClick={() => action({ connectionId, database, sql: tableSelect(engine, schemaName, table.name, table.columns.map(c => c.name)) })} />
+          <RowAction icon="sql" title={engine === "mongodb" ? "Open find query in a new tab" : engine === "redis" || engine === "valkey" ? "Open a key scan in a new tab" : engine === "elasticsearch" ? "Open a search in a new tab" : "Open SELECT in a new tab (does not run it)"} onClick={() => action({ connectionId, database, sql: tableSelect(engine, schemaName, table.name, table.columns.map(c => c.name)) })} />
           <RowAction icon={copyState === "copied" ? "check" : "copy"} title={copyState === "failed" ? "Clipboard unavailable" : copyState === "copied" ? "Copied" : `Copy name: ${quotedName}`} onClick={copyName} tone={copyState === "failed" ? "text-rose-500" : copyState === "copied" ? "text-emerald-600" : undefined} />
           {!noDdlOrExport && <RowMenu
             label={`More actions for ${qualifiedName}`}

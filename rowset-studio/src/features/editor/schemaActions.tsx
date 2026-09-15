@@ -14,7 +14,7 @@ export function tableSelect(engine: string, schema: string, name: string, column
   if (engine === "mongodb") return mongoQuery(name);
   // Redis groups keys by type as a pseudo-table ("<db>.<type>"); open a scan
   // pre-filtered to that type.
-  if (engine === "redis") return `{"pattern":"*","type":${JSON.stringify(name)},"limit":100}`;
+  if (engine === "redis" || engine === "valkey") return `{"pattern":"*","type":${JSON.stringify(name)},"limit":100}`;
   // Elasticsearch's pseudo-tables are indices.
   if (engine === "elasticsearch") return `{"index":${JSON.stringify(name)},"query":{"match_all":{}},"size":100}`;
   const target = [schema, name].filter(Boolean).map(n => quoteIdentifier(engine, n)).join(".");

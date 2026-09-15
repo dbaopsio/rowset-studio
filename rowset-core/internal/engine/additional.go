@@ -19,7 +19,7 @@ import (
 
 func FileEngine(name string) bool { return name == "sqlite" || name == "duckdb" }
 func AdditionalEngine(name string) bool {
-	return FileEngine(name) || name == "clickhouse" || name == "mongodb" || name == "redis" || name == "cassandra" || name == "elasticsearch"
+	return FileEngine(name) || name == "clickhouse" || name == "mongodb" || name == "redis" || name == "valkey" || name == "cassandra" || name == "elasticsearch"
 }
 
 // Open existing files only. A mistyped path must never silently create a DB.

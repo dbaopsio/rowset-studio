@@ -22,7 +22,7 @@ func (m *Manager) Databases(ctx context.Context, connection Connection) ([]strin
 	if connection.Engine == "mongodb" {
 		return mongoDatabases(ctx, connection)
 	}
-	if connection.Engine == "redis" {
+	if connection.Engine == "redis" || connection.Engine == "valkey" {
 		return redisDatabases(ctx, connection)
 	}
 	if connection.Engine == "cassandra" {
@@ -75,7 +75,7 @@ func (m *Manager) Schema(ctx context.Context, connection Connection) (Schema, er
 	if connection.Engine == "mongodb" {
 		return mongoSchema(ctx, connection)
 	}
-	if connection.Engine == "redis" {
+	if connection.Engine == "redis" || connection.Engine == "valkey" {
 		return redisSchema(ctx, connection)
 	}
 	if connection.Engine == "cassandra" {

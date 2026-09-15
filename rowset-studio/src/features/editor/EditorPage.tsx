@@ -97,7 +97,7 @@ const IDLE_RUN: TabRunState = { status: "idle", message: "Ready", messageError: 
 // they're always eligible; everything else needs a recognizably read-only
 // leading keyword.
 function looksReadOnly(sql: string, engine?: string): boolean {
-  if (engine === "mongodb" || engine === "redis" || engine === "elasticsearch") return true;
+  if (engine === "mongodb" || engine === "redis" || engine === "valkey" || engine === "elasticsearch") return true;
   const withoutComments = sql.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
   const first = withoutComments.trim().split(/[\s(]/, 1)[0]?.toUpperCase() ?? "";
   // EXEC/EXECUTE/CALL is deliberately allowed even though a stored procedure
@@ -266,7 +266,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   const isMongo = activeConnection?.engine === "mongodb";
   const isCassandra = activeConnection?.engine === "cassandra";
   const isElasticsearch = activeConnection?.engine === "elasticsearch";
-  const isRedis = activeConnection?.engine === "redis";
+  const isRedis = activeConnection?.engine === "redis" || activeConnection?.engine === "valkey";
   const parameters = tabParameters[activeTabId] ?? {};
   const parameterList = isMongo ? [] : parameterNames(currentSql, activeConnection?.engine ?? "");
   const selectedDb = activeTabDatabase || activeConnection?.database || defaultDatabase(activeConnection?.engine);
@@ -952,7 +952,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
                 Ln {cursor.line}, Col {cursor.column}
                 {selectedSql ? ` · ${selectedSql.length} selected` : ""}
               </span>
-              <span>{currentSql.length} chars · UTF-8 · {isMongo ? "MongoDB · Extended JSON" : isRedis ? "Redis · JSON" : isElasticsearch ? "Elasticsearch · JSON" : isCassandra ? "CQL" : "SQL"}</span>
+              <span>{currentSql.length} chars · UTF-8 · {isMongo ? "MongoDB · Extended JSON" : isRedis ? `${activeConnection?.engine === "valkey" ? "Valkey" : "Redis"} · JSON` : isElasticsearch ? "Elasticsearch · JSON" : isCassandra ? "CQL" : "SQL"}</span>
             </div>
           </div>
 
@@ -1818,7 +1818,7 @@ function treeValue(tree: Record<string, boolean>, key: string, fallback: boolean
 
 function defaultSql(engine?: string) {
   if (engine === "mongodb") return mongoQuery();
-  if (engine === "redis") return redisQuery();
+  if (engine === "redis" || engine === "valkey") return redisQuery();
   if (engine === "elasticsearch") return elasticsearchQuery();
   return "";
 }

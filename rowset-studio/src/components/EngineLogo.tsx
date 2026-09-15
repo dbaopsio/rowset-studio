@@ -23,6 +23,7 @@ const labels: Record<string, string> = {
   sqlserver: "SQL Server",
   cockroachdb: "CockroachDB",
   redis: "Redis",
+  valkey: "Valkey",
   cassandra: "Cassandra",
   elasticsearch: "Elasticsearch",
   snowflake: "Snowflake",
@@ -104,6 +105,10 @@ const badgeColors: Record<string, string> = {
   cockroachdb: "#6933FF",
   snowflake: "#29B5E8",
   redis: "#DC382D",
+  // No traced logo available yet (not in Simple Icons); this badge is the
+  // real fallback here, not the unused leftover it is for the five engines
+  // above that already have one.
+  valkey: "#5C9E31",
   cassandra: "#1287B1",
   elasticsearch: "#FEC514",
 };

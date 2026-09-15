@@ -17,7 +17,7 @@ func (s *Server) redisScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	identity := identityFromContext(r.Context())
-	if connection.Engine != "redis" || s.config.Shared || !identity.IsAdmin() {
+	if connection.Engine != "redis" && connection.Engine != "valkey" || s.config.Shared || !identity.IsAdmin() {
 		writeError(w, 403, "UNSUPPORTED", "key browsing is available to personal workspace administrators only")
 		return
 	}

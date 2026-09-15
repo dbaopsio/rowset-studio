@@ -8,6 +8,16 @@ import { useAuth } from "../../lib/auth";
 import { useActiveExtensions } from "../../app/extensions";
 import { Connection } from "./api";
 import ConnectionForm from "./ConnectionForm";
+import { mongoQuery } from "../editor/mongoQuery";
+import { redisQuery } from "../editor/RedisQueryBar";
+import { elasticsearchQuery } from "../editor/ElasticsearchQueryBar";
+
+function defaultOpenSql(engine: string): string {
+  if (engine === "mongodb") return mongoQuery();
+  if (engine === "redis" || engine === "valkey") return redisQuery();
+  if (engine === "elasticsearch") return elasticsearchQuery();
+  return "-- Write a query here\n";
+}
 import { useConnections, useDeleteConnection, useTestConnection } from "./useConnections";
 
 export default function ConnectionsPage() {
@@ -44,7 +54,7 @@ export default function ConnectionsPage() {
           <option value="mssql">SQL Server</option>
           <option value="mysql">MySQL</option>
           <option value="mariadb">MariaDB</option>
-          <option value="sqlite">SQLite</option><option value="duckdb">DuckDB</option><option value="clickhouse">ClickHouse</option><option value="mongodb">MongoDB</option><option value="cockroachdb">CockroachDB</option><option value="snowflake">Snowflake</option><option value="redis">Redis</option><option value="cassandra">Cassandra</option><option value="elasticsearch">Elasticsearch</option>
+          <option value="sqlite">SQLite</option><option value="duckdb">DuckDB</option><option value="clickhouse">ClickHouse</option><option value="mongodb">MongoDB</option><option value="cockroachdb">CockroachDB</option><option value="snowflake">Snowflake</option><option value="redis">Redis</option><option value="valkey">Valkey</option><option value="cassandra">Cassandra</option><option value="elasticsearch">Elasticsearch</option>
         </Select>
         <Select value={environment} onChange={(e) => setEnvironment(e.target.value)}>
           <option value="all">All environments</option>
@@ -134,7 +144,7 @@ function ConnectionRow({
       </td>
       <td className="px-3 py-2.5">
         <div className="flex items-center justify-end gap-2">
-          <button type="button" className="text-xs text-brand-600" onClick={() => navigate("/editor", { state: { openSql: conn.engine === "mongodb" ? '{\n  "collection": "",\n  "filter": {},\n  "sort": {},\n  "limit": 100\n}' : "-- Write a query here\n", connectionId: conn.id, database: conn.database, title: conn.name } })}>Open</button>
+          <button type="button" className="text-xs text-brand-600" onClick={() => navigate("/editor", { state: { openSql: defaultOpenSql(conn.engine), connectionId: conn.id, database: conn.database, title: conn.name } })}>Open</button>
           <TestStatus result={test.data} pending={test.isPending} />
           {actions.map((Action, index) => <Action key={index} connection={conn} />)}
           {isAdmin && (
