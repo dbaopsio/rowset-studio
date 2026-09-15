@@ -5,6 +5,13 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.77 — 2026-09-15
+
+- Auto-refresh is now a single clock-icon button next to Run instead of
+  a full-width "Auto-refresh: …" dropdown.
+- Explain's icon is now a small node diagram instead of a generic
+  circled-i.
+
 ## 0.0.76 — 2026-09-15
 
 - **Auto-refresh**: a dropdown next to Run (Off/3s/5s/10s/30s) re-runs
