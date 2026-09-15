@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mongoQuery, mongoRequest, formatMongoQuery, mongoShellToRequest, isMongoShellQuery, mongoShellToParts, mongoPartsToShell } from './mongoQuery.ts';
+import { mongoQuery, mongoRequest, formatMongoQuery, mongoShellToRequest, isMongoShellQuery, mongoShellToParts, mongoPartsToShell, mongoRequestToParts, mongoSourceToParts } from './mongoQuery.ts';
 test('MongoDB request and formatting preserve raw integers and decimals', () => {
   const source = '{"collection":"items","filter":{"count":9007199254740993,"n":1.12345678901234567890,"text":"a, {b}: c"},"sort":{},"limit":100}';
   assert(mongoRequest(source,'test').includes('9007199254740993'));
@@ -35,4 +35,14 @@ test('the query bar round-trips through shell syntax, project, skip and max time
   assert.equal(request.skip, 5);
   assert.equal(request.maxTimeMs, 2000);
   assert.deepEqual(request.project, { name: 1 });
+});
+test('the query bar also parses the raw request JSON saved in Activity/History, digits intact', () => {
+  const saved = '{"database":"rowset_demo","collection":"customers","filter":{},"project":{"status":1,"name":1},"sort":{},"skip":1,"limit":3,"maxTimeMs":5000}';
+  const parts = mongoRequestToParts(saved);
+  assert.deepEqual(parts, { collection: 'customers', filter: '{}', project: '{"status":1,"name":1}', sort: '{}', skip: '1', limit: '3', maxTimeMs: '5000' });
+  assert.deepEqual(mongoSourceToParts(saved), parts);
+  assert.deepEqual(mongoSourceToParts('db.customers.find({})'), mongoShellToParts('db.customers.find({})'));
+  const big = '{"collection":"items","filter":{"id":9007199254740993},"limit":10}';
+  assert.equal(mongoRequestToParts(big).filter, '{"id":9007199254740993}');
+  assert.throws(() => mongoRequestToParts('{"filter":{}}'));
 });

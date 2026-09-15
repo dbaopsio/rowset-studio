@@ -5,6 +5,13 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.69 — 2026-09-15
+
+- **MongoDB query bar** now also populates itself from a query opened from
+  Activity or History, not just typed shell syntax; those entries are saved
+  as the raw find-request JSON, which the bar previously failed to parse and
+  silently left at its defaults.
+
 ## 0.0.68 — 2026-09-15
 
 - **Five new engines**: CockroachDB and Snowflake connect through the normal

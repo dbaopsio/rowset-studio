@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Icon } from "../../components/Icon";
-import { mongoPartsToShell, mongoShellToParts, type MongoQueryParts } from "./mongoQuery";
+import { mongoPartsToShell, mongoSourceToParts, type MongoQueryParts } from "./mongoQuery";
 
 const EMPTY: MongoQueryParts = { collection: "", filter: "{}", project: "{}", sort: "{}", skip: "0", limit: "100", maxTimeMs: "0" };
 
@@ -13,7 +13,7 @@ export default function MongoQueryBar({ tabKey, sql, onChange, onRun }: { tabKey
 
   useEffect(() => {
     try {
-      setParts(mongoShellToParts(sql));
+      setParts(mongoSourceToParts(sql));
     } catch {
       setParts((current) => ({ ...current, collection: current.collection || "collection" }));
     }

@@ -109,6 +109,45 @@ export function mongoShellToParts(source: string): MongoQueryParts {
   return { collection, filter, project, sort, skip, limit, maxTimeMs };
 }
 
+// Splits a flat top-level JSON object's source into {key: rawValueText}
+// without JSON.parse, so large numbers keep their exact original digits.
+function splitTopLevelObject(source: string): Record<string, string> {
+  const trimmed = source.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) throw new Error("Expected a JSON object.");
+  const result: Record<string, string> = {};
+  for (const part of splitTopLevelArgs(trimmed.slice(1, -1))) {
+    const match = /^\s*"((?:[^"\\]|\\.)*)"\s*:\s*([\s\S]*)$/.exec(part);
+    if (!match) throw new Error(`Malformed field: ${part}`);
+    result[JSON.parse(`"${match[1]}"`)] = match[2].trim();
+  }
+  return result;
+}
+
+// Parse the raw {collection,filter,project,sort,skip,limit,maxTimeMs}
+// request object (as saved in Activity/History) into the query bar's parts,
+// the same way mongoShellToParts does for db.collection.find() syntax.
+export function mongoRequestToParts(source: string): MongoQueryParts {
+  const fields = splitTopLevelObject(source);
+  const collection = fields.collection ? JSON.parse(fields.collection) : "";
+  if (typeof collection !== "string" || !collection.trim()) throw new Error("Query has no collection.");
+  return {
+    collection,
+    filter: fields.filter?.trim() || "{}",
+    project: fields.project?.trim() || "{}",
+    sort: fields.sort?.trim() || "{}",
+    skip: fields.skip?.trim() || "0",
+    limit: fields.limit?.trim() || "100",
+    maxTimeMs: fields.maxTimeMs?.trim() || "0",
+  };
+}
+
+// Accepts either shell syntax or the raw request JSON (Activity/History
+// entries are saved in the latter), so the query bar can populate itself
+// from a query opened from either source.
+export function mongoSourceToParts(source: string): MongoQueryParts {
+  return isMongoShellQuery(source) ? mongoShellToParts(source) : mongoRequestToParts(source);
+}
+
 // Build shell syntax from the query bar's parts, omitting defaults so the
 // query reads the way someone would type it by hand.
 export function mongoPartsToShell(parts: MongoQueryParts): string {
