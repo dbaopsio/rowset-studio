@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "./Icon";
@@ -109,6 +109,8 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
   const logout = useAuth((s) => s.logout);
   const navigate = useNavigate();
   const location = useLocation();
+  const locationRef = useRef(location);
+  locationRef.current = location;
   const qc = useQueryClient();
   // Drop all cached server state on sign-out so the next user never sees the
   // previous session's data.
@@ -119,6 +121,17 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
   };
   const isAdmin = user?.role === "admin";
   const [theme, setTheme] = useState(() => localStorage.getItem("rowset.theme") || "light");
+  const go = (to: string) => {
+    void navigate(to);
+    window.setTimeout(() => {
+      const targetPath = new URL(to, window.location.href).pathname;
+      // A streamed query can leave browser history on the destination while
+      // React Router still renders the editor. Reload only that inconsistent
+      // state. A blocked navigation does not change window.location, so its
+      // confirmation flow remains untouched.
+      if (locationRef.current.pathname !== targetPath && window.location.pathname === targetPath) window.location.reload();
+    }, 150);
+  };
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -169,7 +182,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
                     <button
                       key={n.to}
                       type="button"
-                      onClick={() => navigate(n.to)}
+                      onClick={() => go(n.to)}
                       title={n.label}
                       className={`group flex h-8 w-full items-center ${collapsed ? "justify-center px-0" : "justify-between px-2"} rounded-md border border-transparent text-[13px] transition ${
                         isActive
