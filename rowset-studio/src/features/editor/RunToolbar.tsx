@@ -174,27 +174,12 @@ export default function RunToolbar({
           {runLabel}
         </button>
         {running && <button onClick={onStop} className="h-8 rounded-md border border-rose-300 px-2.5 text-[12px] text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950">Stop</button>}
-        <span className="flex items-center gap-1.5">
-          {autoRefreshMs > 0 && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-sky-500" title={`Re-running every ${autoRefreshMs / 1000}s`} />}
-          <Dropdown
-            className="w-36"
-            value={String(autoRefreshMs)}
-            disabled={!connectionId || transactionBusy || (autoRefreshMs === 0 && !autoRefreshEligible)}
-            onChange={(v) => onAutoRefreshChange(Number(v))}
-            options={[
-              { value: "0", label: "Auto-refresh: Off" },
-              { value: "3000", label: "Every 3s" },
-              { value: "5000", label: "Every 5s" },
-              { value: "10000", label: "Every 10s" },
-              { value: "30000", label: "Every 30s" },
-            ]}
-          />
-        </span>
-        {autoRefreshMs === 0 && !autoRefreshEligible && (
-          <span className="text-[11px] text-slate-400" title="Auto-refresh only repeats statements that look read-only (SELECT/WITH/SHOW/EXPLAIN…), so it never turns a query into a recurring write.">
-            Only for read queries
-          </span>
-        )}
+        <AutoRefreshMenu
+          ms={autoRefreshMs}
+          onChange={onAutoRefreshChange}
+          disabled={!connectionId || transactionBusy || (autoRefreshMs === 0 && !autoRefreshEligible)}
+          disabledReason="Auto-refresh only repeats statements that look read-only (SELECT/WITH/SHOW/EXPLAIN…), so it never turns a query into a recurring write."
+        />
         {current?.engine !== "mongodb" && !pendingEngine && <CommitModeSwitch
           manual={manualCommit}
           open={transactionOpen}
@@ -308,6 +293,62 @@ function MoreMenu({ items }: { items: { label: string; hint?: string; disabled?:
                 {item.hint && <span className="block text-[10px] text-slate-400">{item.hint}</span>}
               </span>
               {item.checked !== undefined && <Icon name="check" size={13} className={`mt-0.5 shrink-0 ${item.checked ? "text-emerald-600" : "invisible"}`} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const AUTO_REFRESH_OPTIONS = [
+  { ms: 0, label: "Off" },
+  { ms: 3000, label: "Every 3s" },
+  { ms: 5000, label: "Every 5s" },
+  { ms: 10000, label: "Every 10s" },
+  { ms: 30000, label: "Every 30s" },
+];
+
+// A single icon button rather than a full-width "Auto-refresh: …" dropdown -
+// it only needs to say anything once it's actually on.
+function AutoRefreshMenu({ ms, onChange, disabled, disabledReason }: { ms: number; onChange: (ms: number) => void; disabled: boolean; disabledReason: string }) {
+  const [open, setOpen] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent ? event.key === "Escape" : !container.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", close);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", close); };
+  }, [open]);
+  const active = ms > 0;
+  return (
+    <div ref={container} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        title={disabled ? disabledReason : active ? `Re-running every ${ms / 1000}s` : "Auto-refresh: repeat this statement on an interval"}
+        onClick={() => setOpen((value) => !value)}
+        className={`relative inline-flex h-8 items-center gap-1 rounded-md border px-2 text-[12px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+          active
+            ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-300"
+            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+        }`}
+      >
+        <Icon name="clock" size={14} />
+        {active && <span>{ms / 1000}s</span>}
+        {active && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-sky-500" />}
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 z-30 mt-1 w-40 rounded-md border border-slate-200 bg-white py-1 text-[12px] shadow-lg dark:border-slate-800 dark:bg-slate-900">
+          {AUTO_REFRESH_OPTIONS.map((option) => (
+            <button key={option.ms} role="menuitemradio" aria-checked={ms === option.ms} type="button" onClick={() => { setOpen(false); onChange(option.ms); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">
+              <Icon name="check" size={13} className={`shrink-0 ${ms === option.ms ? "text-sky-600 dark:text-sky-400" : "invisible"}`} />
+              {option.label}
             </button>
           ))}
         </div>

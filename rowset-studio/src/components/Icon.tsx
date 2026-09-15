@@ -132,8 +132,10 @@ const paths: Record<IconName, ReactNode> = {
   ),
   explain: (
     <>
-      <circle cx="8" cy="8" r="5.5" />
-      <path d="M8 7.5v3M8 5.2v.2" />
+      <rect x="5.5" y="1.5" width="5" height="3" rx="0.6" />
+      <rect x="1.5" y="11" width="5" height="3" rx="0.6" />
+      <rect x="9.5" y="11" width="5" height="3" rx="0.6" />
+      <path d="M8 4.5v3M8 7.5H4v3M8 7.5h4v3" />
     </>
   ),
   sun: (
