@@ -56,6 +56,7 @@ export default function ConnectionForm({
           connectionUsername: connection.connectionUsername,
           password: "",
           queryTimeoutSeconds: connection.queryTimeoutSeconds,
+          readOnly: connection.readOnly,
           nodes: connection.nodes.map(({ id, name, host, port }) => ({ id, name, host, port })),
           sshHost: connection.sshHost ?? "",
           sshPort: connection.sshPort || 22,
@@ -78,6 +79,7 @@ export default function ConnectionForm({
           connectionUsername: "",
           password: "",
           queryTimeoutSeconds: 600,
+          readOnly: false,
           nodes: [{ name: "node-1", host: "localhost", port: 5432 }],
           sshHost: "",
           sshPort: 22,
@@ -240,6 +242,14 @@ export default function ConnectionForm({
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Statements that run longer are stopped, with a message saying so. Default 10 minutes, up to 24 hours (1440).
               </p>
+            </div>
+          </Field>
+          <Field label="Safe mode">
+            <div className="flex h-8 items-center">
+              <label className="flex items-center gap-2 text-[13px] text-slate-700 dark:text-slate-200">
+                <input type="checkbox" checked={form.readOnly} onChange={(e) => set("readOnly", e.target.checked)} />
+                Read-only: block INSERT, UPDATE, DELETE and DDL
+              </label>
             </div>
           </Field>
           {!fileEngine && <Field label={editing ? "Password (leave blank to keep current)" : "Password"}>

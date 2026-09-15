@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Dropdown } from "../../components/Dropdown";
 import { Icon } from "../../components/Icon";
@@ -57,6 +57,7 @@ export default function RunToolbar({
   onDatabaseChange,
   nodeRole,
   onNodeRoleChange,
+  snippetsMenu,
 }: {
   connectionId: string | null;
   onConnectionChange: (id: string | null) => void;
@@ -92,6 +93,8 @@ export default function RunToolbar({
   onDatabaseChange: (db: string) => void;
   nodeRole: "primary" | "secondary";
   onNodeRoleChange: (role: "primary" | "secondary") => void;
+  /** Saved-query snippets menu for the active connection. */
+  snippetsMenu?: ReactNode;
 }) {
   const { data: connections } = useConnections();
   const { data: databases = [] } = useQuery({
@@ -134,6 +137,7 @@ export default function RunToolbar({
         />
         }
         {nodeRole === "secondary" && <span className="rounded bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">Read-only</span>}
+        {current?.readOnly && <span title="This connection is set to read-only in Edit connection" className="rounded bg-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">Safe mode</span>}
         <Dropdown
           searchable
           style={{ width: databaseWidth, maxWidth: "calc(100vw - 2rem)" }}
@@ -186,6 +190,7 @@ export default function RunToolbar({
             Assistant
           </button>
         )}
+        {snippetsMenu}
         <ToolbarButton onClick={onSave} icon="save" label="Save" />
         <MoreMenu items={[
           { label: isMongo ? "Run query" : "Run all statements", hint: "⇧⌘↵ · stops at the first error", onSelect: onRunAll, disabled: !connectionId || running || transactionBusy },

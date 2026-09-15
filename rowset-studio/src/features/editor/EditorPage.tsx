@@ -25,6 +25,7 @@ import { useAuth } from "../../lib/auth";
 import { SchemaActions } from "./schemaActions";
 import { mongoQuery, mongoRequest, formatMongoQuery } from "./mongoQuery";
 import MongoQueryBar from "./MongoQueryBar";
+import SnippetsMenu from "./SnippetsMenu";
 import { api, ApiError } from "../../lib/api";
 import { useShared } from "../../lib/instance";
 import { rowBackupEnabled } from "../../lib/preferences";
@@ -858,6 +859,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
           onDatabaseChange={onDatabaseChange}
           nodeRole={selectedNodeRole}
           onNodeRoleChange={onNodeRoleChange}
+          snippetsMenu={<SnippetsMenu connectionId={activeConnectionId} database={selectedDb} sql={selectedSql.trim() || currentSql} />}
         />
 
         {pendingEngine && (

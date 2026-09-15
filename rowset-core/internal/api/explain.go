@@ -70,7 +70,7 @@ func (s *Server) explainQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	normalized, queryHash := sqlguard.Normalize(info)
 	if input.Analyze {
-		decision := policy.Evaluate(policy.Input{Statement: info, Role: role.Name, ReadOnly: role.IsReadOnly, Environment: connection.Environment, Disabled: disabled, Enabled: enabled})
+		decision := policy.Evaluate(policy.Input{Statement: info, Role: role.Name, ReadOnly: role.IsReadOnly || connection.ReadOnly, Environment: connection.Environment, Disabled: disabled, Enabled: enabled})
 		if !s.config.Shared || !identity.IsAdmin() {
 			if decision, _, err = s.applyCustomPolicies(r, identity, connection, info, false, decision, 0); err != nil {
 				writeError(w, http.StatusInternalServerError, "INTERNAL", "governance rules unavailable")

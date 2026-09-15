@@ -23,6 +23,8 @@ export interface Connection {
   connectionUsername: string;
   createdAt: string;
   queryTimeoutSeconds: number;
+  /** Blocks every write statement on this connection, regardless of role. */
+  readOnly: boolean;
   nodes: ConnectionNode[];
   nodePolicy?: "primary_only" | "secondary_only" | "user_selectable";
   defaultNodeRole?: "primary" | "secondary";
@@ -65,6 +67,7 @@ export interface ConnectionInput {
   connectionUsername: string;
   password: string;
   queryTimeoutSeconds: number;
+  readOnly: boolean;
   nodes: ConnectionNodeInput[];
   // SSH tunnel. sshHost "" turns it off. The credentials are write-only.
   sshHost?: string;

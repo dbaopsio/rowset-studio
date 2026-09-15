@@ -8,18 +8,19 @@ import (
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/domain"
 )
 
-const connectionColumns = "id,org_id,name,alias,engine,host,port,database,environment,tls_required,tech_username,secret_id,created_at,query_timeout_seconds,tls_mode,tls_server_name,tls_ca_pem,tls_client_cert_pem,tls_client_key_secret_id,ssh_host,ssh_port,ssh_user,ssh_auth_method,ssh_known_host,ssh_secret_id,ssh_passphrase_secret_id"
+const connectionColumns = "id,org_id,name,alias,engine,host,port,database,environment,tls_required,tech_username,secret_id,created_at,query_timeout_seconds,tls_mode,tls_server_name,tls_ca_pem,tls_client_cert_pem,tls_client_key_secret_id,ssh_host,ssh_port,ssh_user,ssh_auth_method,ssh_known_host,ssh_secret_id,ssh_passphrase_secret_id,read_only"
 const connectionNodeColumns = "id,connection_id,name,host,port,detected_role,health,read_only,last_checked_at,last_error,created_at"
 
 func scanConnection(scanner interface{ Scan(...any) error }) (domain.Connection, error) {
 	var c domain.Connection
 	var alias sql.NullString
-	var tls int64
-	err := scanner.Scan(&c.ID, &c.OrgID, &c.Name, &alias, &c.Engine, &c.Host, &c.Port, &c.Database, &c.Environment, &tls, &c.ConnectionUsername, &c.SecretID, &c.CreatedAt, &c.QueryTimeoutSeconds, &c.TLSMode, &c.TLSServerName, &c.TLSCAPEM, &c.TLSClientCertPEM, &c.TLSClientKeySecret, &c.SSHHost, &c.SSHPort, &c.SSHUser, &c.SSHAuthMethod, &c.SSHKnownHost, &c.SSHSecretID, &c.SSHPassphraseSecretID)
+	var tls, readOnly int64
+	err := scanner.Scan(&c.ID, &c.OrgID, &c.Name, &alias, &c.Engine, &c.Host, &c.Port, &c.Database, &c.Environment, &tls, &c.ConnectionUsername, &c.SecretID, &c.CreatedAt, &c.QueryTimeoutSeconds, &c.TLSMode, &c.TLSServerName, &c.TLSCAPEM, &c.TLSClientCertPEM, &c.TLSClientKeySecret, &c.SSHHost, &c.SSHPort, &c.SSHUser, &c.SSHAuthMethod, &c.SSHKnownHost, &c.SSHSecretID, &c.SSHPassphraseSecretID, &readOnly)
 	if err != nil {
 		return c, mapError(err)
 	}
 	c.TLSRequired = tls != 0
+	c.ReadOnly = readOnly != 0
 	if c.TLSMode == "" {
 		c.TLSMode = domain.LegacyTLSMode(c.Engine, c.TLSRequired)
 	}
@@ -70,13 +71,13 @@ func (s *Store) Connection(ctx context.Context, id string) (domain.Connection, e
 
 func (s *Store) CreateConnection(ctx context.Context, c domain.Connection) error {
 	mode := c.EffectiveTLSMode()
-	_, err := s.db.ExecContext(ctx, "INSERT INTO connections("+connectionColumns+") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", c.ID, c.OrgID, c.Name, c.Alias, c.Engine, c.Host, c.Port, c.Database, c.Environment, mode != "disable", c.ConnectionUsername, c.SecretID, c.CreatedAt, c.QueryTimeoutSeconds, mode, c.TLSServerName, c.TLSCAPEM, c.TLSClientCertPEM, c.TLSClientKeySecret, c.SSHHost, c.SSHPort, c.SSHUser, c.SSHAuthMethod, c.SSHKnownHost, c.SSHSecretID, c.SSHPassphraseSecretID)
+	_, err := s.db.ExecContext(ctx, "INSERT INTO connections("+connectionColumns+") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", c.ID, c.OrgID, c.Name, c.Alias, c.Engine, c.Host, c.Port, c.Database, c.Environment, mode != "disable", c.ConnectionUsername, c.SecretID, c.CreatedAt, c.QueryTimeoutSeconds, mode, c.TLSServerName, c.TLSCAPEM, c.TLSClientCertPEM, c.TLSClientKeySecret, c.SSHHost, c.SSHPort, c.SSHUser, c.SSHAuthMethod, c.SSHKnownHost, c.SSHSecretID, c.SSHPassphraseSecretID, c.ReadOnly)
 	return mapError(err)
 }
 
 func (s *Store) UpdateConnection(ctx context.Context, c domain.Connection) error {
 	mode := c.EffectiveTLSMode()
-	result, err := s.db.ExecContext(ctx, `UPDATE connections SET name=?,alias=?,engine=?,host=?,port=?,database=?,environment=?,tls_required=?,tech_username=?,secret_id=?,query_timeout_seconds=?,tls_mode=?,tls_server_name=?,tls_ca_pem=?,tls_client_cert_pem=?,tls_client_key_secret_id=?,ssh_host=?,ssh_port=?,ssh_user=?,ssh_auth_method=?,ssh_known_host=?,ssh_secret_id=?,ssh_passphrase_secret_id=? WHERE id=? AND org_id=?`, c.Name, c.Alias, c.Engine, c.Host, c.Port, c.Database, c.Environment, mode != "disable", c.ConnectionUsername, c.SecretID, c.QueryTimeoutSeconds, mode, c.TLSServerName, c.TLSCAPEM, c.TLSClientCertPEM, c.TLSClientKeySecret, c.SSHHost, c.SSHPort, c.SSHUser, c.SSHAuthMethod, c.SSHKnownHost, c.SSHSecretID, c.SSHPassphraseSecretID, c.ID, c.OrgID)
+	result, err := s.db.ExecContext(ctx, `UPDATE connections SET name=?,alias=?,engine=?,host=?,port=?,database=?,environment=?,tls_required=?,tech_username=?,secret_id=?,query_timeout_seconds=?,tls_mode=?,tls_server_name=?,tls_ca_pem=?,tls_client_cert_pem=?,tls_client_key_secret_id=?,ssh_host=?,ssh_port=?,ssh_user=?,ssh_auth_method=?,ssh_known_host=?,ssh_secret_id=?,ssh_passphrase_secret_id=?,read_only=? WHERE id=? AND org_id=?`, c.Name, c.Alias, c.Engine, c.Host, c.Port, c.Database, c.Environment, mode != "disable", c.ConnectionUsername, c.SecretID, c.QueryTimeoutSeconds, mode, c.TLSServerName, c.TLSCAPEM, c.TLSClientCertPEM, c.TLSClientKeySecret, c.SSHHost, c.SSHPort, c.SSHUser, c.SSHAuthMethod, c.SSHKnownHost, c.SSHSecretID, c.SSHPassphraseSecretID, c.ReadOnly, c.ID, c.OrgID)
 	if err != nil {
 		return mapError(err)
 	}

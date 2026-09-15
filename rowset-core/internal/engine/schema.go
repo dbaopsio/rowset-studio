@@ -38,7 +38,10 @@ func (m *Manager) Databases(ctx context.Context, connection Connection) ([]strin
 	query := ""
 	switch strings.ToLower(connection.Engine) {
 	case "clickhouse":
-		query = "SELECT name FROM system.databases ORDER BY name"
+		// INFORMATION_SCHEMA is a case-variant alias ClickHouse keeps for MySQL
+		// compatibility; information_schema is the canonical one, so only that
+		// one is listed to avoid showing the same schema twice.
+		query = "SELECT name FROM system.databases WHERE name != 'INFORMATION_SCHEMA' ORDER BY name"
 	case "postgres", "postgresql", "cockroachdb":
 		query = "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname"
 	case "mysql", "mariadb":

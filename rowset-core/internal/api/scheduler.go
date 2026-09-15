@@ -185,7 +185,7 @@ func (s *Server) openGovernedSelect(ctx context.Context, r *http.Request, identi
 	if err != nil {
 		return nil, errors.New("governance rules unavailable")
 	}
-	decision := policy.Evaluate(policy.Input{Statement: info, Role: role.Name, ReadOnly: role.IsReadOnly, Environment: connection.Environment, Disabled: disabled, Enabled: enabled})
+	decision := policy.Evaluate(policy.Input{Statement: info, Role: role.Name, ReadOnly: role.IsReadOnly || connection.ReadOnly, Environment: connection.Environment, Disabled: disabled, Enabled: enabled})
 	if !s.config.Shared || !identity.IsAdmin() {
 		if decision, rowLimit, err = s.applyCustomPolicies(r, identity, connection, info, false, decision, rowLimit); err != nil {
 			return nil, errors.New("governance rules unavailable")

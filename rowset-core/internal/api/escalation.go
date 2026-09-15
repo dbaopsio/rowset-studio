@@ -81,7 +81,7 @@ func (s *Server) ExecuteDeferred(r *http.Request, statement DeferredStatement) D
 	if err != nil {
 		return deferredError("governance rules unavailable")
 	}
-	decision := policy.Evaluate(policy.Input{Statement: info, Role: role.Name, ReadOnly: role.IsReadOnly, Environment: connection.Environment, Cleared: true, Disabled: disabled, Enabled: enabled})
+	decision := policy.Evaluate(policy.Input{Statement: info, Role: role.Name, ReadOnly: role.IsReadOnly || connection.ReadOnly, Environment: connection.Environment, Cleared: true, Disabled: disabled, Enabled: enabled})
 	if !caller.IsAdmin() {
 		decision, rowLimit, err = s.applyCustomPolicies(r, caller, connection, info, true, decision, rowLimit)
 		if err != nil {

@@ -73,6 +73,9 @@ type Connection struct {
 	SecretID            string  `json:"-"`
 	CreatedAt           string  `json:"createdAt"`
 	QueryTimeoutSeconds int64   `json:"queryTimeoutSeconds"`
+	// ReadOnly blocks every write statement on this connection regardless of
+	// role, the same guardrail role.IsReadOnly already enforces for a role.
+	ReadOnly bool `json:"readOnly"`
 	// SSH tunnel. SSHHost empty means the database is reached directly.
 	SSHHost               string `json:"sshHost"`
 	SSHPort               int    `json:"sshPort"`

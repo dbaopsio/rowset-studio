@@ -5,6 +5,11 @@ import mariadbLogo from "../assets/engines/mariadb.png";
 import mssqlLogo from "../assets/engines/mssql.svg";
 import mongodbLogo from "../assets/engines/mongodb.svg";
 import clickhouseLogo from "../assets/engines/clickhouse.svg";
+import cockroachdbLogo from "../assets/engines/cockroachdb.svg";
+import redisLogo from "../assets/engines/redis.svg";
+import cassandraLogo from "../assets/engines/cassandra.svg";
+import elasticsearchLogo from "../assets/engines/elasticsearch.svg";
+import snowflakeLogo from "../assets/engines/snowflake.svg";
 
 export type EngineLogoName = "postgres" | "mysql" | "mariadb" | "mssql" | string;
 
@@ -36,6 +41,11 @@ const logos: Record<string, string> = {
   mariadb: mariadbLogo,
   mssql: mssqlLogo,
   sqlserver: mssqlLogo,
+  cockroachdb: cockroachdbLogo,
+  redis: redisLogo,
+  cassandra: cassandraLogo,
+  elasticsearch: elasticsearchLogo,
+  snowflake: snowflakeLogo,
 };
 
 export default function EngineLogo({

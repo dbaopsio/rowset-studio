@@ -109,7 +109,14 @@ function ConnectionRow({
   return (
     <tr className="text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900/70">
       <td className="px-3 py-2.5">
-        <div className="font-medium text-slate-900 dark:text-slate-100">{conn.name}</div>
+        <div className="flex items-center gap-1.5">
+          <span className="font-medium text-slate-900 dark:text-slate-100">{conn.name}</span>
+          {conn.readOnly && (
+            <span title="Read-only: writes are blocked" className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              <Icon name="lock" size={10} /> Read-only
+            </span>
+          )}
+        </div>
         <div className="font-mono text-[11px] text-slate-400">{conn.alias || conn.name}</div>
       </td>
       <td className="px-3 py-2.5">

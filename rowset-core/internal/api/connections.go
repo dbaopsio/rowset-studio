@@ -50,6 +50,7 @@ type connectionInput struct {
 	SSHPassword   *string `json:"sshPassword"`
 	SSHPrivateKey *string `json:"sshPrivateKey"`
 	SSHPassphrase *string `json:"sshPassphrase"`
+	ReadOnly      *bool   `json:"readOnly"`
 }
 type nodeInput struct {
 	ID   *string `json:"id"`
@@ -100,7 +101,7 @@ func (s *Server) connectionJSON(r *http.Request, connection domain.Connection, i
 	if connection.Alias != nil {
 		alias = *connection.Alias
 	}
-	result := map[string]any{"id": connection.ID, "name": connection.Name, "alias": alias, "engine": connection.Engine, "host": connection.Host, "port": connection.Port, "database": connection.Database, "environment": connection.Environment, "tlsRequired": connection.EffectiveTLSMode() != engine.TLSDisable, "tlsMode": connection.EffectiveTLSMode(), "tlsServerName": connection.TLSServerName, "tlsCaPem": connection.TLSCAPEM, "tlsClientCertPem": connection.TLSClientCertPEM, "tlsClientKeyConfigured": connection.TLSClientKeySecret != "", "connectionUsername": connection.ConnectionUsername, "techUsername": connection.ConnectionUsername, "createdAt": connection.CreatedAt, "queryTimeoutSeconds": connection.QueryTimeoutSeconds, "sshHost": connection.SSHHost, "sshPort": connection.SSHPort, "sshUser": connection.SSHUser, "sshAuthMethod": connection.SSHAuthMethod, "sshKnownHost": connection.SSHKnownHost, "sshConfigured": connection.SSHSecretID != "", "nodes": nodes}
+	result := map[string]any{"id": connection.ID, "name": connection.Name, "alias": alias, "engine": connection.Engine, "host": connection.Host, "port": connection.Port, "database": connection.Database, "environment": connection.Environment, "tlsRequired": connection.EffectiveTLSMode() != engine.TLSDisable, "tlsMode": connection.EffectiveTLSMode(), "tlsServerName": connection.TLSServerName, "tlsCaPem": connection.TLSCAPEM, "tlsClientCertPem": connection.TLSClientCertPEM, "tlsClientKeyConfigured": connection.TLSClientKeySecret != "", "connectionUsername": connection.ConnectionUsername, "techUsername": connection.ConnectionUsername, "createdAt": connection.CreatedAt, "queryTimeoutSeconds": connection.QueryTimeoutSeconds, "readOnly": connection.ReadOnly, "sshHost": connection.SSHHost, "sshPort": connection.SSHPort, "sshUser": connection.SSHUser, "sshAuthMethod": connection.SSHAuthMethod, "sshKnownHost": connection.SSHKnownHost, "sshConfigured": connection.SSHSecretID != "", "nodes": nodes}
 	for _, detail := range s.connectionDetails {
 		detail(r.Context(), connection, result)
 	}
@@ -806,9 +807,10 @@ func normalizeConnectionInput(input connectionInput, existing *domain.Connection
 	alias := input.Alias
 	tlsMode, serverName, caPEM, clientCert, clientKeySecret := engine.TLSVerifyFull, "", "", "", ""
 	timeout := int64(600)
+	readOnly := false
 	connectionID, createdAt := id.New(), store.NowString()
 	if existing != nil {
-		connectionID, createdAt, timeout = existing.ID, existing.CreatedAt, existing.QueryTimeoutSeconds
+		connectionID, createdAt, timeout, readOnly = existing.ID, existing.CreatedAt, existing.QueryTimeoutSeconds, existing.ReadOnly
 		tlsMode, serverName, caPEM, clientCert, clientKeySecret = existing.EffectiveTLSMode(), existing.TLSServerName, existing.TLSCAPEM, existing.TLSClientCertPEM, existing.TLSClientKeySecret
 	}
 	if input.TLSMode != nil {
@@ -845,7 +847,10 @@ func normalizeConnectionInput(input connectionInput, existing *domain.Connection
 	if timeout < 1 || timeout > 86400 {
 		return domain.Connection{}, nil, "queryTimeoutSeconds must be between 1 and 86400"
 	}
-	connection := domain.Connection{ID: connectionID, OrgID: orgID, Name: input.Name, Alias: alias, Engine: input.Engine, Host: input.Host, Port: input.Port, Database: database, Environment: environment, TLSRequired: tlsMode != engine.TLSDisable, TLSMode: tlsMode, TLSServerName: serverName, TLSCAPEM: caPEM, TLSClientCertPEM: clientCert, TLSClientKeySecret: clientKeySecret, ConnectionUsername: input.ConnectionUsername, CreatedAt: createdAt, QueryTimeoutSeconds: timeout}
+	if input.ReadOnly != nil {
+		readOnly = *input.ReadOnly
+	}
+	connection := domain.Connection{ID: connectionID, OrgID: orgID, Name: input.Name, Alias: alias, Engine: input.Engine, Host: input.Host, Port: input.Port, Database: database, Environment: environment, TLSRequired: tlsMode != engine.TLSDisable, TLSMode: tlsMode, TLSServerName: serverName, TLSCAPEM: caPEM, TLSClientCertPEM: clientCert, TLSClientKeySecret: clientKeySecret, ConnectionUsername: input.ConnectionUsername, CreatedAt: createdAt, QueryTimeoutSeconds: timeout, ReadOnly: readOnly}
 	if existing != nil {
 		connection.SSHHost, connection.SSHPort, connection.SSHUser = existing.SSHHost, existing.SSHPort, existing.SSHUser
 		connection.SSHAuthMethod, connection.SSHKnownHost = existing.SSHAuthMethod, existing.SSHKnownHost

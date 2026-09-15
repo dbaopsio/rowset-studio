@@ -44,7 +44,8 @@ export type IconName =
   | "copy"
   | "refresh"
   | "more"
-  | "notebook";
+  | "notebook"
+  | "bookmark";
 
 const paths: Record<IconName, ReactNode> = {
   "chevron-right": <path d="M6 4l4 4-4 4" />,
@@ -192,6 +193,7 @@ const paths: Record<IconName, ReactNode> = {
       <path d="M6 5.5h4M6 8h4M6 10.5h2.5" />
     </>
   ),
+  bookmark: <path d="M4 2.5h8v11l-4-2.5-4 2.5v-11z" />,
   grid: (
     <>
       <rect x="2.5" y="2.5" width="11" height="11" rx="1" />

@@ -89,7 +89,7 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 		writeError(w, http.StatusInternalServerError, "INTERNAL", "governance rules unavailable")
 		return
 	}
-	decision := policy.Evaluate(policy.Input{Statement: info, Role: role.Name, ReadOnly: role.IsReadOnly, Environment: connection.Environment, Cleared: cleared, Disabled: disabled, Enabled: enabled})
+	decision := policy.Evaluate(policy.Input{Statement: info, Role: role.Name, ReadOnly: role.IsReadOnly || connection.ReadOnly, Environment: connection.Environment, Cleared: cleared, Disabled: disabled, Enabled: enabled})
 	if !s.config.Shared || !identity.IsAdmin() {
 		decision, rowLimit, err = s.applyCustomPolicies(r, identity, connection, info, cleared, decision, rowLimit)
 		if err != nil {

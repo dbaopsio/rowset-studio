@@ -5,6 +5,25 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.71 — 2026-09-15
+
+- **Real logos** for CockroachDB, Snowflake, Redis, Cassandra and
+  Elasticsearch (Simple Icons marks, recolored to each brand's color),
+  replacing the colored-initial badges from the previous release.
+- **ClickHouse no longer lists `INFORMATION_SCHEMA` and `information_schema`
+  as two separate databases** — they're the same schema under a case-variant
+  alias ClickHouse keeps for MySQL compatibility; only the canonical
+  lowercase one is shown now.
+- **Saved query snippets**: a "Snippets" menu in the SQL toolbar saves the
+  current statement by name, per connection, and inserts a saved one back
+  into the editor. The backend and API client already existed from an
+  earlier change but had no UI until now.
+- **Read-only connections**: a "Safe mode" checkbox on a connection blocks
+  every write statement (INSERT/UPDATE/DELETE/DDL) on it, the same way a
+  read-only role already does, but without needing to set one up. Shown as
+  a "Safe mode" badge in the SQL toolbar and a lock badge in the connections
+  list.
+
 ## 0.0.70 — 2026-09-15
 
 - Redis, Cassandra and Elasticsearch pseudo-tables no longer show "Open
