@@ -28,7 +28,6 @@ export default function RedisQueryBar({ tabKey, sql, onChange, onRun }: { tabKey
 
   useEffect(() => {
     try { setParts(toParts(sql)); } catch { /* keep last valid parts while the JSON is mid-edit */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabKey]);
 
   const commit = (next: RedisParts) => { setParts(next); onChange(toSql(next)); };

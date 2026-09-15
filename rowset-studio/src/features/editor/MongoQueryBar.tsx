@@ -19,7 +19,6 @@ export default function MongoQueryBar({ tabKey, sql, onChange, onRun }: { tabKey
     }
     // Only re-read the editor when switching tabs, so typing in the editor
     // itself does not fight the bar's own edits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabKey]);
 
   const commit = (next: MongoQueryParts) => {

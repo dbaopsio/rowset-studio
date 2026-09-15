@@ -17,7 +17,7 @@ function toParts(sql: string): EsParts {
 }
 
 function toSql(parts: EsParts): string {
-  let query: unknown = {};
+  let query: unknown;
   try { query = JSON.parse(parts.query.trim() || "{}"); } catch { query = undefined; }
   // Elasticsearch rejects an empty query clause ({}), so treat it as "match all".
   if (query !== undefined && typeof query === "object" && query !== null && !Array.isArray(query) && Object.keys(query).length === 0) {
@@ -36,7 +36,6 @@ export default function ElasticsearchQueryBar({ tabKey, sql, onChange, onRun }: 
 
   useEffect(() => {
     try { setParts(toParts(sql)); } catch { /* keep last valid parts while the JSON is mid-edit */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabKey]);
 
   const commit = (next: EsParts) => { setParts(next); onChange(toSql(next)); };
