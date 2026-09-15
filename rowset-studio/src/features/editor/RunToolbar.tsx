@@ -128,10 +128,13 @@ export default function RunToolbar({
           onChange={(v) => onConnectionChange(v || null)}
           options={connectionOptions(connections ?? [])}
         />
-        {!["sqlite", "duckdb", "clickhouse", "mongodb", "redis", "cassandra", "elasticsearch"].includes(current?.engine ?? "") && <Dropdown
-          className="w-40"
+        {/* Only worth a control when there's an actual choice: a single-node
+            connection (the common case) is always "primary" and this would
+            just be a permanently-disabled dropdown taking up space. */}
+        {current?.nodePolicy === "user_selectable" && <Dropdown
+          className="w-36"
           value={nodeRole}
-          disabled={!connectionId || current?.nodePolicy !== "user_selectable" || running || transactionOpen || transactionBusy}
+          disabled={running || transactionOpen || transactionBusy}
           onChange={(value) => onNodeRoleChange(value as "primary" | "secondary")}
           options={[
             { value: "primary", label: "Primary", hint: current?.nodes.some((n) => n.health === "healthy" && n.detectedRole === "primary") ? "healthy" : "unavailable" },

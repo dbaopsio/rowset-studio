@@ -26,10 +26,12 @@ function cellText(value: unknown) {
   return value == null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
-export default function ResultsGrid({ result, editing, engine }: { result: QueryResult; editing?: ResultEditing; engine?: string }) {
+export default function ResultsGrid({ result, editing, engine, onFilteredCount }: { result: QueryResult; editing?: ResultEditing; engine?: string; onFilteredCount?: (shown: number, total: number) => void }) {
   const [filters, setFilters] = useState<ResultFilter[]>([]);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const indexes = useMemo(() => filteredIndexes(result.rows, filters, result.columnTypes), [result.rows, result.rowCount, result.columnTypes, filters]);
   const visibleResult = useMemo(() => ({ ...result, rows: indexes.map(index => result.rows[index]), rowCount: indexes.length }), [result, indexes]);
+  useEffect(() => { onFilteredCount?.(indexes.length, result.rows.length); }, [indexes.length, result.rows.length, onFilteredCount]);
   // Document engines return one JSON document per row; that reads better as
   // JSON than as a grid with a single stringified column, so it's the default
   // view for them. Every other engine still opens as Grid.
@@ -102,7 +104,7 @@ export default function ResultsGrid({ result, editing, engine }: { result: Query
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-8 items-center gap-2 border-b border-slate-200 bg-white px-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950">
+      <div className="flex min-h-9 flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950">
         <div className="flex items-center gap-0.5 rounded-md border border-slate-200 p-0.5 dark:border-slate-800">
           <ViewToggle active={view === "grid"} onClick={() => setView("grid")} icon="grid" label="Grid" />
           <ViewToggle active={view === "text"} onClick={() => setView("text")} icon="text" label="Text" />
@@ -115,14 +117,14 @@ export default function ResultsGrid({ result, editing, engine }: { result: Query
             disabled={!target}
             onClick={() => setEditMode((value) => !value)}
             title={target ? "Double-click a cell to change it" : "Editing needs a result from one table that includes its primary key"}
-            className={`flex h-6 items-center gap-1 rounded px-2 font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${editMode ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}
+            className={`flex h-6 items-center gap-1 rounded border px-2 font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${editMode ? "border-amber-200 bg-amber-100 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"}`}
           >
             <Icon name="pencil" size={12} />
             {editMode ? `Editing ${target?.table ?? ""}` : "Edit rows"}
           </button>
         )}
         {editMode && target && (
-          <button type="button" onClick={() => setDrafts((current) => [...current, new Map()])} title="Type a new row at the end of the grid" className="flex h-6 items-center gap-1 rounded px-2 font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
+          <button type="button" onClick={() => setDrafts((current) => [...current, new Map()])} title="Type a new row at the end of the grid" className="flex h-6 items-center gap-1 rounded border border-slate-200 bg-white px-2 font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800">
             <Icon name="plus" size={12} />
             Add row
           </button>
@@ -139,27 +141,31 @@ export default function ResultsGrid({ result, editing, engine }: { result: Query
         )}
         <button
           type="button"
-          onClick={() => setFilters(current => [...current, { column: -1, operator: "contains", value: "" }])}
+          onClick={() => setFilterPanelOpen((open) => {
+            const next = !open;
+            if (next && filters.length === 0) setFilters([{ column: -1, operator: "contains", value: "" }]);
+            return next;
+          })}
           title="Filter the rows already loaded, without querying the database again"
-          className={`flex h-6 items-center gap-1 rounded px-2 font-medium transition ${filters.length ? "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}
+          className={`flex h-6 items-center gap-1 rounded border px-2 font-medium transition ${filters.length ? "border-sky-200 bg-sky-100 text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-300" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"}`}
         >
           <Icon name="filter" size={12} />
           Filter{filters.length ? ` (${filters.length})` : ""}
         </button>
-        {filters.length > 0 && indexes.length !== result.rows.length ? (
-          <span className="flex h-6 items-center gap-1 rounded bg-sky-100 px-2 font-medium text-sky-800 dark:bg-sky-500/15 dark:text-sky-300">
-            {indexes.length} of {result.rows.length} rows match
-          </span>
-        ) : (
-          <span className="text-slate-400 dark:text-slate-500">{result.rows.length} rows loaded</span>
-        )}
         <div className="ml-auto flex items-center gap-1">
           <ExportButton result={visibleResult} kind="csv" />
           <ExportButton result={visibleResult} kind="json" />
         </div>
       </div>
-      {filters.length > 0 && <div className="flex max-h-40 shrink-0 flex-col gap-1 overflow-auto border-b border-slate-200 px-2 py-1.5 text-xs dark:border-slate-800">
-        <div className="flex justify-between text-[11px] text-slate-500"><span>Filter loaded rows · all conditions must match · no query is sent</span><button onClick={() => setFilters([])}>Clear filters</button></div>
+      {filterPanelOpen && <div className="flex max-h-40 shrink-0 flex-col gap-1.5 overflow-auto border-b border-slate-200 px-2 py-1.5 text-xs dark:border-slate-800">
+        <div className="flex justify-between text-[11px] text-slate-500">
+          <span>On the rows already loaded here — no query is sent</span>
+          {filters.length > 0 && (
+            <button onClick={() => setFilters([])} className="font-medium text-rose-500 underline decoration-rose-300 decoration-1 underline-offset-2 hover:text-rose-600 hover:decoration-rose-400 dark:text-rose-400 dark:decoration-rose-700 dark:hover:text-rose-300">
+              Clear filters
+            </button>
+          )}
+        </div>
         {filters.map((filter, index) => {
           const update = (patch: Partial<ResultFilter>) => setFilters(current => current.map((item, i) => i === index ? { ...item, ...patch } : item));
           const field = "h-7 rounded border border-slate-200 bg-white px-2 dark:border-slate-700 dark:bg-slate-900";
@@ -167,9 +173,20 @@ export default function ResultsGrid({ result, editing, engine }: { result: Query
             <select aria-label={`Filter ${index + 1} column`} className={field} value={filter.column} onChange={e => update({ column: Number(e.target.value) })}><option value={-1}>Any column</option>{result.columns.map((column, i) => <option key={i} value={i}>{column}</option>)}</select>
             <select aria-label={`Filter ${index + 1} operator`} className={field} value={filter.operator} onChange={e => update({ operator: e.target.value as FilterOperator })}>{Object.entries({ contains: "Contains", eq: "Equals", neq: "Does not equal", gt: ">", gte: "≥", lt: "<", lte: "≤", null: "Is NULL", notNull: "Is not NULL" }).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
             {!["null", "notNull"].includes(filter.operator) && <input aria-label={`Filter ${index + 1} value`} className={`${field} min-w-0 flex-1`} value={filter.value} onChange={e => update({ value: e.target.value })} placeholder="Value" />}
-            <button aria-label={`Remove filter ${index + 1}`} onClick={() => setFilters(current => current.filter((_, i) => i !== index))}>×</button>
+            <button aria-label={`Remove filter ${index + 1}`} onClick={() => setFilters(current => current.filter((_, i) => i !== index))} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">×</button>
           </div>;
         })}
+        {filters.length > 1 && (
+          <div className="text-[11px] text-slate-400">All conditions must match</div>
+        )}
+        <button
+          type="button"
+          onClick={() => setFilters(current => [...current, { column: -1, operator: "contains", value: "" }])}
+          className="flex h-6 w-fit items-center gap-1 self-start rounded border border-dashed border-slate-300 px-2 font-medium text-slate-500 hover:border-slate-400 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200"
+        >
+          <Icon name="plus" size={11} />
+          Add condition
+        </button>
       </div>}
       <div className="min-h-0 flex-1 overflow-auto">
         {view === "grid" ? (

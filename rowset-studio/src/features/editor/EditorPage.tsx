@@ -1550,6 +1550,9 @@ function BottomPanel({
 }) {
   // Several statements ran: show one result at a time, picked from a strip.
   const results = run.results && run.results.length > 1 ? run.results : undefined;
+  // Reported by ResultsGrid's own filter state, so the status bar can show
+  // how many of the loaded rows a filter left visible.
+  const [filteredCount, setFilteredCount] = useState<{ shown: number; total: number } | null>(null);
   const activeResult = results ? Math.min(run.activeResult ?? results.length - 1, results.length - 1) : -1;
   const selected = results && run.status !== "running" ? results[activeResult] : undefined;
   const shownRun: TabRunState = selected ? { ...run, status: selected.status, data: selected.data, error: selected.error } : run;
@@ -1605,7 +1608,7 @@ function BottomPanel({
             {(shownRun.status === "error" || shownRun.status === "pending") && shownRun.error ? (
               <PolicyBanner error={shownRun.error} context={denialContext} />
             ) : shownRun.data ? (
-              <ResultsGrid key={`${run.startedAt}:${activeResult}`} result={shownRun.data} editing={editingFor(rowEditing, selected ? selected.sql : run.sql)} engine={engine} />
+              <ResultsGrid key={`${run.startedAt}:${activeResult}`} result={shownRun.data} editing={editingFor(rowEditing, selected ? selected.sql : run.sql)} engine={engine} onFilteredCount={(shown, total) => setFilteredCount({ shown, total })} />
             ) : (
               run.status !== "running" && (
                 <EmptyState title="No results yet" text="Run a query to populate the result grid." />
@@ -1620,12 +1623,12 @@ function BottomPanel({
           <MessagePanel message={run.message} error={run.messageError ? run.message : ""} />
         )}
       </div>
-      <StatusBar run={shownRun} onExportAllRows={results ? undefined : onExportAllRows} />
+      <StatusBar run={shownRun} onExportAllRows={results ? undefined : onExportAllRows} filteredCount={filteredCount} />
     </div>
   );
 }
 
-function StatusBar({ run, onExportAllRows }: { run: TabRunState; onExportAllRows?: () => Promise<void> }) {
+function StatusBar({ run, onExportAllRows, filteredCount }: { run: TabRunState; onExportAllRows?: () => Promise<void>; filteredCount?: { shown: number; total: number } | null }) {
   const [exporting, setExporting] = useState("");
   const badges = useActiveExtensions().flatMap((item) => item.resultBadges ?? []);
   const [now, setNow] = useState(() => Date.now());
@@ -1648,6 +1651,9 @@ function StatusBar({ run, onExportAllRows }: { run: TabRunState; onExportAllRows
   const elapsed = elapsedMs ? `${(elapsedMs / 1000).toFixed(elapsedMs < 10000 ? 1 : 0)}s` : "";
   const ready = !!result;
   const statusLabel = running ? "Running" : run.status === "pending" ? "Pending" : run.status === "error" ? "Failed" : ready ? "Completed" : "Ready";
+  // Only trust it once it's actually about this result, not a stale value
+  // left over from the previous one.
+  const filtered = result && filteredCount && filteredCount.total === result.rowCount && filteredCount.shown !== filteredCount.total ? filteredCount : null;
   const rowLabel = result ? `${result.rowCount} rows` : "";
   const rowsetLabel = result ? `rowset ${result.durationMs}ms` : "";
   const studioLabel = elapsed ? `studio ${elapsed}` : "";
@@ -1688,8 +1694,17 @@ function StatusBar({ run, onExportAllRows }: { run: TabRunState; onExportAllRows
           </span>
         )}
       </div>
-      <div className="ml-auto min-w-[13rem] text-right font-mono tabular-nums text-slate-500 dark:text-slate-400">
-        {ready ? `${rowLabel}${rowsetLabel ? ` · ${rowsetLabel}` : ""}${studioLabel ? ` · ${studioLabel}` : ""}` : studioLabel || " "}
+      <div className="ml-auto flex min-w-[13rem] items-center justify-end gap-1.5 text-right font-mono tabular-nums text-slate-500 dark:text-slate-400">
+        {ready && filtered && (
+          <span className="rounded bg-sky-100 px-1.5 py-0.5 font-sans font-medium text-sky-800 dark:bg-sky-500/15 dark:text-sky-300">
+            {filtered.shown} of {filtered.total} rows filtered
+          </span>
+        )}
+        <span>
+          {ready
+            ? [filtered ? null : rowLabel, rowsetLabel, studioLabel].filter(Boolean).join(" · ")
+            : studioLabel || " "}
+        </span>
       </div>
     </div>
   );
