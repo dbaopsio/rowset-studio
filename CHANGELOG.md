@@ -5,6 +5,26 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.81 — 2026-09-15
+
+- **Fixed Windows opening Internet Explorer instead of the default
+  browser** for Rowset Studio, found on a real Windows Server: the
+  old `rundll32 url.dll,FileProtocolHandler` trick goes through IE's
+  own URL handler on some Windows builds. Switched to `cmd /c start`,
+  which respects the actual default-browser association.
+- Auto-refresh now allows `EXEC`/`EXECUTE`/`CALL` (a stored procedure
+  call isn't a plain write), so watching a diagnostic proc like
+  `sp_whoisactive` on an interval - the original motivating use case -
+  actually works; plain DML/DDL keywords are still excluded.
+- Query results show which physical node they ran against (as a small
+  badge next to Completed), for connections with more than one node.
+- **Added Valkey support**, wire-compatible with Redis so it reuses
+  the same query editor and schema browsing.
+- The New/Edit connection form: TLS now defaults to Off instead of
+  full certificate verification; added "preprod" to Environment;
+  username and password are next to each other instead of opposite
+  ends of the form, and the form is visibly more compact overall.
+
 ## 0.0.80 — 2026-09-15
 
 - **`rowset desktop` now survives closing the terminal it was started
