@@ -5,6 +5,15 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.85 — 2026-09-16
+
+- Fixed sidebar navigation occasionally leaving the SQL editor visible after
+  a query completed even though browser history had moved to the selected
+  page. Rowset now detects that router/history desynchronization and recovers
+  immediately without interfering with running-query or transaction prompts.
+- Updated the Studio runtime and build chain to React 19.3, React Router 8.4,
+  Vite 8.3 and the matching React Vite plugin and type definitions.
+
 ## 0.0.83 — 2026-09-15
 
 - Server (Host/Port, or HA nodes) moved up next to username/password
