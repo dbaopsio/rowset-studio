@@ -79,7 +79,16 @@ jobs:
           if ($page.Content -notmatch '<title>Rowset Studio</title>') { throw 'Studio page missing' }
           & $exe desktop-stop
           if ($LASTEXITCODE -ne 0) { throw 'desktop-stop failed' }
-          if (-not $desktop.WaitForExit(15000)) { throw 'Rowset Studio did not stop' }
+          # $desktop is the launcher process, which re-execs itself detached
+          # and exits within a second or two of starting - it is not the
+          # actual server, so stopping is verified by polling the port
+          # instead of waiting on that process handle.
+          $stopped = $false
+          for ($i = 0; $i -lt 75 -and -not $stopped; $i++) {
+            Start-Sleep -Milliseconds 200
+            try { Invoke-RestMethod "http://127.0.0.1:$port/readyz" -TimeoutSec 1 | Out-Null } catch { $stopped = $true }
+          }
+          if (-not $stopped) { throw 'Rowset Studio did not stop' }
           $env:ROWSET_UNINSTALL = '1'
           & ./install.ps1
           if (Test-Path $exe) { throw 'Uninstall left rowset.exe behind' }

@@ -23,6 +23,15 @@ final class RowsetApp: NSObject, NSApplicationDelegate {
         let process = Process()
         process.executableURL = executable
         process.arguments = ["desktop"]
+        // Without this, `rowset desktop` re-execs itself detached and this
+        // process exits within a second or two - which is right for someone
+        // typing it into Terminal, but wrong here: the app already is the
+        // long-lived process managing Rowset's lifecycle, and needs its own
+        // handle on the real server to notice it crashing later, not just a
+        // failed launch.
+        var environment = ProcessInfo.processInfo.environment
+        environment["ROWSET_DETACHED"] = "1"
+        process.environment = environment
         process.terminationHandler = { child in
             if child.terminationStatus != 0 {
                 DispatchQueue.main.async {

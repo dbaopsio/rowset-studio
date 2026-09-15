@@ -27,14 +27,34 @@ type desktopState struct {
 	Key  string `json:"key"`
 }
 
+// desktopDataDir is where instance.json, the database, snapshots and logs
+// for this desktop installation live.
+func desktopDataDir() (string, error) {
+	if directory := os.Getenv("ROWSET_DESKTOP_DIR"); directory != "" {
+		return directory, nil
+	}
+	root, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "Rowset", "Community"), nil
+}
+
 func desktop() error {
-	directory := os.Getenv("ROWSET_DESKTOP_DIR")
-	if directory == "" {
-		root, err := os.UserConfigDir()
-		if err != nil {
-			return err
-		}
-		directory = filepath.Join(root, "Rowset", "Community")
+	directory, err := desktopDataDir()
+	if err != nil {
+		return err
+	}
+	// A plain `rowset` / `rowset desktop` typed into a terminal, or run from
+	// a Windows shortcut, should keep running after that terminal closes or
+	// the shortcut's own launcher process exits - the same way double-
+	// clicking the macOS menu-bar app does. Re-exec detached once, then let
+	// the detached copy (ROWSET_DETACHED=1) do the actual work below. The
+	// macOS app sets ROWSET_DETACHED=1 itself when it spawns this, since it
+	// already manages the child's lifecycle directly (it needs the process
+	// handle to notice a later crash, not just a failed launch).
+	if os.Getenv("ROWSET_DETACHED") != "1" {
+		return spawnDetached(directory)
 	}
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return err
@@ -192,6 +212,52 @@ func desktop() error {
 	return nil
 }
 
+// spawnDetached re-execs this same executable as `desktop`, detached (see
+// desktopDetachAttrs), then waits for it to report itself ready before
+// returning - so a script or a shell prompt calling `rowset desktop`
+// synchronously still sees a real failure if startup fails, but otherwise
+// gets its prompt back immediately while the detached copy keeps running.
+// It never opens the browser itself; the detached copy does that once it
+// reaches the same point this process would have.
+func spawnDetached(directory string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	statePath := filepath.Join(directory, "instance.json")
+	var before time.Time
+	if info, err := os.Stat(statePath); err == nil {
+		before = info.ModTime()
+	}
+	cmd := exec.Command(exe, "desktop")
+	cmd.Env = append(os.Environ(), "ROWSET_DETACHED=1")
+	cmd.SysProcAttr = detachedAttrs()
+	if devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0); err == nil {
+		defer devNull.Close()
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = devNull, devNull, devNull
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("could not start Rowset in the background: %w", err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		info, err := os.Stat(statePath)
+		if err == nil && info.ModTime().After(before) {
+			raw, err := os.ReadFile(statePath)
+			var state desktopState
+			if err == nil && json.Unmarshal(raw, &state) == nil && state.Port > 0 && len(state.Key) == 64 {
+				fmt.Fprintln(os.Stderr, "Rowset: started in the background; it keeps running after this terminal closes.")
+				return nil
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return errors.New("Rowset did not report starting within 15s; check the logs in the data directory")
+}
+
 func openDesktopState(directory string) error {
 	raw, err := os.ReadFile(filepath.Join(directory, "instance.json"))
 	if err != nil {
@@ -250,13 +316,9 @@ func openBrowser(url string) error {
 }
 
 func stopDesktop() error {
-	directory := os.Getenv("ROWSET_DESKTOP_DIR")
-	if directory == "" {
-		root, err := os.UserConfigDir()
-		if err != nil {
-			return err
-		}
-		directory = filepath.Join(root, "Rowset", "Community")
+	directory, err := desktopDataDir()
+	if err != nil {
+		return err
 	}
 	raw, err := os.ReadFile(filepath.Join(directory, "instance.json"))
 	if err != nil {

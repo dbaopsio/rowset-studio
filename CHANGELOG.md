@@ -5,6 +5,24 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.80 — 2026-09-15
+
+- **`rowset desktop` now survives closing the terminal it was started
+  from**, on every platform. It used to run attached to whatever
+  console launched it (typing `rowset` in cmd.exe/PowerShell and
+  closing that window killed it, since Windows terminates a console
+  process tree on close, and the same applies on Linux/macOS without
+  something detaching it). It now re-execs itself once, detached
+  (`Setsid` on macOS/Linux, `DETACHED_PROCESS` on Windows), and the
+  original invocation waits for the detached copy to report itself
+  ready before returning - so scripts calling `rowset desktop`
+  synchronously still see a real failure if startup fails, but
+  otherwise get their prompt back immediately.
+- The macOS menu-bar app opts out of this (`ROWSET_DETACHED=1`) since
+  it already manages the server process directly and needs to notice
+  it crashing later, not just a failed launch - its behavior is
+  unchanged.
+
 ## 0.0.79 — 2026-09-15
 
 - **License changed from Apache 2.0 to the PolyForm Noncommercial
