@@ -137,8 +137,22 @@ export default function ResultsGrid({ result, editing, engine }: { result: Query
             </button>
           </>
         )}
-        <button type="button" className="rounded px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => setFilters(current => [...current, { column: -1, operator: "contains", value: "" }])}>Filter{filters.length ? ` (${filters.length})` : ""}</button>
-        <span>{indexes.length} / {result.rows.length} loaded rows</span>
+        <button
+          type="button"
+          onClick={() => setFilters(current => [...current, { column: -1, operator: "contains", value: "" }])}
+          title="Filter the rows already loaded, without querying the database again"
+          className={`flex h-6 items-center gap-1 rounded px-2 font-medium transition ${filters.length ? "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}
+        >
+          <Icon name="filter" size={12} />
+          Filter{filters.length ? ` (${filters.length})` : ""}
+        </button>
+        {filters.length > 0 && indexes.length !== result.rows.length ? (
+          <span className="flex h-6 items-center gap-1 rounded bg-sky-100 px-2 font-medium text-sky-800 dark:bg-sky-500/15 dark:text-sky-300">
+            {indexes.length} of {result.rows.length} rows match
+          </span>
+        ) : (
+          <span className="text-slate-400 dark:text-slate-500">{result.rows.length} rows loaded</span>
+        )}
         <div className="ml-auto flex items-center gap-1">
           <ExportButton result={visibleResult} kind="csv" />
           <ExportButton result={visibleResult} kind="json" />
