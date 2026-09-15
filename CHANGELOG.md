@@ -5,6 +5,13 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.79 — 2026-09-15
+
+- **License changed from Apache 2.0 to the PolyForm Noncommercial
+  License 1.0.0.** The source stays open to read, fork and modify,
+  and free for any noncommercial use, but commercial use now needs a
+  separate license.
+
 ## 0.0.78 — 2026-09-15
 
 - Auto-refresh's active state is amber now (a better fit for "live"

@@ -20,7 +20,7 @@
 
 <p align="center">
   <a href="https://github.com/dbaopsio/rowset-studio/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/dbaopsio/rowset-studio?display_name=tag&sort=semver&label=release"></a>
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue.svg"></a>
   <a href="rowset-core/go.mod"><img alt="Go" src="https://img.shields.io/github/go-mod/go-version/dbaopsio/rowset-studio?filename=rowset-core%2Fgo.mod"></a>
   <img alt="Platforms" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey">
 </p>
@@ -274,4 +274,7 @@ it into Studio, the executable and the macOS app. See
 
 ## License
 
-Rowset Studio is licensed under the [Apache License 2.0](LICENSE).
+Rowset Studio is source-available under the
+[PolyForm Noncommercial License 1.0.0](LICENSE): the source is open to read,
+fork and modify, and free to use for any noncommercial purpose, but not for
+commercial use. For a commercial license, get in touch.
