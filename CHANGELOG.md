@@ -5,6 +5,17 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.74 — 2026-09-15
+
+- **Results Filter button is now visible**: it was plain text with no
+  icon or hover state next to the properly-styled Edit rows button;
+  now it matches, and highlights when a filter is active.
+- The "X / Y loaded rows" counter only stands out (a highlighted "X of
+  Y rows match" badge) once a filter actually narrows the result;
+  otherwise it's a quiet "N rows loaded", so a filter matching every
+  row (e.g. "any column contains 2" when a date column has a year like
+  2026) doesn't read as broken.
+
 ## 0.0.73 — 2026-09-15
 
 - **JSON view for query results**: a third view next to Grid and Text,
