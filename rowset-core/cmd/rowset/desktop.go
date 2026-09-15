@@ -306,7 +306,15 @@ func openBrowser(url string) error {
 	case "darwin":
 		command = exec.Command("open", url)
 	case "windows":
-		command = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		// rundll32 url.dll,FileProtocolHandler is the classic trick but goes
+		// through Internet Explorer's URL handler specifically on some
+		// Windows builds (notably Windows Server) rather than the user's
+		// actual default browser. `start` goes through the same ShellExecute
+		// path a double-clicked link does, which respects it. The empty
+		// string is a required placeholder: start treats a quoted first
+		// argument as the window title, so without it a URL there would be
+		// read as the title instead of the target.
+		command = exec.Command("cmd", "/c", "start", "", url)
 	case "linux":
 		command = exec.Command("xdg-open", url)
 	default:

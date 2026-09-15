@@ -100,7 +100,15 @@ function looksReadOnly(sql: string, engine?: string): boolean {
   if (engine === "mongodb" || engine === "redis" || engine === "elasticsearch") return true;
   const withoutComments = sql.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
   const first = withoutComments.trim().split(/[\s(]/, 1)[0]?.toUpperCase() ?? "";
-  return ["SELECT", "WITH", "SHOW", "EXPLAIN", "DESC", "DESCRIBE", "PRAGMA"].includes(first);
+  // EXEC/EXECUTE/CALL is deliberately allowed even though a stored procedure
+  // could write - this is how someone watches a read-only diagnostic proc
+  // (sp_whoisactive, sp_who2, ...) on an interval, the whole reason this
+  // feature exists. Plain DML/DDL keywords stay excluded.
+  return ["SELECT", "WITH", "SHOW", "EXPLAIN", "DESC", "DESCRIBE", "PRAGMA", "EXEC", "EXECUTE", "CALL"].includes(first);
+}
+
+function isNodeAnnotation(value: unknown): value is { host: string; role?: string } {
+  return typeof value === "object" && value !== null && typeof (value as { host?: unknown }).host === "string";
 }
 
 const MonacoSqlEditor = lazy(() => import("./MonacoSqlEditor"));
@@ -1697,6 +1705,8 @@ function StatusBar({ run, onExportAllRows, filteredCount }: { run: TabRunState; 
   const rowLabel = result ? `${result.rowCount} rows` : "";
   const rowsetLabel = result ? `rowset ${result.durationMs}ms` : "";
   const studioLabel = elapsed ? `studio ${elapsed}` : "";
+  const rawNode = result?.annotations?.node;
+  const nodeAnnotation = isNodeAnnotation(rawNode) ? rawNode : null;
 
   return (
     <div className="flex h-9 items-center gap-2 border-t border-slate-200 bg-white px-3 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-950">
@@ -1709,6 +1719,15 @@ function StatusBar({ run, onExportAllRows, filteredCount }: { run: TabRunState; 
       <span className="font-medium text-slate-600 dark:text-slate-300">{statusLabel}</span>
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {result && badges.map((Badge, index) => <Badge key={index} result={result} />)}
+        {nodeAnnotation && (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+            title={`This ran against ${nodeAnnotation.host}${nodeAnnotation.role ? ` (${nodeAnnotation.role})` : ""}`}
+          >
+            <Icon name="database" size={11} />
+            {nodeAnnotation.host}
+          </span>
+        )}
         {result && result.policyNotice && (
           // A policy capped the result; the rows behind it can still be
           // exported when no policy forbids that.

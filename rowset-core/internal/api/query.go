@@ -146,7 +146,8 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 	var target engine.Connection
 	if transaction == nil {
 		var targetErr error
-		target, _, targetErr = s.routedEngineConnection(r.Context(), identity, connection, input.Database, input.NodeRole, &info)
+		var resolvedRole string
+		target, resolvedRole, targetErr = s.routedEngineConnection(r.Context(), identity, connection, input.Database, input.NodeRole, &info)
 		if targetErr != nil {
 			if errors.Is(targetErr, errSecondaryUnsafe) {
 				s.recordActivity(r, connection.ID, input.SQL, "blocked", 0, 0, normalized, queryHash, auditMeta{decision: "deny", reason: targetErr.Error(), policyID: "secondary_read_only"})
@@ -155,6 +156,12 @@ func (s *Server) executeQuery(w http.ResponseWriter, r *http.Request, connection
 			}
 			writeError(w, http.StatusBadGateway, "EXEC_ERROR", targetErr.Error())
 			return
+		}
+		// Which physical node actually ran this - only meaningful once a
+		// connection has more than one, but cheap and harmless to always
+		// include.
+		if target.Host != "" {
+			annotations["node"] = map[string]string{"host": target.Host, "role": resolvedRole}
 		}
 	}
 	// Personal workspaces can back up the rows a simple UPDATE or DELETE

@@ -178,7 +178,7 @@ export default function RunToolbar({
           ms={autoRefreshMs}
           onChange={onAutoRefreshChange}
           disabled={!connectionId || transactionBusy || (autoRefreshMs === 0 && !autoRefreshEligible)}
-          disabledReason="Auto-refresh only repeats statements that look read-only (SELECT/WITH/SHOW/EXPLAIN…), so it never turns a query into a recurring write."
+          disabledReason="Auto-refresh only repeats statements that look read-only or a procedure call (SELECT/WITH/SHOW/EXPLAIN/EXEC…), so it never turns a query into a recurring write."
         />
         {current?.engine !== "mongodb" && !pendingEngine && <CommitModeSwitch
           manual={manualCommit}
