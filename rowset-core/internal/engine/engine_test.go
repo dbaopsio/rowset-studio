@@ -10,6 +10,8 @@ func TestConnectionStringsDoNotLoseCredentials(t *testing.T) {
 		{Engine: "postgres", Host: "db", Port: 5432, Database: "app", Username: "user@org", Password: "p@ss/word", TLS: TLSSettings{Mode: TLSRequire}},
 		{Engine: "mysql", Host: "db", Port: 3306, Database: "app", Username: "user", Password: "p@ss/word", TLS: TLSSettings{Mode: TLSRequire}},
 		{Engine: "mssql", Host: "db", Port: 1433, Database: "app", Username: "user", Password: "p@ss/word", TLS: TLSSettings{Mode: TLSRequire}},
+		{Engine: "cockroachdb", Host: "db", Port: 26257, Database: "app", Username: "user@org", Password: "p@ss/word", TLS: TLSSettings{Mode: TLSRequire}},
+		{Engine: "snowflake", Host: "myorg-myaccount", Port: 443, Database: "app", Username: "user", Password: "p@ss/word"},
 	} {
 		driver, dsn, err := connectionString(connection)
 		if err != nil {

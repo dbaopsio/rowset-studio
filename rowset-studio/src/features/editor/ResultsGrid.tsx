@@ -6,6 +6,7 @@ import { QueryResult } from "./api";
 import { deleteStatements, editTarget, insertStatements, updateStatements, type EditTarget } from "./rowEdits";
 import SqlCode from "./SqlCode";
 import { resultCSV, resultJSON } from "./resultExport";
+import { filteredIndexes, type ResultFilter, type FilterOperator } from "./resultFilter";
 import { compareCells } from "./resultSort";
 
 // Renders a query result set. Values are rendered as text; NULL is shown
@@ -25,6 +26,9 @@ function cellText(value: unknown) {
 }
 
 export default function ResultsGrid({ result, editing }: { result: QueryResult; editing?: ResultEditing }) {
+  const [filters, setFilters] = useState<ResultFilter[]>([]);
+  const indexes = useMemo(() => filteredIndexes(result.rows, filters, result.columnTypes), [result.rows, result.rowCount, result.columnTypes, filters]);
+  const visibleResult = useMemo(() => ({ ...result, rows: indexes.map(index => result.rows[index]), rowCount: indexes.length }), [result, indexes]);
   const [view, setView] = useState<"grid" | "text">("grid");
   const target = useMemo(() => (editing ? editTarget(result.columnOrigins, editing.primaryKey) : null), [editing, result.columnOrigins]);
   const [editMode, setEditMode] = useState(false);
@@ -127,15 +131,30 @@ export default function ResultsGrid({ result, editing }: { result: QueryResult; 
             </button>
           </>
         )}
+        <button type="button" className="rounded px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => setFilters(current => [...current, { column: -1, operator: "contains", value: "" }])}>Filter{filters.length ? ` (${filters.length})` : ""}</button>
+        <span>{indexes.length} / {result.rows.length} loaded rows</span>
         <div className="ml-auto flex items-center gap-1">
-          <ExportButton result={result} kind="csv" />
-          <ExportButton result={result} kind="json" />
+          <ExportButton result={visibleResult} kind="csv" />
+          <ExportButton result={visibleResult} kind="json" />
         </div>
       </div>
-      <div className="flex-1 overflow-auto">
+      {filters.length > 0 && <div className="flex max-h-40 shrink-0 flex-col gap-1 overflow-auto border-b border-slate-200 px-2 py-1.5 text-xs dark:border-slate-800">
+        <div className="flex justify-between text-[11px] text-slate-500"><span>Filter loaded rows · all conditions must match · no query is sent</span><button onClick={() => setFilters([])}>Clear filters</button></div>
+        {filters.map((filter, index) => {
+          const update = (patch: Partial<ResultFilter>) => setFilters(current => current.map((item, i) => i === index ? { ...item, ...patch } : item));
+          const field = "h-7 rounded border border-slate-200 bg-white px-2 dark:border-slate-700 dark:bg-slate-900";
+          return <div key={index} className="flex items-center gap-2">
+            <select aria-label={`Filter ${index + 1} column`} className={field} value={filter.column} onChange={e => update({ column: Number(e.target.value) })}><option value={-1}>Any column</option>{result.columns.map((column, i) => <option key={i} value={i}>{column}</option>)}</select>
+            <select aria-label={`Filter ${index + 1} operator`} className={field} value={filter.operator} onChange={e => update({ operator: e.target.value as FilterOperator })}>{Object.entries({ contains: "Contains", eq: "Equals", neq: "Does not equal", gt: ">", gte: "≥", lt: "<", lte: "≤", null: "Is NULL", notNull: "Is not NULL" }).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+            {!["null", "notNull"].includes(filter.operator) && <input aria-label={`Filter ${index + 1} value`} className={`${field} min-w-0 flex-1`} value={filter.value} onChange={e => update({ value: e.target.value })} placeholder="Value" />}
+            <button aria-label={`Remove filter ${index + 1}`} onClick={() => setFilters(current => current.filter((_, i) => i !== index))}>×</button>
+          </div>;
+        })}
+      </div>}
+      <div className="min-h-0 flex-1 overflow-auto">
         {view === "grid" ? (
-          <GridView result={result} editable={editMode ? target : null} edits={edits} onEdit={setCell} drafts={drafts} onDraftEdit={setDraftCell} deletions={deletions} onToggleDelete={toggleDeletion} />
-        ) : <TextView result={result} />}
+          <GridView result={result} indexes={indexes} filterKey={filters} editable={editMode ? target : null} edits={edits} onEdit={setCell} drafts={drafts} onDraftEdit={setDraftCell} deletions={deletions} onToggleDelete={toggleDeletion} />
+        ) : <TextView result={visibleResult} />}
       </div>
       {reviewing && editing && (
         <Modal title="Apply changes" onClose={() => setReviewing(false)} size="lg">
@@ -157,7 +176,7 @@ export default function ResultsGrid({ result, editing }: { result: QueryResult; 
   );
 }
 
-function GridView({ result, editable, edits, onEdit, drafts = [], onDraftEdit, deletions, onToggleDelete }: { result: QueryResult; editable?: EditTarget | null; edits?: CellEdits; onEdit?: (row: number, column: number, value: string | null) => void; drafts?: Map<number, string | null>[]; onDraftEdit?: (draft: number, column: number, value: string | null) => void; deletions?: Set<number>; onToggleDelete?: (row: number) => void }) {
+function GridView({ result, indexes, filterKey, editable, edits, onEdit, drafts = [], onDraftEdit, deletions, onToggleDelete }: { result: QueryResult; indexes: number[]; filterKey: ResultFilter[]; editable?: EditTarget | null; edits?: CellEdits; onEdit?: (row: number, column: number, value: string | null) => void; drafts?: Map<number, string | null>[]; onDraftEdit?: (draft: number, column: number, value: string | null) => void; deletions?: Set<number>; onToggleDelete?: (row: number) => void }) {
   const [editingCell, setEditingCell] = useState<{ row: number; column: number; text: string } | null>(null);
   const Mark = useActiveExtensions().find((item) => item.columnMark)?.columnMark;
   const [cellView, setCellView] = useState<{ column: string; value: unknown } | null>(null);
@@ -176,12 +195,11 @@ function GridView({ result, editable, edits, onEdit, drafts = [], onDraftEdit, d
 
   // Row order as indexes into result.rows, so edits stay tied to their row.
   const order = useMemo(() => {
-    const indexes = result.rows.map((_, index) => index);
     if (!sort) return indexes;
     const { col, dir } = sort;
-    return indexes.sort((a, b) => compareCells(result.rows[a][col], result.rows[b][col], result.columnTypes?.[col], dir));
+    return [...indexes].sort((a, b) => compareCells(result.rows[a][col], result.rows[b][col], result.columnTypes?.[col], dir));
     // rowCount grows while a result streams in; the array itself is reused.
-  }, [result.rows, result.rowCount, result.columnTypes, sort]);
+  }, [result.rows, result.rowCount, result.columnTypes, sort, indexes]);
 
   useEffect(() => {
     const el = scrollerRef.current;
@@ -195,6 +213,7 @@ function GridView({ result, editable, edits, onEdit, drafts = [], onDraftEdit, d
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => { scrollerRef.current?.scrollTo({ top: 0 }); setScrollTop(0); }, [filterKey]);
   const totalRows = order.length;
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
   const visibleCount = Math.max(1, Math.ceil(viewportHeight / rowHeight) + overscan * 2);

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -123,9 +124,20 @@ func (s *Server) createConnection(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.config.Shared && engine.AdditionalEngine(input.Engine) {
+		writeError(w, 400, "BAD_REQUEST", "additional engines are currently available in personal workspaces only")
+		return
+	}
 	connection, nodes, message := normalizeConnectionInput(input, nil, identityFromContext(r.Context()).OrgID)
 	if message != "" {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", message)
+		return
+	}
+	if taken, err := s.connectionNameTaken(r.Context(), connection.OrgID, connection.Name, ""); err != nil {
+		writeStoreError(w, err)
+		return
+	} else if taken {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "a connection named \""+connection.Name+"\" already exists")
 		return
 	}
 	if s.vault == nil {
@@ -197,9 +209,20 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.config.Shared && engine.AdditionalEngine(input.Engine) {
+		writeError(w, 400, "BAD_REQUEST", "additional engines are currently available in personal workspaces only")
+		return
+	}
 	connection, nodes, message := normalizeConnectionInput(input, &existing, identity.OrgID)
 	if message != "" {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", message)
+		return
+	}
+	if taken, err := s.connectionNameTaken(r.Context(), connection.OrgID, connection.Name, connection.ID); err != nil {
+		writeStoreError(w, err)
+		return
+	} else if taken {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "a connection named \""+connection.Name+"\" already exists")
 		return
 	}
 	connection.SecretID = existing.SecretID
@@ -309,6 +332,12 @@ func (s *Server) engineConnection(r *http.Request, connection domain.Connection,
 }
 
 func (s *Server) engineConnectionAt(ctx context.Context, connection domain.Connection, database, host string, port int) (engine.Connection, error) {
+	if s.config.Shared && engine.AdditionalEngine(connection.Engine) {
+		return engine.Connection{}, fmt.Errorf("additional engines are currently available in personal workspaces only")
+	}
+	if engine.FileEngine(connection.Engine) && database != "" && database != connection.Database {
+		return engine.Connection{}, fmt.Errorf("a local connection can only open its configured database file")
+	}
 	secret, err := s.store.SecretForConnection(ctx, connection.OrgID, connection.ID)
 	if err != nil {
 		return engine.Connection{}, err
@@ -501,7 +530,7 @@ func (s *Server) applyTLSClientKey(w http.ResponseWriter, r *http.Request, input
 }
 func (s *Server) poolSize(engineName string) int {
 	switch strings.ToLower(engineName) {
-	case "postgres", "postgresql":
+	case "postgres", "postgresql", "cockroachdb":
 		return int(s.config.PostgresPoolSize)
 	case "mysql", "mariadb":
 		return int(s.config.MySQLPoolSize)
@@ -695,18 +724,68 @@ func (s *Server) authorizedConnection(w http.ResponseWriter, r *http.Request) (d
 	return connection, false
 }
 
+// connectionNameTaken checks names case-insensitively and trimmed, so
+// "Prod DB" and " prod db " collide; excludeID skips the connection being
+// edited. Existing duplicates saved before this check are left as-is.
+func (s *Server) connectionNameTaken(ctx context.Context, orgID, name, excludeID string) (bool, error) {
+	connections, err := s.store.ListConnections(ctx, orgID)
+	if err != nil {
+		return false, err
+	}
+	key := strings.ToLower(strings.TrimSpace(name))
+	for _, c := range connections {
+		if c.ID == excludeID {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(c.Name)) == key {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func normalizeConnectionInput(input connectionInput, existing *domain.Connection, orgID string) (domain.Connection, []domain.ConnectionNode, string) {
 	if strings.TrimSpace(input.ConnectionUsername) == "" {
 		input.ConnectionUsername = input.TechnicalUsername
 	}
 	input.Name, input.Engine, input.Host, input.ConnectionUsername = strings.TrimSpace(input.Name), strings.ToLower(strings.TrimSpace(input.Engine)), strings.TrimSpace(input.Host), strings.TrimSpace(input.ConnectionUsername)
-	if input.Name == "" || input.Engine == "" || input.Host == "" || input.ConnectionUsername == "" || input.Port < 1 || input.Port > 65535 || (existing == nil && input.Password == "") {
+	if input.Engine == "duckdb" && !engine.DuckDBAvailable {
+		return domain.Connection{}, nil, "this build does not include DuckDB"
+	}
+	if input.Engine == "mongodb" && input.SSHHost != nil && *input.SSHHost != "" {
+		return domain.Connection{}, nil, "MongoDB SSH tunnelling is not supported yet"
+	}
+	if engine.FileEngine(input.Engine) {
+		if input.Database == nil {
+			return domain.Connection{}, nil, "database file path is required"
+		}
+		if err := engine.ValidateDatabaseFile(*input.Database); err != nil {
+			return domain.Connection{}, nil, err.Error()
+		}
+		input.Host, input.Port, input.ConnectionUsername = "localhost", 1, "local"
+		off := engine.TLSDisable
+		input.TLSMode = &off
+		input.Nodes = nil
+		if input.SSHHost != nil && *input.SSHHost != "" {
+			return domain.Connection{}, nil, "local database files do not use SSH"
+		}
+	}
+	if input.Engine == "clickhouse" && input.ConnectionUsername == "" {
+		input.ConnectionUsername = "default"
+	}
+	if input.Engine == "mongodb" && input.ConnectionUsername == "" && input.Password != "" {
+		return domain.Connection{}, nil, "a MongoDB password requires a username"
+	}
+	if engine.AdditionalEngine(input.Engine) && input.Nodes != nil && len(*input.Nodes) > 1 {
+		return domain.Connection{}, nil, "additional engines currently support a single configured endpoint"
+	}
+	if input.Name == "" || input.Engine == "" || input.Host == "" || (input.ConnectionUsername == "" && input.Engine != "mongodb" && input.Engine != "redis") || input.Port < 1 || input.Port > 65535 || (existing == nil && input.Password == "" && !engine.AdditionalEngine(input.Engine)) {
 		return domain.Connection{}, nil, "connection fields are required"
 	}
 	if input.Engine == "sqlserver" {
 		input.Engine = "mssql"
 	}
-	defaults := map[string]string{"postgres": "postgres", "mysql": "mysql", "mariadb": "mysql", "mssql": "master"}
+	defaults := map[string]string{"postgres": "postgres", "mysql": "mysql", "mariadb": "mysql", "mssql": "master", "sqlite": "", "duckdb": "", "clickhouse": "default", "mongodb": "admin", "cockroachdb": "defaultdb", "redis": "0", "cassandra": "system", "elasticsearch": "", "snowflake": ""}
 	defaultDB, ok := defaults[input.Engine]
 	if !ok {
 		return domain.Connection{}, nil, "unsupported database engine"

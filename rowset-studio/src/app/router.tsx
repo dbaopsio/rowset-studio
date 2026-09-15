@@ -29,6 +29,7 @@ const PoliciesPage = lazy(() => import("../features/policies/PoliciesPage"));
 const ActivityPage = lazy(() => import("../features/activity/ActivityPage"));
 const NotebooksPage = lazy(() => import("../features/notebooks/NotebooksPage"));
 const SchedulesPage = lazy(() => import("../features/schedules/SchedulesPage"));
+const SchemaComparePage = lazy(() => import("../features/editor/SchemaComparePage"));
 const ErDiagramPage = lazy(() => import("../features/diagram/ErDiagramPage"));
 
 const extensionRoutes: RouteObject[] = extensions.flatMap((item) => item.routes ?? []);
@@ -44,11 +45,13 @@ export const router = createBrowserRouter([
       { index: true, element: <WorkspaceHome /> },
       { path: "account", element: <Account /> },
       { path: "connections", element: <ConnectionsPage /> },
+      { path: "documents", element: <Navigate to="/editor" replace /> },
       { path: "editor", element: <EditorPage /> },
       { path: "activity", element: <ActivityPage /> },
       { path: "notebooks", element: <NotebooksPage /> },
       { path: "schedules", element: <SchedulesPage /> },
       { path: "diagram", element: <ErDiagramPage /> },
+      { path: "schema-compare", element: <SchemaComparePage /> },
       { path: "history", element: <WorkspaceHome /> },
       {
         path: "policies",

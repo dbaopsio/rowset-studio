@@ -63,7 +63,7 @@ separate DDL review. Failed metadata reads are shown and disable drafts.
 | MongoDB | Host/port; credentials use `authSource=admin` | Database/collection browser, find/filter/sort, cancellation, Extended JSON export |
 
 The new engines are available in personal workspaces, with one configured
-endpoint. MongoDB has its own **Documents** page and is read-only; aggregation,
+endpoint. MongoDB uses the same **Query** editor with Extended JSON and is read-only; aggregation,
 SRV URLs and SSH are not yet supported. DuckDB/ClickHouse key and index metadata
 is not yet loaded. Inline grid editing, CSV import and SQL INSERT export remain
 available only for the original four engines. Query the SQL engines directly
@@ -73,6 +73,27 @@ Native `build-local-binary.sh` builds include DuckDB and require a working C/C++
 compiler. `CGO_ENABLED=0` builds, including the portable cross-platform release
 script, omit DuckDB; the UI only offers it when the server includes it.
 Cross-compiling with DuckDB requires a C/C++ toolchain for the target platform.
+
+## Query results and parameters
+
+The result toolbar filters already loaded rows without querying the database.
+Add conditions for a column or search all columns; conditions combine with AND.
+Numeric comparisons preserve decimal and integer precision. Grid, text and
+CSV/JSON exports use the filtered rows; edits retain their original row identity.
+
+SQL queries can use `{{name}}` value placeholders outside strings and comments.
+The editor shows a parameter field for each name, with Text, Number, Boolean
+and NULL types. Values live only in the current session. Rowset expands typed
+SQL literals before sending a query through the normal policies and execution
+path; this is not server-side prepared-statement binding. Executed values appear
+in history. All script parameters are checked before the first statement runs.
+Parameterized schedules and multi-connection runs are not supported yet.
+
+For MongoDB, select the connection in the same editor and open a collection
+from the explorer. Queries use `{ "collection": "items", "filter": {}, "sort": {},
+"limit": 100 }` in Extended JSON. Run, Stop, saved tabs, history and results use
+the common workspace. Formatting and request construction preserve raw numeric
+literals; result documents retain BSON type information.
 
 ## Install
 

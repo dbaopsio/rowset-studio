@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Button, ErrorText, Field, Input, Modal, Select, Textarea } from "../../components/ui";
+import { useInstance } from "../../lib/instance";
 import { ApiError } from "../../lib/api";
 import { Connection, ConnectionInput, Engine, TlsMode, discoverSSHHostKey } from "./api";
 import { useCreateConnection, useUpdateConnection } from "./useConnections";
@@ -11,6 +12,8 @@ const DEFAULT_PORT: Record<Engine, number> = {
   mysql: 3306,
   mariadb: 3306,
   sqlserver: 1433,
+  sqlite: 1, duckdb: 1, clickhouse: 9440, mongodb: 27017,
+  cockroachdb: 26257, redis: 6379, cassandra: 9042, elasticsearch: 9200, snowflake: 443,
 };
 
 const DEFAULT_DATABASE: Record<Engine, string> = {
@@ -18,6 +21,8 @@ const DEFAULT_DATABASE: Record<Engine, string> = {
   mysql: "mysql",
   mariadb: "mysql",
   sqlserver: "master",
+  sqlite: "", duckdb: "", clickhouse: "default", mongodb: "admin",
+  cockroachdb: "defaultdb", redis: "0", cassandra: "system", elasticsearch: "", snowflake: "",
 };
 
 export default function ConnectionForm({
@@ -27,6 +32,7 @@ export default function ConnectionForm({
   connection?: Connection;
   onClose: () => void;
 }) {
+  const { data: instance } = useInstance();
   const fields = useActiveExtensions().flatMap((item) => item.connectionFields ?? []);
   const [extra, setExtra] = useState<Record<string, unknown>>({});
   const [connectionURL, setConnectionURL] = useState("");
@@ -81,6 +87,10 @@ export default function ConnectionForm({
         },
   );
   const [error, setError] = useState("");
+  const fileEngine = form.engine === "sqlite" || form.engine === "duckdb";
+  const singleEndpointEngines: Engine[] = ["clickhouse", "mongodb", "redis", "cassandra", "elasticsearch", "snowflake"];
+  const singleEndpoint = fileEngine || singleEndpointEngines.includes(form.engine);
+  const optionalPassword = fileEngine || form.engine === "clickhouse" || form.engine === "mongodb" || form.engine === "redis";
   const pending = create.isPending || update.isPending;
   const [sshEnabled, setSshEnabled] = useState(Boolean(connection?.sshHost));
   const [hostKeyState, setHostKeyState] = useState<{ status: "" | "fetching" | "found" | "error"; fingerprint?: string; message?: string }>({ status: "" });
@@ -113,9 +123,11 @@ export default function ConnectionForm({
     setForm((f) => ({
       ...f,
       engine,
+      connectionUsername: engine === "clickhouse" ? "default" : engine === "mongodb" || engine === "redis" ? "" : f.connectionUsername,
+      tlsMode: engine === "sqlite" || engine === "duckdb" ? "disable" : "verify-full",
       port: DEFAULT_PORT[engine],
       database: DEFAULT_DATABASE[engine],
-      nodes: f.nodes.map((node) => ({ ...node, port: DEFAULT_PORT[engine] })),
+      nodes: (engine === "sqlite" || engine === "duckdb" || singleEndpointEngines.includes(engine) ? f.nodes.slice(0, 1) : f.nodes).map((node) => ({ ...node, port: DEFAULT_PORT[engine] })),
     }));
   }
 
@@ -125,7 +137,8 @@ export default function ConnectionForm({
     try {
       const first = form.nodes[0];
       const base = first ? { ...form, host: first.host, port: first.port } : { ...form };
-      if (!sshEnabled) { base.sshHost = ""; }
+      if (!sshEnabled || fileEngine || ["mongodb", "redis", "cassandra", "elasticsearch", "snowflake"].includes(form.engine)) { base.sshHost = ""; }
+      if (fileEngine) { base.nodes = []; base.tlsMode = "disable"; base.tlsCaPem = ""; base.tlsServerName = ""; base.tlsClientCertPem = ""; base.tlsClientKey = ""; }
       const input = { ...base, ...extra };
       if (connection) await update.mutateAsync({ id: connection.id, input });
       else await create.mutateAsync(input);
@@ -155,6 +168,23 @@ export default function ConnectionForm({
             catch (error) { setError(error instanceof Error ? error.message : "Invalid connection URL"); }
           }}>Use URL</button>
         </div>}
+        <Field label="Engine">
+          <Select value={form.engine} onChange={(e) => onEngineChange(e.target.value as Engine)}>
+            <option value="postgres">PostgreSQL</option>
+            <option value="mysql">MySQL</option>
+            <option value="mariadb">MariaDB</option>
+            <option value="sqlserver">SQL Server</option>
+            <option value="cockroachdb">CockroachDB</option>
+            <option value="snowflake">Snowflake</option>
+            {instance?.mode === "personal" && <option value="sqlite">SQLite</option>}
+            {instance?.mode === "personal" && instance.duckdb && <option value="duckdb">DuckDB</option>}
+            {instance?.mode === "personal" && <option value="clickhouse">ClickHouse</option>}
+            {instance?.mode === "personal" && <option value="mongodb">MongoDB</option>}
+            {instance?.mode === "personal" && <option value="redis">Redis</option>}
+            {instance?.mode === "personal" && <option value="cassandra">Cassandra</option>}
+            {instance?.mode === "personal" && <option value="elasticsearch">Elasticsearch</option>}
+          </Select>
+        </Field>
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="Name">
             <Input value={form.name} onChange={(e) => setName(e.target.value)} required />
@@ -172,24 +202,17 @@ export default function ConnectionForm({
             </div>
           </Field>
           {fields.map((ExtraField, index) => <ExtraField key={index} connection={connection} name={form.name} values={extra} onChange={(key, value) => setExtra((current) => ({ ...current, [key]: value }))} />)}
-          <Field label="Connection username">
-            <Input value={form.connectionUsername} onChange={(e) => set("connectionUsername", e.target.value)} required />
-          </Field>
-          <Field label="Engine">
-            <Select value={form.engine} onChange={(e) => onEngineChange(e.target.value as Engine)}>
-              <option value="postgres">PostgreSQL</option>
-              <option value="mysql">MySQL</option>
-              <option value="mariadb">MariaDB</option>
-              <option value="sqlserver">SQL Server</option>
-            </Select>
-          </Field>
+          {!fileEngine && <Field label="Connection username">
+            <Input value={form.connectionUsername} onChange={(e) => set("connectionUsername", e.target.value)} required={!optionalPassword} />
+          </Field>}
+          <Field label={fileEngine ? "Database file (absolute path)" : "Database"}><Input value={form.database} onChange={e => set("database", e.target.value)} placeholder={fileEngine ? "/path/to/database" : DEFAULT_DATABASE[form.engine]} required={fileEngine} /></Field>
           <Field label="Environment">
             <Select value={form.environment} onChange={(e) => set("environment", e.target.value)}>
               <option value="dev">dev</option>
               <option value="prod">prod</option>
             </Select>
           </Field>
-          <Field label="TLS">
+          {!fileEngine && <Field label="TLS">
             <div className="space-y-1">
               <Select value={form.tlsMode} onChange={(e) => set("tlsMode", e.target.value as TlsMode)}>
                 <option value="verify-full">Verify certificate and host name</option>
@@ -201,6 +224,7 @@ export default function ConnectionForm({
               {form.tlsMode === "disable" && <p className="text-[11px] text-amber-600">Credentials and data travel unencrypted.</p>}
             </div>
           </Field>
+          }
           <Field label="Query timeout (minutes)">
             <div className="space-y-1">
               <Input
@@ -218,17 +242,17 @@ export default function ConnectionForm({
               </p>
             </div>
           </Field>
-          <Field label={editing ? "Password (leave blank to keep current)" : "Password"}>
+          {!fileEngine && <Field label={editing ? "Password (leave blank to keep current)" : "Password"}>
             <Input
               type="password"
               value={form.password}
               onChange={(e) => set("password", e.target.value)}
-              required={!editing}
+              required={!editing && !optionalPassword}
               placeholder={editing ? "••••••••" : undefined}
             />
-          </Field>
+          </Field>}
         </div>
-        {form.tlsMode !== "disable" && (
+        {!fileEngine && form.tlsMode !== "disable" && (
           <details className="rounded border border-slate-200 p-2 dark:border-slate-800" open={Boolean(form.tlsCaPem || form.tlsClientCertPem || form.tlsServerName)}>
             <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">TLS certificates (optional)</summary>
             <div className="mt-2 grid gap-3 md:grid-cols-2">
@@ -259,7 +283,7 @@ export default function ConnectionForm({
             </div>
           </details>
         )}
-        <details className="rounded border border-slate-200 p-2 dark:border-slate-800" open={sshEnabled}>
+        {!fileEngine && !["mongodb", "redis", "cassandra", "elasticsearch", "snowflake"].includes(form.engine) && <details className="rounded border border-slate-200 p-2 dark:border-slate-800" open={sshEnabled}>
           <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">SSH tunnel (optional)</summary>
           <div className="mt-2 space-y-3">
             <label className="flex items-center gap-2 text-[12px] text-slate-600 dark:text-slate-300">
@@ -313,8 +337,8 @@ export default function ConnectionForm({
               </div>
             )}
           </div>
-        </details>
-        <Field label="HA nodes">
+        </details>}
+        {!fileEngine && <Field label={form.engine === "clickhouse" ? "Server (native TCP port, usually 9440 with TLS or 9000 without)" : form.engine === "mongodb" ? "Server (authentication database: admin)" : form.engine === "redis" ? "Server" : form.engine === "cassandra" ? "Server (native transport port, usually 9042)" : form.engine === "elasticsearch" ? "Server (HTTP API port, usually 9200)" : form.engine === "snowflake" ? "Account identifier (used as host, e.g. myorg-myaccount)" : "HA nodes"}>
           <div className="space-y-2">
             {form.nodes.map((node, index) => {
               const status = connection?.nodes.find((item) => item.id === node.id);
@@ -325,15 +349,23 @@ export default function ConnectionForm({
                   <Input type="number" value={node.port} onChange={(e) => set("nodes", form.nodes.map((item, i) => i === index ? { ...item, port: Number(e.target.value) } : item))} required />
                 </div>
                 <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
-                  <span>{status ? `${status.health} · ${status.detectedRole}` : "role auto-detected after save"}</span>
+                  <span>{status ? singleEndpoint ? status.health : `${status.health} · ${status.detectedRole}` : singleEndpoint ? "Connection checked after save" : "role auto-detected after save"}</span>
                   {form.nodes.length > 1 && <button type="button" className="ml-auto text-red-500" onClick={() => set("nodes", form.nodes.filter((_, i) => i !== index))}>Remove</button>}
                 </div>
               </div>;
             })}
-            <button type="button" className="text-xs text-orange-600" onClick={() => set("nodes", [...form.nodes, { name: `node-${form.nodes.length + 1}`, host: "", port: DEFAULT_PORT[form.engine] }])}>+ Add node</button>
-            <p className="text-[11px] text-slate-500">Primary/secondary role is detected from the database and refreshed periodically; it is not manually trusted.</p>
+            {!singleEndpoint && <button type="button" className="text-xs text-orange-600" onClick={() => set("nodes", [...form.nodes, { name: `node-${form.nodes.length + 1}`, host: "", port: DEFAULT_PORT[form.engine] }])}>+ Add node</button>}
+            {!singleEndpoint && <p className="text-[11px] text-slate-500">Primary/secondary role is detected from the database and refreshed periodically; it is not manually trusted.</p>}
           </div>
         </Field>
+        }
+        {fileEngine && <p className="text-[12px] text-slate-500">Open an existing file on this computer. SQLite and DuckDB do not use network credentials. DuckDB requires a build with DuckDB support.</p>}
+        {form.engine === "mongodb" && <p className="text-[12px] text-slate-500">Browse collections and find documents using Extended JSON. Document writes, aggregation, SRV URLs and SSH are not supported yet. Leave the username blank for an unauthenticated local server.</p>}
+        {form.engine === "cockroachdb" && <p className="text-[12px] text-slate-500">CockroachDB is queried through its PostgreSQL wire protocol; SQL, schema browsing and HA nodes all work the same way they do for PostgreSQL.</p>}
+        {form.engine === "redis" && <p className="text-[12px] text-slate-500">Browse keys by pattern (string, hash, list, set, zset, stream). The Database field is a numeric index (0-15). Writes and SSH are not supported yet. Leave the username blank for an unauthenticated server.</p>}
+        {form.engine === "cassandra" && <p className="text-[12px] text-slate-500">Runs read-only CQL SELECT statements against a keyspace (set it in the Database field). Writes, DDL and SSH are not supported yet.</p>}
+        {form.engine === "elasticsearch" && <p className="text-[12px] text-slate-500">Searches one index at a time with a JSON query body. Writes, aggregations across indices and SSH are not supported yet.</p>}
+        {form.engine === "snowflake" && <p className="text-[12px] text-slate-500">Enter your account identifier as the server (e.g. myorg-myaccount). The default warehouse and role on your user are used; SSH is not supported.</p>}
         <ErrorText>{error}</ErrorText>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-slate-400 hover:text-slate-100">

@@ -5,6 +5,55 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.68 — 2026-09-15
+
+- **Five new engines**: CockroachDB and Snowflake connect through the normal
+  SQL editor (CockroachDB reuses PostgreSQL's wire protocol and catalogs
+  directly; Snowflake uses its own `database/sql` driver — enter your account
+  identifier as the server). Redis, Cassandra and Elasticsearch have working
+  backends (key scan with type/TTL preview for Redis, read-only CQL SELECT
+  for Cassandra, `_search` for Elasticsearch) reachable through the API, but
+  their dedicated query screens are not built yet — for now their connections
+  can be created, tested and schema-browsed from the sidebar; the query editor
+  shows a notice instead of the SQL/Mongo editor. HA nodes and SSH tunnelling
+  are not available for Redis, Cassandra, Elasticsearch or Snowflake yet.
+- **Command palette** (⇧⌘K / Ctrl+Shift+K): jump to any page or saved
+  connection from anywhere in Studio. Uses Shift so it doesn't collide with
+  the schema explorer's existing ⌘K search-box shortcut.
+
+## 0.0.67 — 2026-09-15
+
+- **MongoDB query bar**: added Max Time MS to Options, mapped to the shell's
+  `.maxTimeMS()` and enforced server-side as a per-query timeout.
+
+## 0.0.66 — 2026-09-14
+
+- **MongoDB query bar**, Compass-style, above the `db.collection.find()`
+  editor: a Filter field plus an Options panel for Project, Sort, Skip and
+  Limit. Editing the bar rewrites the editor's shell syntax; switching tabs
+  re-reads the bar from the editor. `find()` now also accepts a projection as
+  its second argument and `.skip()` in the chain. Collation and max time are
+  left out of this pass; add them later if needed.
+
+## 0.0.65 — 2026-09-14
+
+- Fixed the MongoDB and ClickHouse logos rendering larger than the other
+  engine logos in the schema tree; a global `height: auto` rule was
+  overriding their `height` attribute for non-square source SVGs.
+
+## 0.0.64 — 2026-09-14
+
+- **MongoDB query editor** accepts shell syntax (`db.customers.find({}).sort({...}).limit(n)`)
+  in addition to the JSON find form; removed the redundant explanation strip
+  and SQL-only tools (Explain, "Explain with actual rows") from the Mongo
+  editor toolbar.
+- **Connection names must be unique** per org, checked case- and
+  whitespace-insensitively on both create and update, with a clear error in
+  the form. Existing duplicates are left as-is; connection pickers now show
+  host/port/database next to a name that collides with another connection.
+- **New Connection form**: Engine selector moved to the top of the form,
+  above the engine-specific fields.
+
 ## 0.0.63 — 2026-09-13
 
 - **Schema comparison** in the sidebar and a database's menu compares two
@@ -24,7 +73,11 @@ an entry here.
 - **ClickHouse** connections use the native TCP protocol (9440 with TLS,
   9000 without), with database/table/view discovery, DDL and SQL queries.
   Interactive transactions and index/key discovery are not yet available.
-- **MongoDB Documents** lists databases and collections, finds and sorts
+- **Local result filters** combine column conditions without rerunning SQL;
+  filtered CSV/JSON export and original row identities are preserved.
+- **SQL value parameters** use `{{name}}` with text, number, boolean or NULL
+  values; scripts validate all parameters before starting.
+- **MongoDB in the Query editor** lists databases and collections, finds and sorts
   documents with Extended JSON filters, cancels reads and exports results as
   JSON. BSON types are preserved as canonical Extended JSON. SELECT, table,
   schema, timeout and row-limit policies apply to finds. This initial version

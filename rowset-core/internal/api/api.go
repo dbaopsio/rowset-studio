@@ -139,7 +139,7 @@ func (s *Server) Handler() http.Handler {
 		if s.config.Shared {
 			mode = "shared"
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"mode": mode, "desktop": s.config.LocalLauncherKey != ""})
+		writeJSON(w, http.StatusOK, map[string]any{"mode": mode, "desktop": s.config.LocalLauncherKey != "", "duckdb": engine.DuckDBAvailable})
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -163,6 +163,10 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/connections/{id}/schema/refresh", s.authenticated(http.HandlerFunc(s.refreshConnectionSchema)))
 	mux.Handle("GET /api/connections/{id}/ddl", s.authenticated(http.HandlerFunc(s.objectDDL)))
 	mux.Handle("GET /api/connections/{id}/databases", s.authenticated(http.HandlerFunc(s.listDatabases)))
+	mux.Handle("POST /api/connections/{id}/documents/find", s.authenticated(http.HandlerFunc(s.mongoFind)))
+	mux.Handle("POST /api/connections/{id}/redis/scan", s.authenticated(http.HandlerFunc(s.redisScan)))
+	mux.Handle("POST /api/connections/{id}/cassandra/query", s.authenticated(http.HandlerFunc(s.cassandraQuery)))
+	mux.Handle("POST /api/connections/{id}/elasticsearch/search", s.authenticated(http.HandlerFunc(s.elasticsearchSearch)))
 	mux.Handle("POST /api/connections/{id}/query", s.authenticated(http.HandlerFunc(s.runQuery)))
 	mux.Handle("POST /api/multirun", s.authenticated(http.HandlerFunc(s.runOnConnections)))
 	mux.Handle("POST /api/connections/{id}/explain", s.authenticated(http.HandlerFunc(s.explainQuery)))

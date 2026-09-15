@@ -32,6 +32,10 @@ func (s *Server) runQuery(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if connection.Engine == "mongodb" {
+		writeError(w, 400, "UNSUPPORTED", "use a MongoDB find query in the Query editor")
+		return
+	}
 	var input queryInput
 	if !decodeJSON(w, r, &input) {
 		return

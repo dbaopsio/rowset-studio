@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/dbaopsio/rowset-studio/rowset-core/internal/engine"
 )
 
 type exportInput struct {
@@ -37,6 +39,10 @@ func (s *Server) exportTable(w http.ResponseWriter, r *http.Request) {
 	input.Table, input.Schema, input.Database, input.SQL = strings.TrimSpace(input.Table), strings.TrimSpace(input.Schema), strings.TrimSpace(input.Database), strings.TrimSpace(input.SQL)
 	if (input.Table == "" && input.SQL == "") || (input.Format != "csv" && input.Format != "json" && input.Format != "sql") {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "a table or a SELECT, and a csv, json or sql format, are required")
+		return
+	}
+	if input.Format == "sql" && engine.AdditionalEngine(connection.Engine) {
+		writeError(w, 400, "UNSUPPORTED", "SQL export is not available for this engine yet; use CSV or JSON")
 		return
 	}
 	identity := identityFromContext(r.Context())

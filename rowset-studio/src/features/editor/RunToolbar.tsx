@@ -3,7 +3,23 @@ import { useQuery } from "@tanstack/react-query";
 import { Dropdown } from "../../components/Dropdown";
 import { Icon } from "../../components/Icon";
 import { useConnections } from "../connections/useConnections";
+import type { Connection } from "../connections/api";
 import { listDatabases } from "./api";
+
+// Existing duplicate names are never renamed for the user, so lists that
+// pick a connection by name distinguish them with host/port/database.
+function connectionOptions(connections: Connection[]) {
+  const nameCounts = new Map<string, number>();
+  for (const c of connections) {
+    const key = c.name.trim().toLowerCase();
+    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
+  }
+  return connections.map((c) => {
+    const dup = (nameCounts.get(c.name.trim().toLowerCase()) ?? 0) > 1;
+    const address = c.engine === "sqlite" || c.engine === "duckdb" ? c.database : `${c.host}:${c.port}/${c.database}`;
+    return { value: c.id, label: dup ? `${c.name} (${address})` : c.name, hint: c.engine };
+  });
+}
 
 export interface WorkspaceStatus {
   label: string;
@@ -85,6 +101,7 @@ export default function RunToolbar({
   });
 
   const current = connections?.find((c) => c.id === connectionId);
+  const isMongo = current?.engine === "mongodb";
   const dbOptions = databases.length ? databases : current ? [current.database] : [];
   const longestDatabaseName = Math.max(database.length, ...dbOptions.map((item) => item.length), 14);
   const databaseWidth = Math.min(560, Math.max(160, longestDatabaseName * 8.5 + 48));
@@ -102,9 +119,9 @@ export default function RunToolbar({
           value={connectionId ?? ""}
           disabled={running || transactionOpen || transactionBusy}
           onChange={(v) => onConnectionChange(v || null)}
-          options={(connections ?? []).map((c) => ({ value: c.id, label: c.name, hint: c.engine }))}
+          options={connectionOptions(connections ?? [])}
         />
-        <Dropdown
+        {!["sqlite", "duckdb", "clickhouse", "mongodb", "redis", "cassandra", "elasticsearch"].includes(current?.engine ?? "") && <Dropdown
           className="w-40"
           value={nodeRole}
           disabled={!connectionId || current?.nodePolicy !== "user_selectable" || running || transactionOpen || transactionBusy}
@@ -114,6 +131,7 @@ export default function RunToolbar({
             { value: "secondary", label: "Secondary", hint: current?.nodes.some((n) => n.health === "healthy" && n.detectedRole === "secondary") ? "read-only" : "unavailable" },
           ]}
         />
+        }
         {nodeRole === "secondary" && <span className="rounded bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">Read-only</span>}
         <Dropdown
           searchable
@@ -137,20 +155,20 @@ export default function RunToolbar({
           {runLabel}
         </button>
         {running && <button onClick={onStop} className="h-8 rounded-md border border-rose-300 px-2.5 text-[12px] text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950">Stop</button>}
-        <CommitModeSwitch
+        {current?.engine !== "mongodb" && <CommitModeSwitch
           manual={manualCommit}
           open={transactionOpen}
           aborted={transactionAborted}
           pending={pendingStatements}
-          disabled={!connectionId || running || transactionBusy || nodeRole === "secondary"}
+          disabled={!connectionId || running || transactionBusy || nodeRole === "secondary" || current?.engine === "clickhouse"}
           onChange={onManualCommitChange}
-        />
+        />}
         {transactionOpen && <>
           <button onClick={() => onTransaction("commit")} disabled={running || transactionBusy || transactionAborted} className={secondaryButton} title={transactionAborted ? "The database aborted this transaction; Commit would apply nothing" : "Make the pending changes permanent"}>Commit</button>
           <button onClick={() => onTransaction("rollback")} disabled={running || transactionBusy} className={secondaryButton} title="Discard the pending changes">Rollback</button>
         </>}
         <span className="h-5 w-px bg-slate-200 dark:bg-slate-800" />
-        <ToolbarButton onClick={() => onExplain(false)} disabled={!connectionId || running || transactionBusy} icon="explain" label="Explain" />
+        {!isMongo && <ToolbarButton onClick={() => onExplain(false)} disabled={!connectionId || running || transactionBusy || ["sqlite", "duckdb", "clickhouse", "redis", "cassandra", "elasticsearch"].includes(current?.engine ?? "")} icon="explain" label="Explain" />}
         <ToolbarButton onClick={onFormat} icon="format" label="Format" />
         {onAssistantToggle && (
           <button
@@ -169,12 +187,12 @@ export default function RunToolbar({
         )}
         <ToolbarButton onClick={onSave} icon="save" label="Save" />
         <MoreMenu items={[
-          { label: "Run all statements", hint: "⇧⌘↵ · stops at the first error", onSelect: onRunAll, disabled: !connectionId || running || transactionBusy },
+          { label: isMongo ? "Run query" : "Run all statements", hint: "⇧⌘↵ · stops at the first error", onSelect: onRunAll, disabled: !connectionId || running || transactionBusy },
           ...(onRunOnConnections ? [{ label: "Run on several connections…", hint: "Same SQL on each, results side by side", onSelect: onRunOnConnections, disabled: running || transactionBusy }] : []),
-          { label: "Explain with actual rows", hint: "Runs the SELECT to measure it", onSelect: () => onExplain(true), disabled: !connectionId || running || transactionBusy },
+          ...(isMongo ? [] : [{ label: "Explain with actual rows", hint: "Runs the SELECT to measure it", onSelect: () => onExplain(true), disabled: !connectionId || running || transactionBusy || ["sqlite", "duckdb", "clickhouse", "redis", "cassandra", "elasticsearch"].includes(current?.engine ?? "") }]),
           ...(onSchedule ? [{ label: "Schedule this query…", hint: "Save its result to a file on a schedule", onSelect: onSchedule, disabled: !connectionId }] : []),
-          { label: "Open .sql file…", onSelect: onOpenFile },
-          { label: "Download as .sql", onSelect: onSaveFile },
+          { label: isMongo ? "Open .json file…" : "Open .sql file…", onSelect: onOpenFile },
+          { label: isMongo ? "Download as .json" : "Download as .sql", onSelect: onSaveFile },
           { label: "Export workspace (JSON)", onSelect: onExportWorkspace, hint: "All open tabs, not encrypted" },
           { label: "Import workspace…", onSelect: onImportWorkspace, hint: "Adds tabs; never replaces" },
         ]} />

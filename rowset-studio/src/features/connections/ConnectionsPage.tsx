@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { type ComponentType, useState } from "react";
 import { Button, Input, PageHeader, Panel, Select } from "../../components/ui";
 import { EnvBadge } from "../../components/EnvBadge";
@@ -43,6 +44,7 @@ export default function ConnectionsPage() {
           <option value="mssql">SQL Server</option>
           <option value="mysql">MySQL</option>
           <option value="mariadb">MariaDB</option>
+          <option value="sqlite">SQLite</option><option value="duckdb">DuckDB</option><option value="clickhouse">ClickHouse</option><option value="mongodb">MongoDB</option><option value="cockroachdb">CockroachDB</option><option value="snowflake">Snowflake</option><option value="redis">Redis</option><option value="cassandra">Cassandra</option><option value="elasticsearch">Elasticsearch</option>
         </Select>
         <Select value={environment} onChange={(e) => setEnvironment(e.target.value)}>
           <option value="all">All environments</option>
@@ -117,13 +119,14 @@ function ConnectionRow({
         </span>
       </td>
       <td className="px-3 py-2.5 font-mono text-[12px] text-slate-500 dark:text-slate-400">
-        {Address ? <Address connection={conn} isAdmin={isAdmin} /> : <span>{conn.host}:{conn.port}/{conn.database}</span>}
+        {Address ? <Address connection={conn} isAdmin={isAdmin} /> : <span>{conn.engine === "sqlite" || conn.engine === "duckdb" ? conn.database : `${conn.host}:${conn.port}/${conn.database}`}</span>}
       </td>
       <td className="px-3 py-2.5">
         <EnvBadge env={conn.environment} />
       </td>
       <td className="px-3 py-2.5">
         <div className="flex items-center justify-end gap-2">
+          <Link className="text-xs text-brand-600" to="/editor" state={{ openSql: conn.engine === "mongodb" ? '{\n  "collection": "",\n  "filter": {},\n  "sort": {},\n  "limit": 100\n}' : "-- Write a query here\n", connectionId: conn.id, database: conn.database, title: conn.name }}>Open</Link>
           <TestStatus result={test.data} pending={test.isPending} />
           {actions.map((Action, index) => <Action key={index} connection={conn} />)}
           {isAdmin && (

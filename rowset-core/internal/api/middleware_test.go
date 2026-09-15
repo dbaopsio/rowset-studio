@@ -112,7 +112,7 @@ func TestAnonymousLimiterIgnoresAssetsAndDefersBearerRequests(t *testing.T) {
 }
 
 func TestQueryExecutionPathDetection(t *testing.T) {
-	for _, path := range []string{"/api/connections/c/query", "/api/connections/c/txn/t/query", "/api/connections/c/schema", "/api/connections/c/export", "/api/connections/c/explain", "/api/connections/c/imports/i", "/api/connections/c/imports/i/run", "/api/row-backups/b/apply", "/api/multirun", "/api/ai/ask"} {
+	for _, path := range []string{"/api/connections/c/query", "/api/connections/c/txn/t/query", "/api/connections/c/schema", "/api/connections/c/export", "/api/connections/c/explain", "/api/connections/c/imports/i", "/api/connections/c/imports/i/run", "/api/row-backups/b/apply", "/api/multirun", "/api/connections/c/documents/find", "/api/ai/ask"} {
 		if !isQueryExecutionPath(path) {
 			t.Fatalf("not detected: %s", path)
 		}

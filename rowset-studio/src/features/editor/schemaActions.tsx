@@ -1,3 +1,4 @@
+import { mongoQuery } from "./mongoQuery";
 import { createContext } from "react";
 
 export interface SchemaAction { sql: string; connectionId: string; database?: string; append?: boolean }
@@ -10,6 +11,7 @@ export function quoteIdentifier(engine: string, name: string): string {
 }
 
 export function tableSelect(engine: string, schema: string, name: string, columns: string[] = []): string {
+  if (engine === "mongodb") return mongoQuery(name);
   const target = [schema, name].filter(Boolean).map(n => quoteIdentifier(engine, n)).join(".");
   const select = columns.length ? columns.map(n => quoteIdentifier(engine, n)).join(", ") : "*";
   return engine === "mssql" || engine === "sqlserver" ? `SELECT TOP (100) ${select}\nFROM ${target};` : `SELECT ${select}\nFROM ${target}\nLIMIT 100;`;

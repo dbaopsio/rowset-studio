@@ -16,6 +16,9 @@ func (m *Manager) ObjectDDL(ctx context.Context, connection Connection, kind, sc
 	if err != nil {
 		return "", err
 	}
+	if AdditionalEngine(connection.Engine) {
+		return additionalDDL(ctx, db, connection, kind, schemaName, name)
+	}
 	engine := strings.ToLower(connection.Engine)
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	if name = strings.TrimSpace(name); name == "" {

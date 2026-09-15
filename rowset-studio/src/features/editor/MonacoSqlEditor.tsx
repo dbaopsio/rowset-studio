@@ -218,6 +218,7 @@ function groupByAction(model: ReturnType<Monaco["editor"]["createModel"]>, range
 // current connection's schema (tables + columns) plus SQL keywords.
 export default function MonacoSqlEditor({
   value,
+  language = "sql",
   onChange,
   onSelectionChange,
   onCursorChange,
@@ -226,6 +227,7 @@ export default function MonacoSqlEditor({
   completions,
 }: {
   value: string;
+  language?: "sql" | "json";
   onChange: (v: string) => void;
   onSelectionChange?: (selectedText: string) => void;
   onCursorChange?: (pos: { line: number; column: number }) => void;
@@ -256,7 +258,7 @@ export default function MonacoSqlEditor({
   return (
     <Editor
       height="100%"
-      defaultLanguage={ROWSET_SQL_LANGUAGE}
+      language={language === "json" ? "rowset-json" : ROWSET_SQL_LANGUAGE}
       theme={theme === "light" ? "rowset-light" : "rowset-dark"}
       value={value}
       beforeMount={(monaco) => { defineThemes(monaco); registerCompletion(monaco); registerCodeActions(monaco); }}
@@ -281,7 +283,7 @@ export default function MonacoSqlEditor({
         let timer: number | undefined;
         const check = () => {
           const model = editor.getModel();
-          if (model) inspect(monaco, model);
+          if (model && language === "sql") inspect(monaco, model);
         };
         reinspect.current = check;
         check();

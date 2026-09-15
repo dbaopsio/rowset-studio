@@ -195,7 +195,7 @@ export default function SchemaBrowser({
                 Tables and columns loaded. Some optional object metadata is unavailable.
               </div>
             )}
-            <ObjectGroup label="Tables" count={filteredTables.length === tables.length ? `${tables.length}` : `${filteredTables.length} of ${tables.length}`} forceOpen={Boolean(needle)}>
+            <ObjectGroup label={engine === "mongodb" ? "Collections" : "Tables"} count={filteredTables.length === tables.length ? `${tables.length}` : `${filteredTables.length} of ${tables.length}`} forceOpen={Boolean(needle)}>
               {filteredTables.map((t) => (
                 <TableItem key={t.key} engine={engine} schemaName={t.schemaName} table={t.table} triggers={triggersOf(t)} connectionId={connectionId} database={database} />
               ))}
@@ -394,24 +394,24 @@ function TableItem({ engine, schemaName, table, triggers = [], connectionId, dat
         {exportState.status === "running" && <span className="shrink-0 pr-1 text-[11px] text-slate-400">Exporting…</span>}
         {exportState.status === "failed" && <button type="button" onClick={() => setExportState({ status: "" })} title={exportState.message} className="shrink-0 pr-1 text-[11px] text-rose-500">Export failed</button>}
         <span className={`shrink-0 items-center gap-0.5 pr-0.5 ${copyState ? "flex" : "hidden group-hover:flex group-focus-within:flex"}`}>
-          <RowAction icon="sql" title="Open SELECT in a new tab (does not run it)" onClick={() => action({ connectionId, database, sql: tableSelect(engine, schemaName, table.name, table.columns.map(c => c.name)) })} />
+          <RowAction icon="sql" title={engine === "mongodb" ? "Open find query in a new tab" : "Open SELECT in a new tab (does not run it)"} onClick={() => action({ connectionId, database, sql: tableSelect(engine, schemaName, table.name, table.columns.map(c => c.name)) })} />
           <RowAction icon={copyState === "copied" ? "check" : "copy"} title={copyState === "failed" ? "Clipboard unavailable" : copyState === "copied" ? "Copied" : `Copy name: ${quotedName}`} onClick={copyName} tone={copyState === "failed" ? "text-rose-500" : copyState === "copied" ? "text-emerald-600" : undefined} />
           <RowMenu
             label={`More actions for ${qualifiedName}`}
             className="h-5 w-5"
-            items={[
+            items={engine === "mongodb" ? [{ label: "Find documents", onSelect: () => action({ connectionId, database, sql: tableSelect(engine, schemaName, table.name) }) }] : [
               { label: "Show DDL", onSelect: () => setShowingDDL(true) },
               { label: "Export as CSV", onSelect: () => download("csv"), disabled: exportState.status === "running" },
               { label: "Export as JSON", onSelect: () => download("json"), disabled: exportState.status === "running" },
-              { label: "Export as SQL (INSERT)", onSelect: () => download("sql"), disabled: exportState.status === "running" },
-              ...(icon === "table" ? [{ label: "Import CSV…", onSelect: () => setImporting(true) }] : []),
+              { label: "Export as SQL (INSERT)", onSelect: () => download("sql"), disabled: exportState.status === "running" || ["sqlite", "duckdb", "clickhouse", "redis", "cassandra", "elasticsearch"].includes(engine) },
+              ...(icon === "table" && !["sqlite", "duckdb", "clickhouse", "redis", "cassandra", "elasticsearch"].includes(engine) ? [{ label: "Import CSV…", onSelect: () => setImporting(true) }] : []),
             ]}
           />
         </span>
       </div>
       {showingDDL && <DDLViewer engine={engine} connectionId={connectionId} database={database} schemaName={schemaName} kind={icon === "table" ? "table" : "view"} name={table.name} onClose={() => setShowingDDL(false)} />}
       {importing && <CsvImportDialog connectionId={connectionId} database={database} schemaName={schemaName} table={table} onClose={() => setImporting(false)} />}
-      {open && (
+      {open && engine !== "mongodb" && (
         <ul className="ml-[11px] border-l border-slate-200/80 pl-2.5 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
           {(table.columns ?? []).map((c) => (
             <li key={c.name} className="flex items-center gap-1.5 py-0.5" title={colTitle(c) + " · Double-click to add column to SQL"} onDoubleClick={() => action({ connectionId, database, sql: quoteIdentifier(engine, c.name), append: true })}>

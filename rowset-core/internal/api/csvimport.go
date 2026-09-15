@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/dbaopsio/rowset-studio/rowset-core/internal/engine"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/id"
 	"github.com/dbaopsio/rowset-studio/rowset-core/internal/policy"
 	sqlguard "github.com/dbaopsio/rowset-studio/rowset-parser"
@@ -73,6 +74,10 @@ func (s *Server) dropUpload(importID string) {
 func (s *Server) startImport(w http.ResponseWriter, r *http.Request) {
 	connection, ok := s.authorizedConnection(w, r)
 	if !ok {
+		return
+	}
+	if engine.AdditionalEngine(connection.Engine) {
+		writeError(w, 400, "UNSUPPORTED", "CSV import is not available for this engine yet")
 		return
 	}
 	s.importMu.Lock()

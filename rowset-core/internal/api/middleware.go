@@ -176,7 +176,7 @@ func isQueryExecutionPath(path string) bool {
 	case parts[1] == "connections" && len(parts) == 6:
 		return parts[3] == "txn" && parts[5] == "query" || parts[3] == "imports" && parts[5] == "run"
 	case parts[1] == "connections" && len(parts) == 5:
-		return parts[3] == "imports"
+		return parts[3] == "imports" || parts[3] == "documents" && parts[4] == "find"
 	case parts[1] == "row-backups" && len(parts) == 4:
 		return parts[3] == "apply"
 	}

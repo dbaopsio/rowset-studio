@@ -5,6 +5,7 @@ import { api } from "./api";
 export interface Instance {
   mode: "personal" | "shared";
   desktop: boolean;
+  duckdb?: boolean;
 }
 
 export function useInstance() {

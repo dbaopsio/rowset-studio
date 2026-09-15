@@ -7,6 +7,7 @@ import QuitButton from "./QuitButton";
 import { useAuth } from "../lib/auth";
 import { InstanceBoundary, useInstance, useShared } from "../lib/instance";
 import { extensions, type NavGroup } from "../app/extensions";
+import CommandPalette from "./CommandPalette";
 
 // ProtectedLayout guards the app shell: unauthenticated users are redirected to
 // login; authenticated users get the sidebar + topbar + routed content.
@@ -42,6 +43,7 @@ export default function ProtectedLayout() {
   if (!token) return <Navigate to="/login" replace />;
   return (
     <div className="flex h-screen bg-paper text-ink dark:bg-[#121317] dark:text-slate-100">
+      <CommandPalette />
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => {
@@ -76,9 +78,10 @@ export default function ProtectedLayout() {
 
 const personalGroups: NavGroup[] = [
   { title: "Personal workspace", items: [
-    { to: "/editor", label: "SQL", icon: "sql" },
+    { to: "/editor", label: "Query", icon: "sql" },
     { to: "/notebooks", label: "Notebooks", icon: "notebook" },
     { to: "/schedules", label: "Schedules", icon: "clock" },
+    { to: "/schema-compare", label: "Schema comparison", icon: "table" },
     { to: "/connections", label: "Connections", icon: "plug" },
     { to: "/activity", label: "Activity", icon: "activity" },
     { to: "/policies", label: "My policies", icon: "shield" },
@@ -249,8 +252,8 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
             </>)}
           </div>
         )}
-        <div className={`mt-1.5 border-t border-slate-100 pt-1.5 text-[10px] text-slate-400 dark:border-slate-800 ${collapsed ? "text-center" : "px-2"}`} title={`Rowset ${appVersion}`}>
-          {collapsed ? `v${appVersion}` : `Rowset v${appVersion}`}
+        <div className={`mt-1.5 border-t border-slate-100 pt-1.5 text-[10px] text-slate-400 dark:border-slate-800 ${collapsed ? "text-center" : "px-2"}`} title={`Rowset ${appVersion} · ⇧⌘K to jump anywhere`}>
+          {collapsed ? `v${appVersion}` : `Rowset v${appVersion} · ⇧⌘K to jump`}
         </div>
       </div>
     </aside>

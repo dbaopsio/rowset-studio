@@ -16,16 +16,35 @@ func tableKey(schema, table string) string {
 }
 
 func (m *Manager) Databases(ctx context.Context, connection Connection) ([]string, error) {
+	if FileEngine(connection.Engine) {
+		return []string{connection.Database}, nil
+	}
+	if connection.Engine == "mongodb" {
+		return mongoDatabases(ctx, connection)
+	}
+	if connection.Engine == "redis" {
+		return redisDatabases(ctx, connection)
+	}
+	if connection.Engine == "cassandra" {
+		return cassandraDatabases(ctx, connection)
+	}
+	if connection.Engine == "elasticsearch" {
+		return elasticsearchDatabases(ctx, connection)
+	}
 	db, err := m.database(connection)
 	if err != nil {
 		return nil, err
 	}
 	query := ""
 	switch strings.ToLower(connection.Engine) {
-	case "postgres", "postgresql":
+	case "clickhouse":
+		query = "SELECT name FROM system.databases ORDER BY name"
+	case "postgres", "postgresql", "cockroachdb":
 		query = "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname"
 	case "mysql", "mariadb":
 		query = "SELECT CAST(schema_name AS CHAR) FROM information_schema.schemata ORDER BY schema_name"
+	case "snowflake":
+		query = "SELECT database_name FROM information_schema.databases ORDER BY database_name"
 	case "mssql", "sqlserver":
 		query = "SELECT name FROM sys.databases WHERE state_desc='ONLINE' ORDER BY name"
 	default:
@@ -50,12 +69,32 @@ func (m *Manager) Databases(ctx context.Context, connection Connection) ([]strin
 }
 
 func (m *Manager) Schema(ctx context.Context, connection Connection) (Schema, error) {
+	if connection.Engine == "mongodb" {
+		return mongoSchema(ctx, connection)
+	}
+	if connection.Engine == "redis" {
+		return redisSchema(ctx, connection)
+	}
+	if connection.Engine == "cassandra" {
+		return cassandraSchema(ctx, connection)
+	}
+	if connection.Engine == "elasticsearch" {
+		return elasticsearchSchema(ctx, connection)
+	}
 	db, err := m.database(connection)
 	if err != nil {
 		return Schema{}, err
 	}
+	if AdditionalEngine(connection.Engine) {
+		return additionalSchema(ctx, db, connection)
+	}
 	result := Schema{Tables: map[string][]Column{}, Indexes: map[string][]Index{}, Views: map[string]bool{}}
 	engine := strings.ToLower(connection.Engine)
+	if engine == "cockroachdb" {
+		// CockroachDB emulates PostgreSQL's wire protocol and system catalogs
+		// closely enough that the same catalog queries work unmodified.
+		engine = "postgres"
+	}
 	query, err := schemaColumnsQuery(engine)
 	if err != nil {
 		return result, err
@@ -120,6 +159,9 @@ func schemaColumnsQuery(engine string) (string, error) {
 	query := `SELECT table_schema,table_name,column_name,data_type,is_nullable FROM information_schema.columns`
 	orderBy := " ORDER BY table_schema,table_name,ordinal_position"
 	switch engine {
+	case "snowflake":
+		query = `SELECT table_schema,table_name,column_name,data_type,is_nullable,column_default,CASE WHEN is_identity='YES' THEN 'identity' ELSE '' END,comment FROM information_schema.columns WHERE table_schema != 'INFORMATION_SCHEMA'`
+		orderBy = " ORDER BY table_schema,table_name,ordinal_position"
 	case "postgres":
 		query = `SELECT cols.table_schema,cols.table_name,cols.column_name,pg_catalog.format_type(a.atttypid,a.atttypmod),cols.is_nullable,cols.column_default,CASE WHEN cols.is_identity='YES' THEN 'identity '||cols.identity_generation WHEN cols.is_generated='ALWAYS' THEN 'generated: '||COALESCE(cols.generation_expression,'') ELSE '' END,pg_catalog.col_description(c.oid,a.attnum)
 		FROM information_schema.columns cols

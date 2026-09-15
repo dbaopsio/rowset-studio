@@ -3,16 +3,24 @@ import postgresLogo from "../assets/engines/postgres.png";
 import mysqlLogo from "../assets/engines/mysql.png";
 import mariadbLogo from "../assets/engines/mariadb.png";
 import mssqlLogo from "../assets/engines/mssql.svg";
+import mongodbLogo from "../assets/engines/mongodb.svg";
+import clickhouseLogo from "../assets/engines/clickhouse.svg";
 
 export type EngineLogoName = "postgres" | "mysql" | "mariadb" | "mssql" | string;
 
 const labels: Record<string, string> = {
+  sqlite: "SQLite", duckdb: "DuckDB", clickhouse: "ClickHouse", mongodb: "MongoDB",
   postgres: "PostgreSQL",
   postgresql: "PostgreSQL",
   mysql: "MySQL",
   mariadb: "MariaDB",
   mssql: "SQL Server",
   sqlserver: "SQL Server",
+  cockroachdb: "CockroachDB",
+  redis: "Redis",
+  cassandra: "Cassandra",
+  elasticsearch: "Elasticsearch",
+  snowflake: "Snowflake",
 };
 
 export function engineLabel(engine: string) {
@@ -20,6 +28,8 @@ export function engineLabel(engine: string) {
 }
 
 const logos: Record<string, string> = {
+  mongodb: mongodbLogo,
+  clickhouse: clickhouseLogo,
   postgres: postgresLogo,
   postgresql: postgresLogo,
   mysql: mysqlLogo,
@@ -45,7 +55,8 @@ export default function EngineLogo({
         src={logo}
         width={size}
         height={size}
-        className={`shrink-0 object-contain ${className}`}
+        style={{ width: size, height: size }}
+        className={`shrink-0 object-contain ${key === "clickhouse" ? "dark:invert" : ""} ${className}`}
         alt=""
         aria-hidden="true"
         draggable={false}

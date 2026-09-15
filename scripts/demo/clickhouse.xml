@@ -1,0 +1,23 @@
+<clickhouse>
+  <logger><level>warning</level><size>1M</size><count>2</count></logger>
+  <max_server_memory_usage>536870912</max_server_memory_usage>
+  <mark_cache_size>16777216</mark_cache_size>
+  <uncompressed_cache_size>8388608</uncompressed_cache_size>
+  <background_schedule_pool_size>4</background_schedule_pool_size>
+  <background_message_broker_schedule_pool_size>2</background_message_broker_schedule_pool_size>
+  <background_distributed_schedule_pool_size>2</background_distributed_schedule_pool_size>
+  <query_log remove="1"/>
+  <query_thread_log remove="1"/>
+  <query_views_log remove="1"/>
+  <query_metric_log remove="1"/>
+  <metric_log remove="1"/>
+  <asynchronous_metric_log remove="1"/>
+  <part_log remove="1"/>
+  <text_log remove="1"/>
+  <trace_log remove="1"/>
+  <processors_profile_log remove="1"/>
+  <asynchronous_insert_log remove="1"/>
+  <error_log remove="1"/>
+  <crash_log remove="1"/>
+  <opentelemetry_span_log remove="1"/>
+</clickhouse>

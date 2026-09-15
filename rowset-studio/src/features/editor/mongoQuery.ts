@@ -1,0 +1,167 @@
+export function mongoQuery(collection = "") {
+  return `db.${collection || "collection"}.find({})`;
+}
+
+export interface MongoQueryParts {
+  collection: string;
+  filter: string;
+  project: string;
+  sort: string;
+  skip: string;
+  limit: string;
+  maxTimeMs: string;
+}
+
+// Find the substring between a call's outer parens, tracking nested
+// (), {}, [] and quoted strings so commas/braces inside literals don't
+// break the split. `source[openIdx]` must be the opening "(".
+function extractCall(source: string, openIdx: number): { args: string; endIdx: number } {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = openIdx; i < source.length; i++) {
+    const ch = source[i];
+    if (quote) {
+      if (ch === "\\") { i++; continue; }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
+    if (ch === "(" || ch === "{" || ch === "[") depth++;
+    else if (ch === ")" || ch === "}" || ch === "]") {
+      depth--;
+      if (depth === 0 && ch === ")") return { args: source.slice(openIdx + 1, i), endIdx: i + 1 };
+    }
+  }
+  throw new Error("Unbalanced parentheses in query.");
+}
+
+function splitTopLevelArgs(args: string): string[] {
+  const parts: string[] = [];
+  let depth = 0, quote: string | null = null, start = 0;
+  for (let i = 0; i < args.length; i++) {
+    const ch = args[i];
+    if (quote) {
+      if (ch === "\\") { i++; continue; }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
+    if (ch === "(" || ch === "{" || ch === "[") depth++;
+    else if (ch === ")" || ch === "}" || ch === "]") depth--;
+    else if (ch === "," && depth === 0) { parts.push(args.slice(start, i)); start = i + 1; }
+  }
+  const last = args.slice(start);
+  if (last.trim()) parts.push(last);
+  return parts.map(p => p.trim());
+}
+
+const SHELL_QUERY = /^\s*db\s*\.\s*([A-Za-z0-9_$]+)\s*\.\s*find\s*\(/;
+
+export function isMongoShellQuery(source: string): boolean {
+  return SHELL_QUERY.test(source);
+}
+
+// Translate `db.<collection>.find(filter[, projection]).sort(...).limit(n)`
+// shell syntax into the {collection,filter,sort,limit} JSON object the
+// backend expects, without re-parsing numbers so raw digits survive.
+export function mongoShellToRequest(source: string): string {
+  const parts = mongoShellToParts(source);
+  const fields = [
+    `"collection":${JSON.stringify(parts.collection)}`,
+    `"filter":${parts.filter || "{}"}`,
+    `"sort":${parts.sort || "{}"}`,
+    `"limit":${parts.limit || "100"}`,
+  ];
+  if (parts.project.trim() && parts.project.trim() !== "{}") fields.push(`"project":${parts.project}`);
+  if (parts.skip.trim() && parts.skip.trim() !== "0") fields.push(`"skip":${parts.skip}`);
+  if (parts.maxTimeMs.trim() && parts.maxTimeMs.trim() !== "0") fields.push(`"maxTimeMs":${parts.maxTimeMs}`);
+  return `{${fields.join(",")}}`;
+}
+
+// Parse `db.<collection>.find(filter[, projection]).sort(...).skip(...).limit(n)`
+// into its parts without reserializing numbers, for the query bar.
+export function mongoShellToParts(source: string): MongoQueryParts {
+  const match = SHELL_QUERY.exec(source);
+  if (!match) throw new Error("Query must start with db.<collection>.find(...)");
+  const collection = match[1];
+  const openIdx = match[0].length - 1;
+  const { args, endIdx } = extractCall(source, openIdx);
+  const [filterRaw, projectionRaw] = splitTopLevelArgs(args);
+  const filter = (filterRaw ?? "").trim() || "{}";
+  const project = (projectionRaw ?? "").trim() || "{}";
+  let sort = "{}";
+  let skip = "0";
+  let limit = "100";
+  let maxTimeMs = "0";
+  let rest = source.slice(endIdx);
+  const chain = /^\s*\.\s*(sort|limit|skip|maxTimeMS|pretty|toArray|count)\s*\(/;
+  for (let call = chain.exec(rest); call; call = chain.exec(rest)) {
+    const name = call[1];
+    const callOpenIdx = call[0].length - 1;
+    const { args: callArgs, endIdx: callEndIdx } = extractCall(rest, callOpenIdx);
+    if (name === "sort") sort = callArgs.trim() || "{}";
+    else if (name === "limit") limit = callArgs.trim() || "100";
+    else if (name === "skip") skip = callArgs.trim() || "0";
+    else if (name === "maxTimeMS") maxTimeMs = callArgs.trim() || "0";
+    rest = rest.slice(callEndIdx);
+  }
+  if (rest.trim().replace(/;$/, "").trim()) throw new Error(`Unsupported query syntax: ${rest.trim()}`);
+  return { collection, filter, project, sort, skip, limit, maxTimeMs };
+}
+
+// Build shell syntax from the query bar's parts, omitting defaults so the
+// query reads the way someone would type it by hand.
+export function mongoPartsToShell(parts: MongoQueryParts): string {
+  const collection = parts.collection.trim() || "collection";
+  const filter = parts.filter.trim() || "{}";
+  const project = parts.project.trim();
+  const args = project && project !== "{}" ? `${filter}, ${project}` : filter;
+  let query = `db.${collection}.find(${args})`;
+  const sort = parts.sort.trim();
+  if (sort && sort !== "{}") query += `.sort(${sort})`;
+  const skip = parts.skip.trim();
+  if (skip && skip !== "0") query += `.skip(${skip})`;
+  const limit = parts.limit.trim();
+  if (limit && limit !== "100") query += `.limit(${limit})`;
+  const maxTimeMs = parts.maxTimeMs.trim();
+  if (maxTimeMs && maxTimeMs !== "0") query += `.maxTimeMS(${maxTimeMs})`;
+  return query;
+}
+
+// Validate without reserializing the query: large BSON numbers must retain
+// their original digits on their way to the server.
+export function mongoRequest(source: string, database: string): string {
+  const normalized = isMongoShellQuery(source) ? mongoShellToRequest(source) : source;
+  const query = JSON.parse(normalized);
+  if (!query || Array.isArray(query) || typeof query !== "object") throw new Error("Use a JSON object with collection, filter, project, sort, skip and limit.");
+  for (const key of Object.keys(query)) if (!["collection", "filter", "project", "sort", "skip", "limit", "maxTimeMs", "database"].includes(key)) throw new Error(`Unsupported query field: ${key}`);
+  if (typeof query.collection !== "string" || !query.collection.trim()) throw new Error("Choose a collection in the query, or open one from the explorer.");
+  for (const key of ["filter", "project", "sort"]) if (query[key] != null && (typeof query[key] !== "object" || Array.isArray(query[key]))) throw new Error(`${key} must be a JSON object.`);
+  if (query.skip != null && (!Number.isInteger(query.skip) || query.skip < 0)) throw new Error("Skip must be a non-negative integer.");
+  if (query.limit != null && (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 10000)) throw new Error("Document limit must be between 1 and 10000.");
+  if (query.maxTimeMs != null && (!Number.isInteger(query.maxTimeMs) || query.maxTimeMs < 1 || query.maxTimeMs > 600000)) throw new Error("Max time must be between 1 and 600000 ms.");
+  // The toolbar is authoritative, including when replaying history from another database.
+  if (query.database != null && query.database !== database) throw new Error("The query database differs from the toolbar. Remove database from the query or select that database.");
+  return `{${normalized.trim().slice(1, -1)},"database":${JSON.stringify(database)}}`;
+}
+
+// Format punctuation and whitespace without parsing numbers into JS doubles.
+export function formatMongoQuery(source: string): string {
+  if (isMongoShellQuery(source)) { JSON.parse(mongoShellToRequest(source)); return source.trim(); }
+  JSON.parse(source); // Validate syntax only.
+  const tokens = source.match(/"(?:[^"\\]|\\.)*"|[^\s]/g) ?? [];
+  let depth = 0, result = "";
+  const newline = () => { result = result.trimEnd() + "\n" + "  ".repeat(depth); };
+  tokens.forEach((token, index) => {
+    if (token === "{" || token === "[") {
+      result += token;
+      if (tokens[index + 1] !== (token === "{" ? "}" : "]")) { depth++; newline(); }
+    } else if (token === "}" || token === "]") {
+      if (tokens[index - 1] !== (token === "}" ? "{" : "[")) { depth--; newline(); }
+      result += token;
+    } else if (token === ",") { result += token; newline(); }
+    else if (token === ":") result += ": ";
+    else result += token;
+  });
+  return result;
+}

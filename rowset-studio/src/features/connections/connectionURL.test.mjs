@@ -26,3 +26,16 @@ test('unsupported protocols and ambiguous fragments are rejected', () => {
   assert.throws(()=>parseConnectionURL('https://example.com'),/Use a/);
   assert.throws(()=>parseConnectionURL('mysql://user:pass@db/app#word'),/Encode/);
 });
+test('additional engines preserve file paths and reject unsupported Mongo authentication', () => {
+  const sqlite = parseConnectionURL('sqlite:///tmp/app%20data.sqlite');
+  assert.equal(sqlite.database, '/tmp/app data.sqlite');
+  assert.equal(sqlite.tlsMode, 'disable');
+  assert.equal(parseConnectionURL('sqlite:///C:/data/app.sqlite').database, 'C:/data/app.sqlite');
+  assert.equal(parseConnectionURL('clickhouse://host/default?ssl=false').port, 9000);
+  assert.equal(parseConnectionURL('duckdb:///tmp/a.duckdb').engine, 'duckdb');
+  assert.equal(parseConnectionURL('clickhouse://default:p@host/default').port, 9440);
+  assert.equal(parseConnectionURL('mongodb://u:p@host/app?authSource=admin&tls=true').tlsMode, 'verify-full');
+  assert.throws(() => parseConnectionURL('sqlite:///tmp/a.sqlite?mode=ro'), /without URI options/);
+  assert.throws(() => parseConnectionURL('mongodb://host/app?authSource=app'), /authSource=admin/);
+  assert.throws(() => parseConnectionURL('mongodb+srv://host/app'), /SRV/);
+});

@@ -205,9 +205,12 @@ func (s *Server) probeTopologyNode(ctx context.Context, connection domain.Connec
 	if err != nil {
 		return "", false, err
 	}
+	if engine.AdditionalEngine(connection.Engine) {
+		return "primary", false, s.engines.Test(ctx, target)
+	}
 	query := ""
 	switch strings.ToLower(connection.Engine) {
-	case "postgres", "postgresql":
+	case "postgres", "postgresql", "cockroachdb":
 		query = "SELECT CASE WHEN pg_is_in_recovery() THEN 'secondary' ELSE 'primary' END, current_setting('transaction_read_only')"
 	case "mysql":
 		query = "SELECT IF(@@global.read_only = 1 AND @@global.super_read_only = 1, 'secondary', 'primary'), IF(@@global.read_only = 1 AND @@global.super_read_only = 1, 1, 0)"

@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	mssql "github.com/microsoft/go-mssqldb"
 	"github.com/microsoft/go-mssqldb/msdsn"
+	sf "github.com/snowflakedb/gosnowflake"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -173,6 +174,18 @@ func (m *Manager) Invalidate(connectionID string) error {
 }
 
 func (m *Manager) Test(ctx context.Context, connection Connection) error {
+	if connection.Engine == "mongodb" {
+		return mongoTest(ctx, connection)
+	}
+	if connection.Engine == "redis" {
+		return redisTest(ctx, connection)
+	}
+	if connection.Engine == "cassandra" {
+		return cassandraTest(ctx, connection)
+	}
+	if connection.Engine == "elasticsearch" {
+		return elasticsearchTest(ctx, connection)
+	}
 	db, err := m.database(connection)
 	if err != nil {
 		return err
@@ -263,6 +276,9 @@ func (m *Manager) OpenSession(ctx context.Context, connection Connection) (*Sess
 }
 
 func (s *Session) Begin(options TransactionOptions) error {
+	if s.config.Engine == "clickhouse" || s.config.Engine == "mongodb" {
+		return errors.New("interactive transactions are not supported for this engine")
+	}
 	if s.closed {
 		return errors.New("database session is closed")
 	}
@@ -381,6 +397,9 @@ type TransactionOptions struct {
 }
 
 func (m *Manager) BeginWithOptions(ctx context.Context, connection Connection, options TransactionOptions) (*Transaction, error) {
+	if connection.Engine == "clickhouse" || connection.Engine == "mongodb" {
+		return nil, errors.New("interactive transactions are not supported for this engine")
+	}
 	db, err := m.database(connection)
 	if err != nil {
 		return nil, err
@@ -485,7 +504,7 @@ func columnOrigins(ctx context.Context, connection Connection, conn *sql.Conn, q
 		return mssqlColumnOrigins(ctx, conn, query)
 	case "mysql", "mariadb":
 		return mysqlColumnOrigins(ctx, connection, query)
-	case "postgres", "postgresql":
+	case "postgres", "postgresql", "cockroachdb":
 	default:
 		return nil
 	}
@@ -723,6 +742,8 @@ func normalizeValues(values []any, types []string) {
 			if special, ok := specialFloat(v); ok {
 				values[index] = special
 			}
+		case fmt.Stringer:
+			values[index] = v.String()
 		case float32:
 			if special, ok := specialFloat(float64(v)); ok {
 				values[index] = special
@@ -868,6 +889,9 @@ func (m *Manager) database(connection Connection) (*sql.DB, error) {
 	if poolSize <= 0 {
 		poolSize = 10
 	}
+	if FileEngine(connection.Engine) {
+		poolSize = 1
+	}
 	db.SetMaxOpenConns(poolSize)
 	db.SetMaxIdleConns(poolSize)
 	db.SetConnMaxIdleTime(30 * time.Minute)
@@ -879,6 +903,13 @@ func (m *Manager) database(connection Connection) (*sql.DB, error) {
 // openDatabase hands every driver the same *tls.Config through a connector;
 // DSN flags meant different verification guarantees on each engine.
 func openDatabase(connection Connection, tunnel *ssh.Client) (*sql.DB, error) {
+	if FileEngine(connection.Engine) || connection.Engine == "clickhouse" {
+		return openAdditional(connection, tunnel)
+	}
+	switch connection.Engine {
+	case "mongodb", "redis", "cassandra", "elasticsearch":
+		return nil, fmt.Errorf("%s does not use a pooled SQL connection", connection.Engine)
+	}
 	config, err := tlsConfig(connection.TLS, connection.Host)
 	if err != nil {
 		return nil, err
@@ -888,7 +919,7 @@ func openDatabase(connection Connection, tunnel *ssh.Client) (*sql.DB, error) {
 		return nil, err
 	}
 	switch strings.ToLower(connection.Engine) {
-	case "postgres", "postgresql":
+	case "postgres", "postgresql", "cockroachdb":
 		parsed, err := pgx.ParseConfig(dsn)
 		if err != nil {
 			return nil, err
@@ -919,7 +950,7 @@ func openDatabase(connection Connection, tunnel *ssh.Client) (*sql.DB, error) {
 			return nil, err
 		}
 		return sql.OpenDB(connector), nil
-	default:
+	case "mssql", "sqlserver":
 		parsed, err := msdsn.Parse(dsn)
 		if err != nil {
 			return nil, err
@@ -932,6 +963,13 @@ func openDatabase(connection Connection, tunnel *ssh.Client) (*sql.DB, error) {
 			connector.Dialer = sshMSSQLDialer{tunnel}
 		}
 		return sql.OpenDB(connector), nil
+	case "snowflake":
+		if tunnel != nil {
+			return nil, errors.New("Snowflake does not support SSH tunnelling; it is only reachable over the public internet")
+		}
+		return sql.Open("snowflake", dsn)
+	default:
+		return nil, fmt.Errorf("unsupported engine: %s", connection.Engine)
 	}
 }
 
@@ -946,7 +984,7 @@ func (d sshMSSQLDialer) DialContext(ctx context.Context, network, addr string) (
 func connectionString(connection Connection) (string, string, error) {
 	hostPort := net.JoinHostPort(connection.Host, fmt.Sprint(connection.Port))
 	switch strings.ToLower(connection.Engine) {
-	case "postgres", "postgresql":
+	case "postgres", "postgresql", "cockroachdb":
 		u := &url.URL{Scheme: "postgres", User: url.UserPassword(connection.Username, connection.Password), Host: hostPort, Path: "/" + connection.Database}
 		q := u.Query()
 		q.Set("sslmode", "disable")
@@ -971,6 +1009,15 @@ func connectionString(connection Connection) (string, string, error) {
 		q.Set("encrypt", "disable")
 		u.RawQuery = q.Encode()
 		return "sqlserver", u.String(), nil
+	case "snowflake":
+		// The account identifier goes in the Host field (e.g.
+		// "myorg-myaccount"); Snowflake is always reached over HTTPS on its
+		// own infrastructure, so Port and TLS settings do not apply.
+		dsn, err := sf.DSN(&sf.Config{Account: connection.Host, User: connection.Username, Password: connection.Password, Database: connection.Database})
+		if err != nil {
+			return "", "", err
+		}
+		return "snowflake", dsn, nil
 	default:
 		return "", "", fmt.Errorf("unsupported engine: %s", connection.Engine)
 	}

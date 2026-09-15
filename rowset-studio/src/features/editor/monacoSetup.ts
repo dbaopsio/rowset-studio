@@ -7,6 +7,16 @@ import { conf as sqlConfiguration, language as sqlLanguage } from "monaco-editor
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 
+monaco.languages.register({ id: "rowset-json", aliases: ["Extended JSON"] });
+monaco.languages.setMonarchTokensProvider("rowset-json", { tokenizer: { root: [
+  [/"(?:[^"\\]|\\.)*"(?=\s*:)/, "key"],
+  [/"(?:[^"\\]|\\.)*"/, "string"],
+  [/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/, "number"],
+  [/\b(?:true|false|null)\b/, "keyword"],
+  [/[{}[\]]/, "delimiter.bracket"],
+  [/[,:]/, "delimiter"],
+] } });
+
 export const ROWSET_SQL_LANGUAGE = "rowset-sql";
 
 // Monaco 0.53 lists UPDATE both as a keyword and as a built-in function. Its

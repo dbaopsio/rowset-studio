@@ -1,22 +1,27 @@
-import type { TlsMode } from "./api";
+import type { Engine, TlsMode } from "./api";
 
 export interface ParsedConnectionURL {
-  engine: "postgres" | "mysql" | "mariadb" | "sqlserver";
+  engine: Engine;
   host: string; port: number; database: string; connectionUsername: string; password: string; tlsMode: TlsMode;
 }
 
-const SUPPORTED_OPTIONS = new Set(["sslmode", "ssl", "encrypt", "trustservercertificate", "database", "user", "password"]);
+const SUPPORTED_OPTIONS = new Set(["sslmode", "ssl", "encrypt", "trustservercertificate", "database", "user", "password", "authsource", "tls"]);
 
 export function parseConnectionURL(raw: string): ParsedConnectionURL {
   const value = raw.trim().replace(/^jdbc:/i, "");
   const url = new URL(value);
   const protocol = url.protocol.toLowerCase();
-  const engines: Record<string, ParsedConnectionURL["engine"]> = { "postgres:": "postgres", "postgresql:": "postgres", "mysql:": "mysql", "mariadb:": "mariadb", "sqlserver:": "sqlserver", "mssql:": "sqlserver" };
+  const engines: Record<string, ParsedConnectionURL["engine"]> = { "postgres:": "postgres", "postgresql:": "postgres", "mysql:": "mysql", "mariadb:": "mariadb", "sqlserver:": "sqlserver", "mssql:": "sqlserver", "sqlite:": "sqlite", "duckdb:": "duckdb", "clickhouse:": "clickhouse", "mongodb:": "mongodb", "cockroachdb:": "cockroachdb", "cockroach:": "cockroachdb", "redis:": "redis", "cassandra:": "cassandra", "elasticsearch:": "elasticsearch", "snowflake:": "snowflake" };
   const engine = engines[protocol];
-  if (!engine) throw new Error("Use a PostgreSQL, MySQL, MariaDB or SQL Server URL.");
+  if (!engine) throw new Error("Use a PostgreSQL, MySQL, MariaDB, SQL Server, SQLite, DuckDB, ClickHouse, MongoDB, CockroachDB, Redis, Cassandra, Elasticsearch or Snowflake URL. SRV URLs are not supported yet.");
   if (url.hash) throw new Error("Encode special characters in the password (for example # as %23).");
+  if (engine === "sqlite" || engine === "duckdb") {
+    if (url.hostname || url.search || url.hash || url.username || url.password) throw new Error("Use sqlite:///absolute/path or duckdb:///absolute/path without URI options.");
+    return { engine, host: "localhost", port: 1, database: decodeURIComponent(url.pathname).replace(/^\/([A-Za-z]:\/)/, "$1"), connectionUsername: "local", password: "", tlsMode: "disable" };
+  }
   if (!url.hostname || url.hostname.includes(";")) throw new Error("Use a URL with a host and /database; JDBC semicolon properties are not supported.");
-  const port = Number(url.port || (engine === "postgres" ? 5432 : engine === "sqlserver" ? 1433 : 3306));
+  const defaultPorts: Partial<Record<ParsedConnectionURL["engine"], number>> = { postgres: 5432, cockroachdb: 26257, sqlserver: 1433, clickhouse: 9440, mongodb: 27017, redis: 6379, cassandra: 9042, elasticsearch: 9200, snowflake: 443 };
+  const port = Number(url.port || defaultPorts[engine] || 3306);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid database port.");
   // Option names are case-insensitive (SQL Server spells TrustServerCertificate
   // in mixed case); values such as passwords keep their case.
@@ -27,12 +32,18 @@ export function parseConnectionURL(raw: string): ParsedConnectionURL {
     if (options.has(name)) throw new Error(`Duplicate URL option "${key}" is ambiguous.`);
     options.set(name, option);
   }
+  if (options.has("authsource") && (engine !== "mongodb" || options.get("authsource") !== "admin")) throw new Error("MongoDB authentication currently uses authSource=admin only.");
+  if (options.has("tls")) {
+    if (engine !== "mongodb" || options.has("ssl")) throw new Error("Use a single MongoDB tls or ssl option.");
+    options.set("ssl", options.get("tls")!);
+  }
+  const tlsMode = urlTLSMode(engine, options);
   return {
-    engine, host: url.hostname.replace(/^\[|\]$/g, ""), port,
+    engine, host: url.hostname.replace(/^\[|\]$/g, ""), port: engine === "clickhouse" && !url.port && tlsMode === "disable" ? 9000 : port,
     database: decodeURIComponent(url.pathname.replace(/^\//, "")) || options.get("database") || "",
     connectionUsername: decodeURIComponent(url.username) || options.get("user") || "",
     password: decodeURIComponent(url.password) || options.get("password") || "",
-    tlsMode: urlTLSMode(engine, options),
+    tlsMode,
   };
 }
 

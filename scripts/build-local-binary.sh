@@ -20,6 +20,10 @@ cp -R "$ROOT_DIR/rowset-parser" "$BUILD_DIR/rowset-parser"
 cp -R "$ROOT_DIR/rowset-studio/dist/." "$BUILD_DIR/rowset-core/internal/web/dist/"
 (
   cd "$BUILD_DIR/rowset-core"
-  CGO_ENABLED=0 go build -trimpath -ldflags="-X main.version=$VERSION" -o "$ROOT_DIR/dists/local/rowset$EXT" ./cmd/rowset
+  # Native builds include the DuckDB driver. Cross builds remain portable;
+  # set CGO_ENABLED=1 with a target C/C++ toolchain to include DuckDB there.
+  ROWSET_CGO=${CGO_ENABLED:-1}
+  if [ "$(go env GOOS)/$(go env GOARCH)" != "$(go env GOHOSTOS)/$(go env GOHOSTARCH)" ]; then ROWSET_CGO=${CGO_ENABLED:-0}; fi
+  CGO_ENABLED=$ROWSET_CGO go build -trimpath -ldflags="-X main.version=$VERSION" -o "$ROOT_DIR/dists/local/rowset$EXT" ./cmd/rowset
 )
 printf 'Built %s (version %s)\n' "$ROOT_DIR/dists/local/rowset$EXT" "$VERSION"

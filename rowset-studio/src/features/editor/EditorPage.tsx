@@ -1,3 +1,5 @@
+import QueryParameters from "./ParameterFields";
+import { parameterNames, resolveParameters, type QueryParameters as ParameterValues } from "./queryParameters";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBlocker, useLocation, useNavigate } from "react-router";
@@ -21,7 +23,9 @@ import { useSchema } from "./useEditor";
 import { formatSql, statementAt, splitStatements } from "./sqlText";
 import { useAuth } from "../../lib/auth";
 import { SchemaActions } from "./schemaActions";
-import { ApiError } from "../../lib/api";
+import { mongoQuery, mongoRequest, formatMongoQuery } from "./mongoQuery";
+import MongoQueryBar from "./MongoQueryBar";
+import { api, ApiError } from "../../lib/api";
 import { useShared } from "../../lib/instance";
 import { rowBackupEnabled } from "../../lib/preferences";
 import { useActiveExtensions, type DenialContext } from "../../app/extensions";
@@ -104,8 +108,22 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   const shared = useShared();
   const openedFromNavigation = useRef<string | null>(null);
   useEffect(() => {
-    const state = location.state as { openSql?: string; connectionId?: string | null; database?: string; title?: string; restoreOf?: string } | null;
-    if (!state?.openSql || openedFromNavigation.current === location.key) return;
+    const state = location.state as { openSql?: string; connectionId?: string | null; database?: string; title?: string; restoreOf?: string; openConnection?: boolean } | null;
+    if (!state || openedFromNavigation.current === location.key) return;
+    // Jumping to a connection (e.g. from the command palette) opens a fresh
+    // tab bound to it, since the active tab may already be bound elsewhere
+    // and the store's "remembered" connection only fills in blank tabs.
+    if (state.openConnection && state.connectionId) {
+      openedFromNavigation.current = location.key;
+      const connection = connections.find((item) => item.id === state.connectionId);
+      const id = crypto.randomUUID();
+      setTabs((docs) => [...docs, { id, title: "New Query", sql: connection?.engine === "mongodb" ? mongoQuery() : "", connectionId: state.connectionId ?? null, database: connection?.database ?? "" }]);
+      setActiveTabId(id);
+      setActiveConnection(state.connectionId);
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
+    if (!state.openSql) return;
     openedFromNavigation.current = location.key;
     const id = crypto.randomUUID();
     const sql = state.openSql;
@@ -218,6 +236,11 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     queryFn: listConnections,
   });
   const activeConnection = connections.find((c) => c.id === activeConnectionId) ?? null;
+  const [tabParameters, setTabParameters] = useState<Record<string, ParameterValues>>({});
+  const isMongo = activeConnection?.engine === "mongodb";
+  const pendingEngine = ["redis", "cassandra", "elasticsearch"].includes(activeConnection?.engine ?? "") ? activeConnection?.engine : undefined;
+  const parameters = tabParameters[activeTabId] ?? {};
+  const parameterList = isMongo ? [] : parameterNames(currentSql, activeConnection?.engine ?? "");
   const selectedDb = activeTabDatabase || activeConnection?.database || defaultDatabase(activeConnection?.engine);
   const selectedNodeRole = activeConnection?.nodePolicy === "primary_only" ? "primary"
     : activeConnection?.nodePolicy === "secondary_only" ? "secondary"
@@ -228,10 +251,11 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   useEffect(() => {
     if (connections.length === 0 || !activeTab) return;
     const connection = connections.find((item) => item.id === activeConnectionId) ?? connections[0];
-    if (activeTabConnectionId !== connection.id || !activeTabDatabase) {
+    if (activeTabConnectionId !== connection.id || !activeTabDatabase || (connection.engine === "mongodb" && !activeTab.sql.trim())) {
       setTabs((current) => current.map((tab) => tab.id === activeTab.id ? {
         ...tab,
         connectionId: connection.id,
+        sql: !tab.sql.trim() && connection.engine === "mongodb" ? mongoQuery() : tab.sql,
         database: activeTabDatabase || connection.database || defaultDatabase(connection.engine),
       } : tab));
     }
@@ -293,7 +317,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
       {
         id: next,
         title: `Query ${docs.length + 1}`,
-        sql: "",
+        sql: isMongo ? mongoQuery() : "",
         connectionId: activeConnectionId,
         database: selectedDb,
       },
@@ -339,7 +363,8 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   }
 
   function formatCurrent() {
-    updateActiveSql(formatSql(currentSql));
+    try { updateActiveSql(isMongo ? formatMongoQuery(currentSql) : formatSql(currentSql)); }
+    catch { setActiveMessage("Invalid JSON: check the query before formatting.", true); return; }
     setActiveMessage("Formatted locally", false);
     setBottomTab("messages");
   }
@@ -369,9 +394,9 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   }
 
   function saveSQLFile() {
-    const url = URL.createObjectURL(new Blob([currentSql], { type: "application/sql;charset=utf-8" }));
+    const url = URL.createObjectURL(new Blob([currentSql], { type: isMongo ? "application/json;charset=utf-8" : "application/sql;charset=utf-8" }));
     const anchor = document.createElement("a"); anchor.href = url;
-    anchor.download = `${(activeTab?.title ?? "query").replace(/\.sql$/i, "").replace(/[\\/:*?"<>|]/g, "_")}.sql`;
+    anchor.download = `${(activeTab?.title ?? "query").replace(/\.(sql|json)$/i, "").replace(/[\\/:*?"<>|]/g, "_")}.${isMongo ? "json" : "sql"}`;
     anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
@@ -384,6 +409,10 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     const tabId = activeTab?.id;
     const connectionId = activeConnectionId;
     if (!mounted.current || !tabId || !connectionId || !sql.trim() || closingTabs.current.has(tabId) || transactionOperations.current.has(tabId) || controllers.current[tabId] || (!script && scripts.current[tabId])) return false;
+    if (!isMongo) {
+      try { sql = resolveParameters(sql, activeConnection?.engine ?? "", parameters); }
+      catch (error) { setActiveMessage((error as Error).message, true); setBottomTab("messages"); return false; }
+    }
     const database = selectedDb || undefined;
     const nodeRole = selectedNodeRole;
     const seq = (runSeq.current[tabId] ?? 0) + 1;
@@ -412,7 +441,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     });
 
     let tx = transactions.current[tabId];
-    if (!tx && manualCommit.current[tabId]) {
+    if (!isMongo && !tx && manualCommit.current[tabId]) {
       try {
         const started = await beginTxn(connectionId, selectedDb);
         tx = { id: started.txnId, connectionId, database: selectedDb };
@@ -436,7 +465,11 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     };
     // A restore script puts rows back; backing it up again would only add noise.
     const backup = !skipBackup && !shared && !activeTab?.restoreOf && rowBackupEnabled();
-    return (tx ? txnQuery(tx.connectionId, tx.id, sql, tx.database, controller.signal, progress, backup) : runQuery(connectionId, sql, database, nodeRole, controller.signal, progress, backup))
+    const runMongo = async (): Promise<QueryResult> => {
+      const response = await api<{ documents: unknown[]; truncated: boolean; durationMs: number; limit: number }>(`/connections/${connectionId}/documents/find`, { method: "POST", signal: controller.signal, body: mongoRequest(sql, selectedDb) });
+      return { columns: ["document"], columnTypes: ["BSON"], rows: response.documents.map(document => [document]), rowCount: response.documents.length, durationMs: response.durationMs, truncated: response.truncated, policyNotice: response.truncated ? `Document limit: ${response.limit}` : undefined };
+    };
+    return (isMongo ? runMongo() : tx ? txnQuery(tx.connectionId, tx.id, sql, tx.database, controller.signal, progress, backup) : runQuery(connectionId, sql, database, nodeRole, controller.signal, progress, backup))
       .then((res) => {
         if (runSeq.current[tabId] !== seq) return false;
         patchRun(tabId, {
@@ -494,6 +527,11 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
 
   // Run: the selection (every statement in it) or the statement at the cursor.
   function onRun() {
+    if (pendingEngine) {
+      patchRun(activeTabId, { status: "error", message: `The ${pendingEngine} query editor is not available yet in this build; the connection can be tested and its schema browsed.`, messageError: true });
+      return;
+    }
+    if (isMongo) { void execute(selectedSql.trim() || currentSql); return; }
     const selected = selectedSql.trim();
     if (!selected) {
       const offset = currentSql.split("\n").slice(0, cursor.line - 1).reduce((n, line) => n + line.length + 1, 0) + cursor.column - 1;
@@ -513,10 +551,13 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   }
 
   async function onExplain(analyze: boolean) {
+    if (isMongo) return;
     const tabId = activeTabId;
     const connectionId = activeConnectionId;
-    const sql = statementUnderCursor();
+    let sql = statementUnderCursor();
     if (!connectionId || !sql) return;
+    try { sql = resolveParameters(sql, activeConnection?.engine ?? "", parameters); }
+    catch (error) { setActiveMessage((error as Error).message, true); setBottomTab("messages"); return; }
     setBottomTab("plan");
     setPlans((current) => ({ ...current, [tabId]: { status: "loading", sql, analyze } }));
     try {
@@ -565,16 +606,19 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   }
 
   function onRunOnConnections() {
+    if (isMongo) return;
     const selected = selectedSql.trim();
     const sql = selected || currentSql;
     if (!sql.trim()) {
       setActiveMessage("Nothing to run: the editor is empty.", true);
       return;
     }
+    if (parameterNames(sql, activeConnection?.engine ?? "").length) { setActiveMessage("Run parameterized queries on one connection at a time.", true); setBottomTab("messages"); return; }
     setMultiRunDialog({ sql, source: selected ? "selection" : "editor" });
   }
 
   function onRunAll() {
+    if (isMongo) { void execute(currentSql); return; }
     void runStatements(splitStatements(currentSql, activeConnection?.engine));
   }
 
@@ -583,6 +627,9 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   async function runStatements(statements: { sql: string }[]) {
     const tabId = activeTabId;
     if (!statements.length || scripts.current[tabId] || controllers.current[tabId] || transactionOperations.current.has(tabId) || closingTabs.current.has(tabId)) return;
+    // Validate every parameter before any statement can make a change.
+    try { statements.forEach(statement => resolveParameters(statement.sql, activeConnection?.engine ?? "", parameters)); }
+    catch (error) { setActiveMessage((error as Error).message, true); setBottomTab("messages"); return; }
     scripts.current[tabId] = true;
     const results: StatementResult[] = [];
     patchRun(tabId, { results: [], activeResult: 0 });
@@ -658,6 +705,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     setTabs((current) => current.map((tab) => tab.id === activeTab.id ? {
       ...tab,
       connectionId: id,
+      sql: !tab.sql.trim() && connection?.engine === "mongodb" ? mongoQuery() : tab.sql,
       database: connection?.database || defaultDatabase(connection?.engine),
       nodeRole: connection?.defaultNodeRole ?? "primary",
     } : tab));
@@ -666,7 +714,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
 
   // Rows of a one-table result can be edited; the edits run as UPDATEs through
   // runStatements, followed by the original query to reload the result.
-  const rowEditing: RowEditing | undefined = activeConnection ? {
+  const rowEditing: RowEditing | undefined = activeConnection && !isMongo ? {
     engine: activeConnection.engine,
     primaryKey: (schemaName, table) => {
       const nodes = schema?.schemas ?? [];
@@ -786,9 +834,9 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
           onExportWorkspace={() => exportWorkspace(workspace)}
           onImportWorkspace={() => workspaceFileInput.current?.click()}
           onRunAll={onRunAll}
-          onRunOnConnections={onRunOnConnections}
+          onRunOnConnections={isMongo ? undefined : onRunOnConnections}
           onExplain={(analyze) => void onExplain(analyze)}
-          onSchedule={!shared ? () => navigate("/schedules", { state: { newSchedule: { sql: statementUnderCursor(), connectionId: activeConnectionId, database: selectedDb } } }) : undefined}
+          onSchedule={!shared && !isMongo && !parameterList.length ? () => navigate("/schedules", { state: { newSchedule: { sql: statementUnderCursor(), connectionId: activeConnectionId, database: selectedDb } } }) : undefined}
           onStop={() => {
             if (transactions.current[activeTabId] && !window.confirm("Stopping a statement inside a transaction ends the transaction and discards its uncommitted changes. Stop anyway?")) return;
             scripts.current[activeTabId] = false; controllers.current[activeTabId]?.abort();
@@ -801,7 +849,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
           transactionBusy={transactionBusy}
           onTransaction={(action) => void transactionAction(action)}
           assistantOpen={assistantOpen}
-          onAssistantToggle={() => setAssistantOpen((open) => !open)}
+          onAssistantToggle={isMongo ? undefined : () => setAssistantOpen((open) => !open)}
           onFormat={formatCurrent}
           onSave={saveCurrent}
           running={activeRun.status === "running"}
@@ -812,15 +860,23 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
           onNodeRoleChange={onNodeRoleChange}
         />
 
+        {pendingEngine && (
+          <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+            A dedicated query editor for {activeConnection ? activeConnection.engine : pendingEngine} is not available yet in this build. The connection can be tested and its schema browsed from the sidebar.
+          </div>
+        )}
+        {isMongo && <MongoQueryBar tabKey={activeTabId} sql={currentSql} onChange={updateActiveSql} onRun={onRun} />}
+        <QueryParameters names={parameterList} values={parameters} onChange={values => setTabParameters(current => ({ ...current, [activeTabId]: values }))} />
         <div className="flex min-h-0 flex-1">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <input ref={fileInput} type="file" accept=".sql,text/plain,application/sql" className="hidden" aria-label="Open SQL file" onChange={(event) => { void openSQLFile(event.target.files?.[0]); event.target.value = ""; }} />
+          <input ref={fileInput} type="file" accept=".sql,.json,text/plain,application/sql,application/json" className="hidden" aria-label="Open SQL file" onChange={(event) => { void openSQLFile(event.target.files?.[0]); event.target.value = ""; }} />
           <div className="flex min-h-[120px] flex-1 flex-col border-b border-slate-200 dark:border-slate-800">
             <Suspense
               fallback={<div className="grid h-full place-items-center text-xs text-slate-500">Loading editor...</div>}
             >
               <MonacoSqlEditor
-                key={activeTabId}
+                key={`${activeTabId}:${isMongo}`}
+                language={isMongo ? "json" : "sql"}
                 value={currentSql}
                 onChange={updateActiveSql}
                 onSelectionChange={setSelectedSql}
@@ -835,7 +891,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
                 Ln {cursor.line}, Col {cursor.column}
                 {selectedSql ? ` · ${selectedSql.length} selected` : ""}
               </span>
-              <span>{currentSql.length} chars · UTF-8 · SQL</span>
+              <span>{currentSql.length} chars · UTF-8 · {isMongo ? "MongoDB · Extended JSON" : "SQL"}</span>
             </div>
           </div>
 
@@ -843,6 +899,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
 
           <div className="flex flex-col overflow-hidden" style={{ height: bottomHeight }}>
           <BottomPanel
+              key={activeTabId}
               activeTab={bottomTab}
               onChange={setBottomTab}
               run={activeRun}
@@ -857,7 +914,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
               onStopMultiRun={() => multiControllers.current[activeTabId]?.abort()}
               rowEditing={rowEditing}
               onSelectResult={(index) => patchRun(activeTabId, { activeResult: index })}
-              onExportAllRows={activeRun.sql && activeConnectionId && !transactionIDs[activeTabId] ? () => exportTable(activeConnectionId, { database: selectedDb || undefined, sql: activeRun.sql!, format: "csv" }).then((blob) => {
+              onExportAllRows={!isMongo && activeRun.sql && activeConnectionId && !transactionIDs[activeTabId] ? () => exportTable(activeConnectionId, { database: selectedDb || undefined, sql: activeRun.sql!, format: "csv" }).then((blob) => {
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
                 link.href = url;
@@ -868,7 +925,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
             />
           </div>
         </div>
-        {assistantOpen && (
+        {assistantOpen && !isMongo && (
           <aside className="flex w-[360px] shrink-0 flex-col border-l border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
             <div className="flex h-8 shrink-0 items-center gap-2 border-b border-slate-200 px-2 text-xs dark:border-slate-800">
               <Icon name="wand" size={13} className="text-slate-400" />
@@ -1287,7 +1344,8 @@ function DatabaseBranch({
           label={`${name} actions`}
           className="opacity-0 group-hover:opacity-100"
           items={[
-            { label: "Show diagram", onSelect: () => navigate(`/diagram?connection=${encodeURIComponent(connectionId)}&database=${encodeURIComponent(name)}`) },
+            ...(engine !== "mongodb" ? [{ label: "Compare schema", onSelect: () => navigate(`/schema-compare?connection=${encodeURIComponent(connectionId)}&database=${encodeURIComponent(name)}`) },
+            { label: "Show diagram", onSelect: () => navigate(`/diagram?connection=${encodeURIComponent(connectionId)}&database=${encodeURIComponent(name)}`) }] : []),
             { label: "Refresh schema", onSelect: () => void forgetSchema(connectionId).finally(() => queryClient.invalidateQueries({ queryKey: ["schema", connectionId, name] })) },
           ]}
         />
@@ -1530,7 +1588,7 @@ function BottomPanel({
             {(shownRun.status === "error" || shownRun.status === "pending") && shownRun.error ? (
               <PolicyBanner error={shownRun.error} context={denialContext} />
             ) : shownRun.data ? (
-              <ResultsGrid key={activeResult} result={shownRun.data} editing={editingFor(rowEditing, selected ? selected.sql : run.sql)} />
+              <ResultsGrid key={`${run.startedAt}:${activeResult}`} result={shownRun.data} editing={editingFor(rowEditing, selected ? selected.sql : run.sql)} />
             ) : (
               run.status !== "running" && (
                 <EmptyState title="No results yet" text="Run a query to populate the result grid." />
