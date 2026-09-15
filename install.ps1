@@ -1,14 +1,14 @@
 # Install or update Rowset Studio for the current user (Windows).
 #
-#   irm https://raw.githubusercontent.com/dbaopsio/rowset-studio/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/rowsetdev/rowset-studio/main/install.ps1 | iex
 #
 # $env:ROWSET_VERSION selects a release, e.g. 0.0.13 (default: the latest).
 # Uninstall (your connections and notebooks are kept):
-#   $env:ROWSET_UNINSTALL = 1; irm https://raw.githubusercontent.com/dbaopsio/rowset-studio/main/install.ps1 | iex
+#   $env:ROWSET_UNINSTALL = 1; irm https://raw.githubusercontent.com/rowsetdev/rowset-studio/main/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$Repo = 'dbaopsio/rowset-studio'
+$Repo = 'rowsetdev/rowset-studio'
 $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\Rowset Studio'
 $Exe = Join-Path $InstallDir 'rowset.exe'
 $Shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Rowset Studio.lnk'
@@ -83,6 +83,7 @@ try {
     $link.Arguments = "-NoProfile -WindowStyle Hidden -Command `"& '$Exe' desktop`""
     $link.WorkingDirectory = $InstallDir
     $link.Description = 'Rowset Studio'
+    $link.IconLocation = Join-Path $InstallDir 'rowset-studio.ico'
     $link.Save()
 
     $version = & $Exe --version

@@ -254,8 +254,8 @@ export function listMyHistory(filters?: { from?: string; to?: string }) {
   return api<{ history: HistoryItem[] | null }>(`/history${suffix}`).then((r) => r.history ?? []);
 }
 
-// The server keeps a loaded schema for a short while; this makes the next
-// load read the database's catalog again, for objects changed elsewhere.
+// The server persists the last loaded schema locally; this explicitly drops
+// it so the next load reads objects changed outside Rowset.
 export function forgetSchema(connectionId: string) {
   return api<void>(`/connections/${connectionId}/schema/refresh`, { method: "POST" });
 }

@@ -193,7 +193,7 @@ export function Modal({
   title,
   onClose,
   children,
-  closeOnBackdrop = true,
+  closeOnBackdrop = false,
   showCloseButton = true,
   size = "md",
 }: {

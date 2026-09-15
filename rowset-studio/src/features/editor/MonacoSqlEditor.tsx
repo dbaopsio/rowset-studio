@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Editor, { type Monaco } from "@monaco-editor/react";
 import { ROWSET_SQL_LANGUAGE, defineThemes } from "./monacoSetup";
-import { aliasMap, clauseAt, columnSuggestions, dotSuggestions, groupByColumns, joinSuggestions, type SqlCompletions } from "./sqlCompletions";
+import { aliasMap, clauseAt, columnSuggestions, completionName, dotSuggestions, groupByColumns, joinSuggestions, type SqlCompletions } from "./sqlCompletions";
 import { splitStatements } from "./sqlText";
 import { inspectSql, type Inspection } from "./sqlInspections";
 
@@ -46,28 +46,28 @@ function registerCompletion(monaco: Monaco) {
       // Dot context: "<ident>." before the word being typed. Suggest only what
       // that identifier can own — alias/table columns, or a schema's tables.
       const lineBefore = model.getLineContent(position.lineNumber).slice(0, word.startColumn - 1);
-      const dotMatch = lineBefore.match(/(["`[]?[\w$]+["`\]]?)\.$/);
+      const dotMatch = lineBefore.match(/((?:["`[]?[\w$]+["`\]]?\.){0,2}["`[]?[\w$]+["`\]]?)\.$/);
       if (dotMatch) {
-        const ident = dotMatch[1].replace(/^["`[]|["`\]]$/g, "").toLowerCase();
+        const ident = dotMatch[1].split(".").map((part) => part.replace(/^["`[]|["`\]]$/g, "")).join(".").toLowerCase();
         const resolved = dotSuggestions(fullText, ident, schemaRef.current);
         if (resolved.values.length > 0 && resolved.kind === "column") {
           return {
             suggestions: resolved.values.map((c) => ({
-              label: { label: c, description: "column" }, kind: K.Field, insertText: c, range, detail: resolved.owner, sortText: "0" + c,
+              label: { label: c, description: "column" }, kind: K.Field, insertText: completionName(c, schemaRef.current.engine), range, detail: resolved.owner, sortText: "0" + c,
             })),
           };
         }
         if (resolved.values.length > 0 && resolved.kind === "schema") {
           return {
             suggestions: resolved.values.map((name) => ({
-              label: { label: name, description: "schema" }, kind: K.Module, insertText: name, range, sortText: "0" + name,
+              label: { label: name, description: "schema" }, kind: K.Module, insertText: completionName(name, schemaRef.current.engine), range, sortText: "0" + name,
             })),
           };
         }
         if (resolved.values.length > 0 && resolved.kind === "table") {
           return {
             suggestions: resolved.values.map((t) => ({
-              label: { label: t, description: "table" }, kind: K.Struct, insertText: t, range, sortText: "0" + t,
+              label: { label: t, description: "table" }, kind: K.Struct, insertText: completionName(t, schemaRef.current.engine), range, sortText: "0" + t,
             })),
           };
         }
@@ -105,22 +105,22 @@ function registerCompletion(monaco: Monaco) {
         ...local.map((item) => ({
           label: { label: item.label, description: "column" },
           kind: K.Field,
-          insertText: item.insertText,
+          insertText: completionName(item.insertText, schemaRef.current.engine),
           detail: item.detail,
           range,
           // A qualified name that is the only way to reach the column ranks
           // with the plain ones; the rest sit just behind them.
           sortText: columnRank + (item.qualifiedOnly || !item.label.includes(".") ? "" : "~") + item.label,
         })),
-        ...Object.entries(schemaNames).map(([key, name]) => ({ label: { label: name, description: "schema" }, kind: K.Module, insertText: name, range, sortText: "1" + key })),
-        ...Object.entries(databaseNames).map(([key, name]) => ({ label: { label: name, description: "database" }, kind: K.Module, insertText: name, range, sortText: "1" + key })),
+        ...Object.entries(schemaNames).map(([key, name]) => ({ label: { label: name, description: "schema" }, kind: K.Module, insertText: completionName(name, schemaRef.current.engine), range, sortText: "1" + key })),
+        ...Object.entries(databaseNames).map(([key, name]) => ({ label: { label: name, description: "database" }, kind: K.Module, insertText: completionName(name, schemaRef.current.engine), range, sortText: "1" + key })),
         ...Object.keys(tableColumns).map((t) => {
           const name = tableNames[t] ?? t;
-          return { label: { label: name, description: "table" }, kind: K.Struct, insertText: name, range, sortText: tableRank + name };
+          return { label: { label: name, description: "table" }, kind: K.Struct, insertText: completionName(name, schemaRef.current.engine), range, sortText: tableRank + name };
         }),
         ...SQL_KEYWORDS.map((k) => ({ label: { label: k, description: "keyword" }, kind: K.Keyword, insertText: k, range, sortText: "2" + k })),
-        ...routines.map((r) => ({ label: { label: r.name, description: r.kind }, kind: K.Function, insertText: r.name, range, sortText: "3" + r.name })),
-        ...[...otherColumns].map((c) => ({ label: { label: c, description: "column" }, kind: K.Field, insertText: c, range, sortText: (wantsTables ? "4" : "3") + c })),
+        ...routines.map((r) => ({ label: { label: r.name, description: r.kind }, kind: K.Function, insertText: completionName(r.name, schemaRef.current.engine), range, sortText: "3" + r.name })),
+        ...[...otherColumns].map((c) => ({ label: { label: c, description: "column" }, kind: K.Field, insertText: completionName(c, schemaRef.current.engine), range, sortText: (wantsTables ? "4" : "3") + c })),
       ];
       return { suggestions };
     },

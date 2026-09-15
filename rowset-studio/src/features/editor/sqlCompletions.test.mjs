@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aliasMap, buildSqlCompletions, clauseAt, columnSuggestions, dotSuggestions, groupByColumns, joinSuggestions } from "./sqlCompletions.ts";
+import { aliasMap, buildSqlCompletions, clauseAt, columnSuggestions, completionName, dotSuggestions, groupByColumns, joinSuggestions } from "./sqlCompletions.ts";
 
 const schema = buildSqlCompletions({ schemas: [{ name: "Public", tables: [{ name: "Users", columns: [{ name: "id", dataType: "int", nullable: false }, { name: "email", dataType: "text", nullable: false }] }], views: [], routines: [], triggers: [] }] });
 
@@ -21,6 +21,41 @@ test('database names are offered where a statement can reach them', () => {
   assert.deepEqual(Object.values(mssql.databaseNames), ['rowset_e2e', 'master']);
   assert.deepEqual(dotSuggestions('select * from rowset_e2e.', 'rowset_e2e', mssql), { kind: 'schema', values: ['dbo'] });
   assert.deepEqual(buildSqlCompletions(schema, ['other'], 'postgres').databaseNames, {});
+});
+
+test('SQL Server completion quotes identifiers and uses loaded database schemas', () => {
+  const remote = { schemas: [{ name: 'dbo', tables: [{ name: 'Order', columns: [{ name: 'Order ID' }] }], views: [], routines: [], triggers: [] }] };
+  const mssql = buildSqlCompletions(undefined, ['BitciExchangeDB'], 'sqlserver', { BitciExchangeDB: remote });
+  assert.equal(completionName('dbo.Order', 'sqlserver'), '[dbo].[Order]');
+  assert.deepEqual(dotSuggestions('select * from BitciExchangeDB.', 'BitciExchangeDB', mssql), { kind: 'schema', values: ['dbo'] });
+  assert.deepEqual(dotSuggestions('select * from BitciExchangeDB.dbo.', 'BitciExchangeDB.dbo', mssql), { kind: 'table', values: ['Order'] });
+  assert.deepEqual(dotSuggestions('select BitciExchangeDB.dbo.Order.', 'BitciExchangeDB.dbo.Order', mssql), { kind: 'column', values: ['Order ID'], owner: 'BitciExchangeDB.dbo.Order' });
+  assert.equal(aliasMap('select * from BitciExchangeDB.dbo.Order o').o, 'bitciexchangedb.dbo.order');
+  assert.deepEqual(columnSuggestions('select o. from BitciExchangeDB.dbo.Order o', mssql).map((item) => item.label), ['Order ID']);
+});
+
+test('completion quotes names with every supported SQL dialect', () => {
+  for (const engine of ['postgres', 'postgresql', 'cockroachdb', 'sqlite', 'duckdb', 'clickhouse', 'snowflake', 'cassandra']) {
+    assert.equal(completionName('Sales.Order "new"', engine), '"Sales"."Order ""new"""');
+  }
+  for (const engine of ['mysql', 'mariadb']) {
+    assert.equal(completionName('Sales.Or`der', engine), '`Sales`.`Or``der`');
+  }
+  for (const engine of ['sqlserver', 'mssql']) {
+    assert.equal(completionName('Sales.Or]der', engine), '[Sales].[Or]]der]');
+  }
+  for (const engine of ['mongodb', 'redis', 'valkey', 'elasticsearch']) {
+    assert.equal(completionName('raw.name', engine), 'raw.name');
+  }
+});
+
+test('two-part database engines complete tables directly', () => {
+  const remote = { schemas: [{ name: 'shop', tables: [{ name: 'Order', columns: [{ name: 'id' }] }] }] };
+  for (const engine of ['mysql', 'mariadb', 'clickhouse', 'cassandra']) {
+    const completions = buildSqlCompletions(undefined, ['shop'], engine, { shop: remote });
+    assert.deepEqual(dotSuggestions('select * from shop.', 'shop', completions), { kind: 'table', values: ['Order'] });
+    assert.deepEqual(dotSuggestions('select shop.Order.', 'shop.Order', completions), { kind: 'column', values: ['id'], owner: 'shop.Order' });
+  }
 });
 
 const related = buildSqlCompletions({

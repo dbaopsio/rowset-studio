@@ -22,7 +22,7 @@ type policyDefinition struct {
 }
 
 var policyCatalog = []policyDefinition{
-	{"deny_select_without_where", "Block table SELECT statements without a WHERE clause", "medium", "Blocks unbounded reads from physical tables. Constant queries such as SELECT 1 remain available.", false, true, false},
+	{"deny_select_without_where", "Block table SELECT statements without a WHERE clause", "medium", "Blocks unbounded reads from physical tables. Constant queries such as SELECT 1 remain available.", false, false, false},
 	{"deny_delete_without_where", "Block DELETE statements without a WHERE clause", "critical", "Blocks DELETEs with no effective WHERE clause.", false, true, false},
 	{"deny_update_without_where", "Block UPDATE statements without a WHERE clause", "critical", "Blocks UPDATEs with no effective WHERE clause.", false, true, false},
 	{"deny_drop", "Block DROP statements", "critical", "Blocks DROP on any object.", false, true, false},

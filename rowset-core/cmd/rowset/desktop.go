@@ -297,7 +297,11 @@ func openDesktopState(directory string) error {
 	if os.Getenv("ROWSET_DESKTOP_NO_BROWSER") == "1" {
 		return nil
 	}
-	return openBrowser(base + "/#local=" + result.Ticket)
+	// A new query value forces an already-open browser tab to request the
+	// current index and hashed assets. Changing only the #local fragment keeps
+	// the old JavaScript document alive after an in-place desktop upgrade.
+	launchID := strconv.FormatInt(time.Now().UnixNano(), 10)
+	return openBrowser(base + "/?desktop=" + launchID + "#local=" + result.Ticket)
 }
 
 func openBrowser(url string) error {
@@ -306,6 +310,19 @@ func openBrowser(url string) error {
 	case "darwin":
 		command = exec.Command("open", url)
 	case "windows":
+		// Chrome and Edge can host the local UI in a standalone app window,
+		// without tabs or an address bar. Prefer Chrome when both are present;
+		// fall back to the Windows URL handler on machines without either.
+		for _, browser := range windowsAppBrowsers() {
+			if info, err := os.Stat(browser); err != nil || info.IsDir() {
+				continue
+			}
+			app := exec.Command(browser, "--app="+url, "--start-maximized")
+			if err := app.Start(); err == nil {
+				_ = app.Process.Release()
+				return nil
+			}
+		}
 		// rundll32 url.dll,FileProtocolHandler is the classic trick but goes
 		// through Internet Explorer's URL handler specifically on some
 		// Windows builds (notably Windows Server) rather than the user's
@@ -321,6 +338,16 @@ func openBrowser(url string) error {
 		return fmt.Errorf("unsupported desktop platform %s", runtime.GOOS)
 	}
 	return command.Run()
+}
+
+func windowsAppBrowsers() []string {
+	return []string{
+		filepath.Join(os.Getenv("ProgramFiles"), "Google", "Chrome", "Application", "chrome.exe"),
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Google", "Chrome", "Application", "chrome.exe"),
+		filepath.Join(os.Getenv("LocalAppData"), "Google", "Chrome", "Application", "chrome.exe"),
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
+		filepath.Join(os.Getenv("ProgramFiles"), "Microsoft", "Edge", "Application", "msedge.exe"),
+	}
 }
 
 func stopDesktop() error {

@@ -249,6 +249,7 @@ func (s *Server) forgetSchemaAfter(kind sqlguard.Kind, connectionID string) {
 		return
 	}
 	s.engines.InvalidateSchema(connectionID)
+	_ = s.store.DeleteSchemaSnapshots(context.Background(), connectionID)
 }
 
 func elapsedMilliseconds(started time.Time) int64 {

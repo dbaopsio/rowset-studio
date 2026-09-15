@@ -20,6 +20,7 @@ export function useSchema(connectionId: string | null, database?: string, enable
     enabled: !!connectionId && enabled,
     // Objects created since the last look show up when a database is
     // expanded again, without pressing refresh.
-    refetchOnMount: "always",
+    staleTime: 5 * 60_000,
+    refetchOnMount: true,
   });
 }

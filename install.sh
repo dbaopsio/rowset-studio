@@ -1,17 +1,17 @@
 #!/bin/sh
 # Install or update Rowset Studio for the current user (macOS and Linux).
 #
-#   curl -fsSL https://raw.githubusercontent.com/dbaopsio/rowset-studio/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/rowsetdev/rowset-studio/main/install.sh | sh
 #
 # Environment:
 #   ROWSET_VERSION      release to install, e.g. 0.0.13 (default: the latest)
 #   ROWSET_INSTALL_DIR  directory for the rowset command (default: ~/.local/bin)
 #
 # Uninstall (your connections and notebooks are kept):
-#   curl -fsSL https://raw.githubusercontent.com/dbaopsio/rowset-studio/main/install.sh | sh -s -- --uninstall
+#   curl -fsSL https://raw.githubusercontent.com/rowsetdev/rowset-studio/main/install.sh | sh -s -- --uninstall
 set -eu
 
-REPO=dbaopsio/rowset-studio
+REPO=rowsetdev/rowset-studio
 BIN_DIR=${ROWSET_INSTALL_DIR:-"$HOME/.local/bin"}
 APP="$HOME/Applications/Rowset Studio.app"
 SHARE=${XDG_DATA_HOME:-"$HOME/.local/share"}

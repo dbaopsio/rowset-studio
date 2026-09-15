@@ -3,7 +3,7 @@
 # Usage: scripts/release-build.sh VERSION OUTPUT_DIR
 #
 # Asset names carry no version, so
-# https://github.com/dbaopsio/rowset-studio/releases/latest/download/<asset>
+# https://github.com/rowsetdev/rowset-studio/releases/latest/download/<asset>
 # always resolves to the newest release (install.sh and install.ps1 use it).
 # The macOS app needs a macOS host (swiftc, lipo, codesign); elsewhere it is
 # skipped. ROWSET_SIGN_IDENTITY signs the app with a Developer ID.
@@ -16,7 +16,16 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 mkdir -p "$2"
 OUT=$(CDPATH= cd -- "$2" && pwd)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/rowset-release.XXXXXX")
-trap 'rm -rf -- "$WORK"' EXIT HUP INT TERM
+CHILD_PIDS=""
+cleanup() {
+  if [ -n "$CHILD_PIDS" ]; then
+    kill $CHILD_PIDS 2>/dev/null || true
+    wait $CHILD_PIDS 2>/dev/null || true
+  fi
+  rm -rf -- "$WORK"
+}
+trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
 
 # Studio is built once and embedded into a private copy of the Go module, so
 # the source tree's embedded placeholder stays untouched.
@@ -31,7 +40,8 @@ cp -R "$ROOT_DIR/rowset-parser" "$WORK/src/rowset-parser"
 rm -rf "$WORK/src/rowset-core/internal/web/dist"
 cp -R "$ROOT_DIR/rowset-studio/dist" "$WORK/src/rowset-core/internal/web/dist"
 
-for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+build_target() {
+  target=$1
   os=${target%/*}
   arch=${target#*/}
   name="rowset-studio-$os-$arch"
@@ -41,17 +51,45 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wi
   mkdir -p "$dir"
   (
     cd "$WORK/src/rowset-core"
-    CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o "$dir/$exe" ./cmd/rowset
+    CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -p "$PACKAGE_JOBS" -trimpath -ldflags="-s -w -X main.version=$VERSION" -o "$dir/$exe" ./cmd/rowset
   )
   cp "$ROOT_DIR/README.md" "$ROOT_DIR/CHANGELOG.md" "$dir/"
   [ -f "$ROOT_DIR/LICENSE" ] && cp "$ROOT_DIR/LICENSE" "$dir/"
   [ "$os" = linux ] && cp "$ROOT_DIR/rowset-studio/public/favicon.svg" "$dir/rowset-studio.svg"
   if [ "$os" = windows ]; then
+    node "$ROOT_DIR/scripts/generate-windows-icon.mjs" "$dir/rowset-studio.ico"
     (cd "$WORK/pkg" && zip -qr "$OUT/$name.zip" "$name")
   else
     tar -C "$WORK/pkg" -czf "$OUT/$name.tar.gz" "$name"
   fi
+}
+
+# Cross-target compilation is the slowest part of a release. Build two targets
+# at a time by default: enough to use the hosted runner without six large Go
+# compiler processes competing for memory. Override for a larger build host.
+JOBS=${ROWSET_RELEASE_JOBS:-2}
+case "$JOBS" in ''|*[!0-9]*|0) printf '%s\n' 'ROWSET_RELEASE_JOBS must be a positive integer.' >&2; exit 2 ;; esac
+# A target has a large driver graph. Capping its internal package builds keeps
+# two targets from expanding into dozens of memory-heavy compiler processes.
+PACKAGE_JOBS=${ROWSET_GO_PACKAGE_JOBS:-1}
+case "$PACKAGE_JOBS" in ''|*[!0-9]*|0) printf '%s\n' 'ROWSET_GO_PACKAGE_JOBS must be a positive integer.' >&2; exit 2 ;; esac
+active=0
+for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+  build_target "$target" &
+  CHILD_PIDS="$CHILD_PIDS $!"
+  active=$((active + 1))
+  if [ "$active" -ge "$JOBS" ]; then
+    failed=0
+    for pid in $CHILD_PIDS; do if ! wait "$pid"; then failed=1; fi; done
+    [ "$failed" -eq 0 ] || exit 1
+    CHILD_PIDS=""
+    active=0
+  fi
 done
+failed=0
+for pid in $CHILD_PIDS; do if ! wait "$pid"; then failed=1; fi; done
+[ "$failed" -eq 0 ] || exit 1
+CHILD_PIDS=""
 
 # One universal macOS app for Apple silicon and Intel.
 if [ "$(uname -s)" = Darwin ]; then

@@ -44,11 +44,17 @@ func TestLiveTableExport(t *testing.T) {
 				encoded, _ := json.Marshal(map[string]any{"schema": engine.schema, "table": table, "format": format})
 				return importCall(t, s, identity, s.exportTable, "POST", connection.ID, "", string(encoded))
 			}
-			// The default "no SELECT without WHERE" policy covers exports too.
-			if w := export("csv"); w.Code != http.StatusForbidden {
-				t.Fatalf("export with the default policy: %d %s", w.Code, w.Body.String())
+			// Policies cover exports too. Enable this optional guardrail first.
+			toggle := personalRequest(identity, `{"enabled":true}`)
+			toggle.Method = http.MethodPatch
+			toggle.SetPathValue("key", "deny_select_without_where")
+			if w := httptest.NewRecorder(); func() bool { s.togglePolicy(w, toggle); return w.Code >= 300 }() {
+				t.Fatal("could not turn on deny_select_without_where")
 			}
-			toggle := personalRequest(identity, `{"enabled":false}`)
+			if w := export("csv"); w.Code != http.StatusForbidden {
+				t.Fatalf("export with the enabled policy: %d %s", w.Code, w.Body.String())
+			}
+			toggle = personalRequest(identity, `{"enabled":false}`)
 			toggle.Method = http.MethodPatch
 			toggle.SetPathValue("key", "deny_select_without_where")
 			if w := httptest.NewRecorder(); func() bool { s.togglePolicy(w, toggle); return w.Code >= 300 }() {

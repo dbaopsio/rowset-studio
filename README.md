@@ -19,9 +19,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/dbaopsio/rowset-studio/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/dbaopsio/rowset-studio?display_name=tag&sort=semver&label=release"></a>
+  <a href="https://github.com/rowsetdev/rowset-studio/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/rowsetdev/rowset-studio?display_name=tag&sort=semver&label=release"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue.svg"></a>
-  <a href="rowset-core/go.mod"><img alt="Go" src="https://img.shields.io/github/go-mod/go-version/dbaopsio/rowset-studio?filename=rowset-core%2Fgo.mod"></a>
+  <a href="rowset-core/go.mod"><img alt="Go" src="https://img.shields.io/github/go-mod/go-version/rowsetdev/rowset-studio?filename=rowset-core%2Fgo.mod"></a>
   <img alt="Platforms" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey">
 </p>
 
@@ -90,7 +90,8 @@ below for exact limits.
 - **Activity** — your statements across every connection, plus
   per-connection history in the editor.
 - **Policies** — default guardrails (block `DELETE`/`UPDATE` without
-  `WHERE`, `DROP`, `TRUNCATE`, table reads without `WHERE`) and your own
+  `WHERE`, `DROP`, `TRUNCATE`) plus an optional guardrail for table reads
+  without `WHERE`, and your own
   rules: block a table, schema or statement type, limit rows, stop long
   queries, allow writes only in a time window.
 - **Workspace autosave** — tabs survive restarts; concurrent edits from
@@ -154,13 +155,13 @@ BSON type information.
 **macOS and Linux**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dbaopsio/rowset-studio/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/rowsetdev/rowset-studio/main/install.sh | sh
 ```
 
 **Windows** (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/dbaopsio/rowset-studio/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/rowsetdev/rowset-studio/main/install.ps1 | iex
 ```
 
 The installer downloads the latest release, verifies its SHA-256 checksum and
@@ -178,7 +179,7 @@ macOS/Linux, or set `$env:ROWSET_UNINSTALL = 1` before the PowerShell
 command; your connections and notebooks are kept.
 
 Prefer to download yourself? Every
-[release](https://github.com/dbaopsio/rowset-studio/releases) has archives
+[release](https://github.com/rowsetdev/rowset-studio/releases) has archives
 for macOS (Apple silicon, Intel and a universal app), Windows and Linux (x64
 and ARM64) plus `SHA256SUMS`. Releases are not code-signed yet, so a file
 downloaded with a browser triggers Gatekeeper or SmartScreen; on macOS,

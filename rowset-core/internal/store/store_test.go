@@ -80,6 +80,34 @@ func TestOrganizationConfigurationCanBeUpdated(t *testing.T) {
 	}
 }
 
+func TestNewOrganizationStartsWithUnboundedSelectAllowed(t *testing.T) {
+	ctx := context.Background()
+	data, err := Open(ctx, filepath.Join(t.TempDir(), "default-policies.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	if err := data.CreateOrganization(ctx, domain.Organization{ID: "policy-org", Name: "Policy", CreatedAt: NowString()}); err != nil {
+		t.Fatal(err)
+	}
+	policies, err := data.ListPolicyOverrides(ctx, "policy-org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled := make(map[string]bool, len(policies))
+	for _, item := range policies {
+		enabled[item.Key] = item.Enabled
+	}
+	if enabled["deny_select_without_where"] {
+		t.Fatal("SELECT without WHERE should be allowed in a new workspace")
+	}
+	for _, key := range []string{"deny_delete_without_where", "deny_update_without_where", "deny_drop", "deny_truncate", "limit_rows"} {
+		if !enabled[key] {
+			t.Fatalf("default safety policy %s is disabled", key)
+		}
+	}
+}
+
 func TestOpenMigratesMalformedDSNFilenameWithoutLosingData(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "rowset.sqlite3")
@@ -161,8 +189,49 @@ func TestMigrationChecksumsAreImmutable(t *testing.T) {
 			t.Fatalf("bad checksum for %s: %s", migration.name, migration.checksum)
 		}
 	}
-	if len(migrations) != 27 {
+	if len(migrations) != 28 {
 		t.Fatalf("migration inventory changed: got %d", len(migrations))
+	}
+}
+
+func TestSchemaSnapshotsPersistUntilInvalidated(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "schema-cache.sqlite3")
+	data, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	org := domain.Organization{ID: "schema-org", Name: "Schema", CreatedAt: NowString()}
+	if err := data.CreateOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.db.ExecContext(ctx, `INSERT INTO secrets(id,ciphertext,nonce) VALUES('schema-secret',x'01',x'02')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.db.ExecContext(ctx, `INSERT INTO connections(id,org_id,name,alias,engine,host,port,database,environment,tls_required,tech_username,secret_id,created_at,query_timeout_seconds)
+		VALUES('schema-connection',?,'db','db','postgres','localhost',5432,'app','dev',0,'user','schema-secret',datetime('now'),600)`, org.ID); err != nil {
+		t.Fatal(err)
+	}
+	want := []byte(`{"schemas":[{"name":"public"}]}`)
+	if err := data.PutSchemaSnapshot(ctx, "schema-connection", "app", want); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	if got, err := data.SchemaSnapshot(ctx, "schema-connection", "app"); err != nil || string(got) != string(want) {
+		t.Fatalf("snapshot=%s err=%v", got, err)
+	}
+	if err := data.DeleteSchemaSnapshots(ctx, "schema-connection"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.SchemaSnapshot(ctx, "schema-connection", "app"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("snapshot survived invalidation: %v", err)
 	}
 }
 

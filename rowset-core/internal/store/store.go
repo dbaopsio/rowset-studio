@@ -469,13 +469,20 @@ func mapError(err error) error {
 
 func NowString() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// defaultPolicies are on in a new workspace. limit_rows keeps a stray
-// SELECT from pulling a whole table into the editor; every one of them can
-// be changed or turned off in My policies.
-var defaultPolicies = []struct{ key, config string }{
-	{key: "deny_select_without_where"}, {key: "deny_delete_without_where"}, {key: "deny_update_without_where"},
-	{key: "deny_drop"}, {key: "deny_truncate"}, {key: "deny_unclassified"},
-	{key: "limit_rows", config: "10000"},
+// defaultPolicies seed a new workspace. Unbounded SELECTs remain available,
+// while limit_rows still prevents an accidental read from filling the editor.
+// Every policy can be changed later in My policies.
+var defaultPolicies = []struct {
+	key, config string
+	enabled     bool
+}{
+	{key: "deny_select_without_where", enabled: false},
+	{key: "deny_delete_without_where", enabled: true},
+	{key: "deny_update_without_where", enabled: true},
+	{key: "deny_drop", enabled: true},
+	{key: "deny_truncate", enabled: true},
+	{key: "deny_unclassified", enabled: true},
+	{key: "limit_rows", config: "10000", enabled: true},
 }
 
 func seedDefaultPolicies(ctx context.Context, tx *sql.Tx, orgID string) error {
@@ -484,7 +491,7 @@ func seedDefaultPolicies(ctx context.Context, tx *sql.Tx, orgID string) error {
 		if policy.config != "" {
 			config = policy.config
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO policies(id,org_id,name,rule_type,effect,enabled,config) VALUES(lower(hex(randomblob(16))),?,?,?,'deny',1,?) ON CONFLICT(org_id,rule_type) DO NOTHING", orgID, policy.key, policy.key, config); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO policies(id,org_id,name,rule_type,effect,enabled,config) VALUES(lower(hex(randomblob(16))),?,?,?,'deny',?,?) ON CONFLICT(org_id,rule_type) DO NOTHING", orgID, policy.key, policy.key, policy.enabled, config); err != nil {
 			return mapError(err)
 		}
 	}

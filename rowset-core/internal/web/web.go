@@ -28,6 +28,13 @@ func Handler() http.Handler {
 				files.ServeHTTP(w, r)
 				return
 			}
+			// Missing compiled assets must fail as assets. Returning index.html
+			// here gives dynamic imports a misleading 200 text/html response and
+			// can leave an updated desktop tab showing its previous route.
+			if strings.HasPrefix(requested, "assets/") {
+				http.NotFound(w, r)
+				return
+			}
 		}
 		w.Header().Set("Cache-Control", "no-cache")
 		r2 := r.Clone(r.Context())

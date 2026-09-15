@@ -1,7 +1,9 @@
 #!/bin/sh
 set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-sh "$ROOT_DIR/scripts/build-local-binary.sh"
+if [ "${1:-}" != "--no-build" ]; then
+  sh "$ROOT_DIR/scripts/build-local-binary.sh"
+fi
 APP="$ROOT_DIR/dists/desktop/Rowset Studio.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$ROOT_DIR/dists/local/rowset" "$APP/Contents/Resources/rowset"

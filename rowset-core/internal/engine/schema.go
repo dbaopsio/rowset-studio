@@ -214,39 +214,36 @@ type schemaEnrichment struct {
 }
 
 func loadSchemaEnrichments(ctx context.Context, db *sql.DB, engine string) <-chan schemaEnrichment {
-	output := make(chan schemaEnrichment, 6)
+	output := make(chan schemaEnrichment, 7)
+	// Run these short catalog reads in order. Opening seven reads concurrently
+	// exhausts deliberately small PostgreSQL instances (and other constrained
+	// databases), leaving otherwise available metadata marked as missing.
 	go func() {
+		defer close(output)
 		items, err := loadPrimaryKeys(ctx, db, engine)
 		output <- schemaEnrichment{name: "primary keys", primaryKeys: items, err: err}
-	}()
-	go func() {
-		items, err := loadForeignKeys(ctx, db, engine)
-		output <- schemaEnrichment{name: "foreign keys", foreignKeys: items, err: err}
-	}()
-	go func() {
-		partial := Schema{Indexes: map[string][]Index{}}
-		err := loadIndexes(ctx, db, engine, &partial)
-		output <- schemaEnrichment{name: "indexes", indexes: partial.Indexes, err: err}
-	}()
-	go func() {
-		partial := Schema{Views: map[string]bool{}}
-		err := loadViews(ctx, db, engine, &partial)
-		output <- schemaEnrichment{name: "views", views: partial.Views, err: err}
-	}()
-	go func() {
-		partial := Schema{}
-		err := loadRoutines(ctx, db, engine, &partial)
-		output <- schemaEnrichment{name: "routines", routines: partial.Routines, err: err}
-	}()
-	go func() {
-		partial := Schema{}
-		err := loadTriggers(ctx, db, engine, &partial)
-		output <- schemaEnrichment{name: "triggers", triggers: partial.Triggers, err: err}
-	}()
-	go func() {
-		partial := Schema{}
-		err := loadSequences(ctx, db, engine, &partial)
-		output <- schemaEnrichment{name: "sequences", sequences: partial.Sequences, err: err}
+		itemsFK, err := loadForeignKeys(ctx, db, engine)
+		output <- schemaEnrichment{name: "foreign keys", foreignKeys: itemsFK, err: err}
+
+		indexes := Schema{Indexes: map[string][]Index{}}
+		err = loadIndexes(ctx, db, engine, &indexes)
+		output <- schemaEnrichment{name: "indexes", indexes: indexes.Indexes, err: err}
+
+		views := Schema{Views: map[string]bool{}}
+		err = loadViews(ctx, db, engine, &views)
+		output <- schemaEnrichment{name: "views", views: views.Views, err: err}
+
+		routines := Schema{}
+		err = loadRoutines(ctx, db, engine, &routines)
+		output <- schemaEnrichment{name: "routines", routines: routines.Routines, err: err}
+
+		triggers := Schema{}
+		err = loadTriggers(ctx, db, engine, &triggers)
+		output <- schemaEnrichment{name: "triggers", triggers: triggers.Triggers, err: err}
+
+		sequences := Schema{}
+		err = loadSequences(ctx, db, engine, &sequences)
+		output <- schemaEnrichment{name: "sequences", sequences: sequences.Sequences, err: err}
 	}()
 	return output
 }

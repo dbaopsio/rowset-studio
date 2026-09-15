@@ -33,14 +33,10 @@ export default function QuitButton({ collapsed }: { collapsed: boolean }) {
       <button
         onClick={() => setConfirming(true)}
         title="Shutdown Rowset"
-        className={
-          collapsed
-            ? "grid h-8 w-8 place-items-center rounded-md text-rose-700/80 transition hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300/80 dark:hover:bg-rose-950/40 dark:hover:text-rose-200"
-            : "flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] text-rose-700/80 transition hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300/80 dark:hover:bg-rose-950/40 dark:hover:text-rose-200"
-        }
+        aria-label="Shutdown Rowset"
+        className={`grid ${collapsed ? "h-8 w-8" : "h-7 w-7"} shrink-0 place-items-center rounded-md text-rose-600 transition hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300 dark:hover:bg-rose-950/40 dark:hover:text-rose-200`}
       >
         <Icon name="power" size={collapsed ? 16 : 15} className="shrink-0" />
-        {!collapsed && <span className="truncate whitespace-nowrap">Shutdown Rowset</span>}
       </button>
       {confirming && (
         <Modal title="Shutdown Rowset?" onClose={() => !busy && setConfirming(false)}>

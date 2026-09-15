@@ -217,7 +217,11 @@ func (s *Server) probeTopologyNode(ctx context.Context, connection domain.Connec
 	case "mariadb":
 		query = "SELECT IF(@@global.read_only = 1, 'secondary', 'primary'), @@global.read_only"
 	case "mssql", "sqlserver":
-		query = "SELECT CASE WHEN SERVERPROPERTY('IsHadrEnabled') = 1 AND sys.fn_hadr_is_primary_replica(DB_NAME()) = 0 THEN 'secondary' ELSE 'primary' END, CASE WHEN DATABASEPROPERTYEX(DB_NAME(), 'Updateability') = 'READ_ONLY' THEN 1 ELSE 0 END"
+		// master is not an availability database, so fn_hadr_is_primary_replica
+		// returns NULL there. Fall back to the local replica state when this
+		// instance hosts only one role; that keeps a connection configured with
+		// master able to distinguish the two servers in a normal two-node AG.
+		query = "SELECT CASE WHEN sys.fn_hadr_is_primary_replica(DB_NAME()) = 0 THEN 'secondary' WHEN sys.fn_hadr_is_primary_replica(DB_NAME()) = 1 THEN 'primary' WHEN EXISTS (SELECT 1 FROM sys.dm_hadr_availability_replica_states WHERE is_local = 1 AND role = 2) AND NOT EXISTS (SELECT 1 FROM sys.dm_hadr_availability_replica_states WHERE is_local = 1 AND role = 1) THEN 'secondary' ELSE 'primary' END, CASE WHEN DATABASEPROPERTYEX(DB_NAME(), 'Updateability') = 'READ_ONLY' THEN 1 WHEN EXISTS (SELECT 1 FROM sys.dm_hadr_availability_replica_states WHERE is_local = 1 AND role = 2) AND NOT EXISTS (SELECT 1 FROM sys.dm_hadr_availability_replica_states WHERE is_local = 1 AND role = 1) THEN 1 ELSE 0 END"
 	default:
 		return "", false, errors.New("unsupported engine")
 	}

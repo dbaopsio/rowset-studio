@@ -29,7 +29,16 @@ function cellText(value: unknown) {
 export default function ResultsGrid({ result, editing, engine, onFilteredCount }: { result: QueryResult; editing?: ResultEditing; engine?: string; onFilteredCount?: (shown: number, total: number) => void }) {
   const [filters, setFilters] = useState<ResultFilter[]>([]);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
-  const indexes = useMemo(() => filteredIndexes(result.rows, filters, result.columnTypes), [result.rows, result.rowCount, result.columnTypes, filters]);
+  // The filter value input stays instantly responsive (it's just what's
+  // shown in the box), but the actual scan - a full pass over every loaded
+  // row, and whatever re-sort depends on its result - only runs 200ms after
+  // typing stops, instead of once per keystroke.
+  const [debouncedFilters, setDebouncedFilters] = useState(filters);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedFilters(filters), 200);
+    return () => window.clearTimeout(timer);
+  }, [filters]);
+  const indexes = useMemo(() => filteredIndexes(result.rows, debouncedFilters, result.columnTypes), [result.rows, result.rowCount, result.columnTypes, debouncedFilters]);
   const visibleResult = useMemo(() => ({ ...result, rows: indexes.map(index => result.rows[index]), rowCount: indexes.length }), [result, indexes]);
   useEffect(() => { onFilteredCount?.(indexes.length, result.rows.length); }, [indexes.length, result.rows.length, onFilteredCount]);
   // Document engines return one JSON document per row; that reads better as

@@ -80,10 +80,14 @@ const personalGroups: NavGroup[] = [
   { title: "Personal workspace", items: [
     { to: "/editor", label: "Query", icon: "sql" },
     { to: "/notebooks", label: "Notebooks", icon: "notebook" },
-    { to: "/schedules", label: "Schedules", icon: "clock" },
-    { to: "/schema-compare", label: "Schema comparison", icon: "table" },
-    { to: "/connections", label: "Connections", icon: "plug" },
     { to: "/activity", label: "Activity", icon: "activity" },
+    { to: "/schedules", label: "Schedules", icon: "clock" },
+  ] },
+  { title: "Database", items: [
+    { to: "/connections", label: "Connections", icon: "plug" },
+    { to: "/schema-compare", label: "Schema comparison", icon: "table" },
+  ] },
+  { title: "Settings", items: [
     { to: "/policies", label: "My policies", icon: "shield" },
     { to: "/account", label: "Account", icon: "key" },
   ] },
@@ -94,6 +98,7 @@ const productLabel = extensions.find((item) => item.productLabel)?.productLabel 
 
 const appVersion = import.meta.env.VITE_ROWSET_VERSION || "dev";
 const vendor = import.meta.env.VITE_ROWSET_VENDOR ?? "";
+const commandPaletteShortcut = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⇧⌘K" : "Ctrl+Shift+K";
 
 function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const shared = useShared();
@@ -147,8 +152,9 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
           return (
             <div key={group.title} className="space-y-1">
               {!collapsed && (
-                <div className="px-2 text-[11px] font-semibold tracking-wide text-slate-500">
-                  {group.title}
+                <div className="flex items-center justify-between gap-2 px-2 text-[11px] font-semibold tracking-wide text-slate-500">
+                  <span>{group.title}</span>
+                  {group.title === "Personal workspace" && <kbd className="font-sans text-[10px] font-normal tracking-normal text-slate-400">{commandPaletteShortcut}</kbd>}
                 </div>
               )}
               <div className="space-y-0.5">
@@ -211,13 +217,19 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
         ) : (
           <div className="space-y-1.5">
             {desktop ? (
-              <div className="flex items-center gap-0.5">
-                <div className="min-w-0 flex-1"><QuitButton collapsed={false} /></div>
-                {sidebarWidgets.map((Widget, index) => <Widget key={index} collapsed={false} />)}
-                <span aria-hidden className="h-4 w-px shrink-0 bg-slate-200 dark:bg-slate-800" />
+              <div className="flex items-center justify-center gap-3">
+                <span className="whitespace-nowrap text-[10px] leading-none text-slate-400" title={`Rowset ${appVersion}`}>
+                  Rowset v{appVersion}
+                </span>
+                <span aria-hidden className="h-4 w-px bg-slate-200 dark:bg-slate-800" />
+                <div className="flex items-center justify-center gap-0.5">
+                  <QuitButton collapsed={false} />
+                  {sidebarWidgets.map((Widget, index) => <Widget key={index} collapsed={false} />)}
+                </div>
+                <span aria-hidden className="h-4 w-px bg-slate-200 dark:bg-slate-800" />
                 <button
                   onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                  className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+                  className="grid h-7 w-7 shrink-0 place-items-center justify-self-end rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
                   title={theme === "dark" ? "Switch to light" : "Switch to dark"}
                 >
                   <Icon name={theme === "dark" ? "sun" : "moon"} size={15} />
@@ -255,9 +267,11 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
             </>)}
           </div>
         )}
-        <div className={`mt-1.5 border-t border-slate-100 pt-1.5 text-[10px] text-slate-400 dark:border-slate-800 ${collapsed ? "text-center" : "px-2"}`} title={`Rowset ${appVersion} · ⇧⌘K to jump anywhere`}>
-          {collapsed ? `v${appVersion}` : `Rowset v${appVersion} · ⇧⌘K to jump`}
-        </div>
+        {(!desktop || collapsed) && (
+          <div className={`mt-1.5 border-t border-slate-100 pt-1.5 text-[10px] text-slate-400 dark:border-slate-800 ${collapsed ? "text-center" : "px-2"}`} title={`Rowset ${appVersion}`}>
+            {collapsed ? `v${appVersion}` : `Rowset v${appVersion}`}
+          </div>
+        )}
       </div>
     </aside>
   );

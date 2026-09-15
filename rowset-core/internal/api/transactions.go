@@ -221,6 +221,7 @@ func (s *Server) finishTransaction(w http.ResponseWriter, r *http.Request, commi
 	// Objects created or dropped inside the transaction only become real, or
 	// disappear, when it ends.
 	s.engines.InvalidateSchema(connection.ID)
+	_ = s.store.DeleteSchemaSnapshots(r.Context(), connection.ID)
 	w.WriteHeader(204)
 }
 

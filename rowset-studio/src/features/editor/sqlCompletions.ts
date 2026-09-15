@@ -20,12 +20,21 @@ export interface SqlCompletions {
   foreignKeys?: Record<string, ForeignKey[]>;
   /** Databases a statement can name, keyed by lower-case name. */
   databaseNames?: Record<string, string>;
+  /** Schemas and objects already loaded for cross-database completion. */
+  databaseSchemaNames?: Record<string, Record<string, string>>;
+  databaseSchemaTables?: Record<string, Record<string, string[]>>;
+  databaseTables?: Record<string, string[]>;
+  databaseTableColumns?: Record<string, string[]>;
   /** Engine of the connection, lower-case, when known. */
   engine?: string;
 }
 
 // Engines where one statement can reach another database by name.
-const CROSS_DATABASE = new Set(["mysql", "mariadb", "mssql", "sqlserver"]);
+const CROSS_DATABASE = new Set(["mysql", "mariadb", "mssql", "sqlserver", "snowflake", "cockroachdb", "clickhouse", "cassandra"]);
+// These engines address an object as database.table (or keyspace.table)
+// instead of database.schema.table.
+const DIRECT_DATABASE = new Set(["mysql", "mariadb", "clickhouse", "cassandra"]);
+const QUOTED_SQL_ENGINES = new Set(["postgres", "postgresql", "cockroachdb", "sqlite", "duckdb", "clickhouse", "snowflake", "cassandra"]);
 
 const STOP_WORDS = new Set([
   "where", "on", "join", "inner", "left", "right", "full", "cross", "group",
@@ -34,22 +43,21 @@ const STOP_WORDS = new Set([
 
 export function aliasMap(sql: string): Record<string, string> {
   const map: Record<string, string> = {};
-  const re = /\b(?:from|join|update|into)\s+(?:(["`[]?[\w$]+["`\]]?)\.)?(["`[]?[\w$]+["`\]]?)(?:\s+(?:as\s+)?([a-z_][\w$]*))?/gi;
+  const re = /\b(?:from|join|update|into)\s+(?:(["`[]?[\w$]+["`\]]?)\.)?(?:(["`[]?[\w$]+["`\]]?)\.)?(["`[]?[\w$]+["`\]]?)(?:\s+(?:as\s+)?([a-z_][\w$]*))?/gi;
   const clean = (value: string) => value.replace(/^["`[]|["`\]]$/g, "").toLowerCase();
   for (const match of sql.matchAll(re)) {
-    const schema = match[1] ? clean(match[1]) : "";
-    const table = clean(match[2]);
-    if (STOP_WORDS.has(table)) continue;
-    const qualified = schema ? `${schema}.${table}` : table;
+    const prefix = [match[1], match[2]].filter(Boolean).map((part) => clean(part!));
+    const table = clean(match[3]);
+    const qualified = [...prefix, table].join(".");
     map[table] = qualified;
     map[qualified] = qualified;
-    const alias = match[3]?.toLowerCase() ?? "";
+    const alias = match[4]?.toLowerCase() ?? "";
     if (alias && !STOP_WORDS.has(alias)) map[alias] = qualified;
   }
   return map;
 }
 
-export function buildSqlCompletions(schema?: SchemaInfo, databases: string[] = [], engine = ""): SqlCompletions {
+export function buildSqlCompletions(schema?: SchemaInfo, databases: string[] = [], engine = "", loadedSchemas: Record<string, SchemaInfo> = {}): SqlCompletions {
   const foreignKeys: Record<string, ForeignKey[]> = {};
   const tableColumns: Record<string, string[]> = {};
   const tableNames: Record<string, string> = {};
@@ -88,11 +96,49 @@ export function buildSqlCompletions(schema?: SchemaInfo, databases: string[] = [
     tableNames[key] = table.name;
   }
   const databaseNames: Record<string, string> = {};
+  const databaseSchemaNames: Record<string, Record<string, string>> = {};
+  const databaseSchemaTables: Record<string, Record<string, string[]>> = {};
+  const databaseTables: Record<string, string[]> = {};
+  const databaseTableColumns: Record<string, string[]> = {};
   if (CROSS_DATABASE.has(engine.toLowerCase())) {
     // MySQL calls a database a schema; it is listed once, as a schema.
     for (const name of databases) if (!schemaNames[name.toLowerCase()]) databaseNames[name.toLowerCase()] = name;
+    for (const [database, info] of Object.entries(loadedSchemas)) {
+      const databaseKey = database.toLowerCase();
+      databaseSchemaNames[databaseKey] = {};
+      databaseSchemaTables[databaseKey] = {};
+      databaseTables[databaseKey] = [];
+      for (const schemaNode of info.schemas ?? []) {
+        const schemaKey = schemaNode.name.toLowerCase();
+        databaseSchemaNames[databaseKey][schemaKey] = schemaNode.name;
+        databaseSchemaTables[databaseKey][schemaKey] = [];
+        for (const table of [...schemaNode.tables, ...(schemaNode.views ?? [])]) {
+          databaseSchemaTables[databaseKey][schemaKey].push(table.name);
+          databaseTables[databaseKey].push(table.name);
+          databaseTableColumns[`${databaseKey}.${schemaKey}.${table.name.toLowerCase()}`] = table.columns.map((column) => column.name);
+          databaseTableColumns[`${databaseKey}.${table.name.toLowerCase()}`] = table.columns.map((column) => column.name);
+        }
+      }
+    }
   }
-  return { tableColumns, tableNames, schemaTables, schemaNames, routines, databaseNames, foreignKeys, engine: engine.toLowerCase() };
+  return { tableColumns, tableNames, schemaTables, schemaNames, routines, databaseNames, databaseSchemaNames, databaseSchemaTables, databaseTables, databaseTableColumns, foreignKeys, engine: engine.toLowerCase() };
+}
+
+/** Quote every object name completion with the connected engine's syntax. */
+export function completionName(value: string, engine?: string): string {
+  const normalized = engine?.toLowerCase() ?? "";
+  if (normalized === "mysql" || normalized === "mariadb") {
+    return value.split(".").map((part) => part.startsWith("`") && part.endsWith("`") ? part : `\`${part.replaceAll("`", "``")}\``).join(".");
+  }
+  if (normalized !== "sqlserver" && normalized !== "mssql" && !QUOTED_SQL_ENGINES.has(normalized)) return value;
+  return value.split(".").map((part) => {
+    if (normalized === "sqlserver" || normalized === "mssql") {
+      if (part.startsWith("[") && part.endsWith("]")) return part;
+      return `[${part.replaceAll("]", "]]")}]`;
+    }
+    if (part.startsWith('"') && part.endsWith('"')) return part;
+    return `"${part.replaceAll('"', '""')}"`;
+  }).join(".");
 }
 
 /** Where the cursor is, so the right kind of name is offered first. */
@@ -148,7 +194,7 @@ export function joinSuggestions(sql: string, completions: SqlCompletions): { lab
       const short = shortAlias(name, used, out.length);
       out.push({
         label: `JOIN ${name}`,
-        insertText: `JOIN ${name} ${short} ON ${short}.${key.toColumn} = ${here}.${key.column}`,
+        insertText: `JOIN ${completionName(name, completions.engine)} ${completionName(short, completions.engine)} ON ${completionName(`${short}.${key.toColumn}`, completions.engine)} = ${completionName(`${here}.${key.column}`, completions.engine)}`,
         detail: `foreign key ${key.column} → ${name}.${key.toColumn}`,
       });
     }
@@ -180,7 +226,7 @@ export function columnSuggestions(sql: string, completions: SqlCompletions): Col
   const aliases = aliasMap(sql);
   const tables = new Map<string, string>();
   for (const [name, target] of Object.entries(aliases)) {
-    const key = completions.tableColumns[target] ? target : undefined;
+    const key = completions.tableColumns[target] || completions.databaseTableColumns?.[target] ? target : undefined;
     if (!key) continue;
     // The shortest name for the table: its alias when it has one.
     const current = tables.get(key);
@@ -188,7 +234,7 @@ export function columnSuggestions(sql: string, completions: SqlCompletions): Col
   }
   const owners = new Map<string, string[]>();
   for (const [key] of tables) {
-    for (const column of completions.tableColumns[key] ?? []) {
+    for (const column of completions.tableColumns[key] ?? completions.databaseTableColumns?.[key] ?? []) {
       (owners.get(column) ?? owners.set(column, []).get(column)!).push(key);
     }
   }
@@ -260,17 +306,33 @@ export function groupByColumns(sql: string, engine?: string): string[] {
 
 export function dotSuggestions(sql: string, identifier: string, completions: SqlCompletions): { kind: "column" | "table" | "schema"; values: string[]; owner?: string } {
   const ident = identifier.toLowerCase();
+  const parts = ident.split(".");
+  if (parts.length === 3) {
+    const values = completions.databaseTableColumns?.[ident] ?? [];
+    return { kind: "column", values, owner: identifier };
+  }
+  if (parts.length === 2) {
+    if (DIRECT_DATABASE.has(completions.engine ?? "")) {
+      const values = completions.databaseTableColumns?.[ident] ?? [];
+      return { kind: "column", values, owner: identifier };
+    }
+    return { kind: "table", values: completions.databaseSchemaTables?.[parts[0]]?.[parts[1]] ?? [] };
+  }
   const table = aliasMap(sql)[ident];
-  const tableKey = table?.toLowerCase() ?? (completions.tableColumns[ident] ? ident : undefined);
-  if (tableKey && completions.tableColumns[tableKey]) {
-    return { kind: "column", values: completions.tableColumns[tableKey], owner: completions.tableNames[tableKey] ?? tableKey };
+  const candidate = table?.toLowerCase();
+  const tableKey = candidate && (completions.tableColumns[candidate] || completions.databaseTableColumns?.[candidate]) ? candidate : completions.tableColumns[ident] ? ident : undefined;
+  if (tableKey) {
+    return { kind: "column", values: completions.tableColumns[tableKey] ?? completions.databaseTableColumns?.[tableKey] ?? [], owner: completions.tableNames[tableKey] ?? tableKey };
   }
   if (completions.schemaTables[ident]) {
     return { kind: "table", values: completions.schemaTables[ident] };
   }
   // SQL Server: database.schema.table. Only the open database's schemas are known.
   if (completions.databaseNames?.[ident]) {
-    return { kind: "schema", values: Object.values(completions.schemaNames) };
+    if (DIRECT_DATABASE.has(completions.engine ?? "")) {
+      return { kind: "table", values: completions.databaseTables?.[ident] ?? [] };
+    }
+    return { kind: "schema", values: Object.values(completions.databaseSchemaNames?.[ident] ?? completions.schemaNames) };
   }
   return { kind: "column", values: [] };
 }

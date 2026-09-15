@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -105,7 +106,13 @@ func (s *Server) connectionJSON(r *http.Request, connection domain.Connection, i
 	for _, detail := range s.connectionDetails {
 		detail(r.Context(), connection, result)
 	}
-	if !identity.IsAdmin() {
+	if identity.IsAdmin() && len(nodes) > 1 {
+		// An administrator is allowed to choose either verified role. Expose
+		// that capability just like a user-selectable role policy so personal
+		// desktop owners get the Primary/Secondary control in the editor.
+		result["nodePolicy"] = "user_selectable"
+		result["defaultNodeRole"] = "primary"
+	} else if !identity.IsAdmin() {
 		if role, err := s.store.UserRole(r.Context(), identity.UserID); err == nil {
 			access, _ := s.store.ListRoleConnectionAccess(r.Context(), role.ID)
 			for _, item := range access {
@@ -293,6 +300,7 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	s.rollbackSecrets(r, replacedSSH)
 	_ = s.engines.Invalidate(connection.ID)
+	_ = s.store.DeleteSchemaSnapshots(r.Context(), connection.ID)
 	if err := s.runConnectionSaveHooks(r.Context(), connection, false, body); err != nil {
 		writeStoreError(w, err)
 		return
@@ -321,6 +329,7 @@ func (s *Server) deleteConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_ = s.engines.Invalidate(connection.ID)
+	_ = s.store.DeleteSchemaSnapshots(r.Context(), connection.ID)
 	s.closeConnectionTransactions(connection.ID)
 	s.topologyMu.Lock()
 	delete(s.topologyLocks, connection.ID)
@@ -663,12 +672,28 @@ func (s *Server) connectionSchema(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := withConnectionTimeout(r, connection, 0, 60*time.Second)
 	defer cancel()
 	refresh := r.URL.Query().Get("refresh") == "1"
+	if !refresh {
+		if cached, cacheErr := s.store.SchemaSnapshot(r.Context(), connection.ID, target.Database); cacheErr == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(cached)
+			return
+		} else if !errors.Is(cacheErr, store.ErrNotFound) {
+			s.logger.Warn("read schema snapshot", "connection_id", connection.ID, "database", target.Database, "error", cacheErr)
+		}
+	}
 	schema, err := s.engines.CachedSchema(ctx, target, refresh)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "EXEC_ERROR", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, schemaJSON(schema))
+	body := schemaJSON(schema)
+	if encoded, encodeErr := json.Marshal(body); encodeErr == nil {
+		if cacheErr := s.store.PutSchemaSnapshot(r.Context(), connection.ID, target.Database, encoded); cacheErr != nil {
+			s.logger.Warn("save schema snapshot", "connection_id", connection.ID, "database", target.Database, "error", cacheErr)
+		}
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 // refreshConnectionSchema forgets the cached schema of every database on the
@@ -679,6 +704,7 @@ func (s *Server) refreshConnectionSchema(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.engines.InvalidateSchema(connection.ID)
+	_ = s.store.DeleteSchemaSnapshots(r.Context(), connection.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

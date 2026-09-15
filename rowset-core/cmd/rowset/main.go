@@ -79,7 +79,7 @@ func parseArgs(args []string) (string, string, error) {
 }
 
 func printHelp() {
-	fmt.Printf("rowset %s\n\nUSAGE:\n  rowset desktop        start Rowset Studio and open it in the browser\n  rowset desktop-stop   stop the running Rowset Studio\n  rowset --version\n", version)
+	fmt.Printf("rowset %s\n\nUSAGE:\n  rowset desktop        start and open Rowset Studio\n  rowset desktop-stop   stop the running Rowset Studio\n  rowset --version\n", version)
 	if len(commands) > 0 {
 		names := make([]string, 0, len(commands))
 		for name := range commands {

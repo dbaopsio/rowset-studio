@@ -1,7 +1,7 @@
 import QueryParameters from "./ParameterFields";
 import { parameterNames, resolveParameters, type QueryParameters as ParameterValues } from "./queryParameters";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBlocker, useLocation, useNavigate } from "react-router";
 import { Button, Modal, Panel } from "../../components/ui";
 import { Icon, type IconName } from "../../components/Icon";
@@ -17,7 +17,7 @@ import RunToolbar, { type WorkspaceStatus } from "./RunToolbar";
 import SaveToNotebookDialog from "../notebooks/SaveToNotebookDialog";
 import PlanPanel, { type PlanState } from "../plan/PlanPanel";
 import SchemaBrowser from "./SchemaBrowser";
-import { explainQuery, exportTable, forgetSchema, listDatabases, runOnConnections, runQuery, beginTxn, txnQuery, commitTxn, rollbackTxn, type QueryResult } from "./api";
+import { explainQuery, exportTable, forgetSchema, getSchema, listDatabases, runOnConnections, runQuery, beginTxn, txnQuery, commitTxn, rollbackTxn, type QueryResult, type SchemaInfo } from "./api";
 import { buildSqlCompletions } from "./sqlCompletions";
 import { useSchema } from "./useEditor";
 import { formatSql, statementAt, splitStatements } from "./sqlText";
@@ -260,6 +260,7 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
   const { data: connections = [] } = useQuery({
     queryKey: ["connections"],
     queryFn: listConnections,
+    staleTime: 60_000,
   });
   const activeConnection = connections.find((c) => c.id === activeConnectionId) ?? null;
   const [tabParameters, setTabParameters] = useState<Record<string, ParameterValues>>({});
@@ -298,7 +299,31 @@ function EditorWorkspace({ snapshot, initial }: { snapshot: WorkspaceSnapshot; i
     queryFn: () => listDatabases(activeConnectionId!),
     enabled: Boolean(activeConnectionId),
   });
-  const completions = useMemo(() => buildSqlCompletions(schema, databaseList, activeConnection?.engine ?? ""), [schema, databaseList, activeConnection?.engine]);
+  const cachedSchemas = useQueries({
+    queries: databaseList.map((database) => ({
+      queryKey: ["schema", activeConnectionId, database],
+      queryFn: () => getSchema(activeConnectionId!, database),
+      enabled: false,
+      staleTime: 5 * 60_000,
+    })),
+  });
+  useEffect(() => {
+    if (!activeConnectionId || databaseList.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      for (const database of databaseList) {
+        if (cancelled || database === selectedDb) continue;
+        await queryClient.prefetchQuery({
+          queryKey: ["schema", activeConnectionId, database],
+          queryFn: () => getSchema(activeConnectionId, database),
+          staleTime: 5 * 60_000,
+        });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeConnectionId, databaseList, queryClient, selectedDb]);
+  const loadedSchemas = useMemo(() => Object.fromEntries(cachedSchemas.flatMap((query, index) => query.data ? [[databaseList[index], query.data as SchemaInfo]] : [])), [cachedSchemas, databaseList]);
+  const completions = useMemo(() => buildSqlCompletions(schema, databaseList, activeConnection?.engine ?? "", loadedSchemas), [schema, databaseList, activeConnection?.engine, loadedSchemas]);
 
   // The browser's Back button always asks before leaving the editor; a link
   // asks only when leaving would stop a query or roll back a transaction.
@@ -1411,7 +1436,7 @@ function DatabaseBranch({
             { label: "Refresh schema", onSelect: () => void forgetSchema(connectionId).finally(() => queryClient.invalidateQueries({ queryKey: ["schema", connectionId, name] })) },
           ]}
         />
-        <CountPill>{!shouldLoadSchema ? "—" : isFetching && tableCount === undefined ? "…" : tableCount ?? 0}</CountPill>
+        <CountPill>{schema ? tableCount ?? 0 : !shouldLoadSchema ? "—" : isFetching ? "…" : 0}</CountPill>
       </div>
       {open && (
         <div className={`${treeGuide} pb-1 pt-0.5`}>
