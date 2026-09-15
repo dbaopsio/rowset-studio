@@ -118,7 +118,10 @@ export default function ConnectionForm({
     setForm((f) => ({
       ...f,
       name: value,
-      alias: f.alias ? f.alias : toAlias(value),
+      // No separate Alias field to fill in - it's just Name, lowercased and
+      // spaced-out, used where a short slug is needed (URLs, the command
+      // palette).
+      alias: toAlias(value),
     }));
   }
 
@@ -167,7 +170,12 @@ export default function ConnectionForm({
         {!editing && <div className="flex items-end gap-2">
           <div className="flex-1"><Field label="Paste connection URL (optional)"><Input type="password" autoComplete="off" value={connectionURL} onChange={e => setConnectionURL(e.target.value)} placeholder="postgresql://user:password@host/database" /></Field></div>
           <button type="button" className="rounded border px-3 py-2 text-xs" onClick={() => {
-            try { const parsed = parseConnectionURL(connectionURL); setForm(current => ({ ...current, ...parsed, database: parsed.database || DEFAULT_DATABASE[parsed.engine], name: current.name || parsed.database || parsed.host, nodes: [{ name: "node-1", host: parsed.host, port: parsed.port }] })); setConnectionURL(""); setError(""); }
+            try {
+              const parsed = parseConnectionURL(connectionURL);
+              const name = (current: ConnectionInput) => current.name || parsed.database || parsed.host;
+              setForm(current => ({ ...current, ...parsed, database: parsed.database || DEFAULT_DATABASE[parsed.engine], name: name(current), alias: toAlias(name(current)), nodes: [{ name: "node-1", host: parsed.host, port: parsed.port }] }));
+              setConnectionURL(""); setError("");
+            }
             catch (error) { setError(error instanceof Error ? error.message : "Invalid connection URL"); }
           }}>Use URL</button>
         </div>}
@@ -190,16 +198,8 @@ export default function ConnectionForm({
           </Select>
         </Field>
         <div className="grid gap-2 md:grid-cols-2">
-          <Field label="Name">
+          <Field label="Name" className="md:col-span-2">
             <Input value={form.name} onChange={(e) => setName(e.target.value)} required />
-          </Field>
-          <Field label="Alias">
-            <Input
-              value={form.alias}
-              onChange={(e) => set("alias", toAlias(e.target.value))}
-              placeholder="demo-postgres"
-              title="Short name shown in Studio"
-            />
           </Field>
           {fields.map((ExtraField, index) => <ExtraField key={index} connection={connection} name={form.name} values={extra} onChange={(key, value) => setExtra((current) => ({ ...current, [key]: value }))} />)}
           {/* Username and password side by side - they belong together and are
@@ -216,6 +216,59 @@ export default function ConnectionForm({
               placeholder={editing ? "••••••••" : undefined}
             />
           </Field>}
+          {!fileEngine && (() => {
+            const label = form.engine === "clickhouse" ? "Server (native TCP port, usually 9440 with TLS or 9000 without)" : form.engine === "mongodb" ? "Server (authentication database: admin)" : form.engine === "redis" || form.engine === "valkey" ? "Server" : form.engine === "cassandra" ? "Server (native transport port, usually 9042)" : form.engine === "elasticsearch" ? "Server (HTTP API port, usually 9200)" : form.engine === "snowflake" ? "Account identifier (used as host, e.g. myorg-myaccount)" : "Server";
+            const first = form.nodes[0];
+            const firstStatus = first ? connection?.nodes.find((item) => item.id === first.id) : undefined;
+            // A single host/port is the common case for every engine, including
+            // ones with several nodes - HA is opt-in instead of always showing
+            // a "node name" field and an Add/Remove UI nobody needs yet.
+            if (singleEndpoint || !haEnabled) {
+              return (
+                <Field label={label} className={singleEndpoint ? undefined : "md:col-span-2"}>
+                  <div className="space-y-1">
+                    <div className="grid grid-cols-3 gap-2">
+                      <Input className="col-span-2" value={first?.host ?? ""} placeholder="host" onChange={(e) => set("nodes", [{ ...first, name: first?.name ?? "node-1", host: e.target.value, port: first?.port ?? DEFAULT_PORT[form.engine] }])} required />
+                      <Input type="number" value={first?.port ?? DEFAULT_PORT[form.engine]} onChange={(e) => set("nodes", [{ ...first, name: first?.name ?? "node-1", host: first?.host ?? "", port: Number(e.target.value) }])} required />
+                    </div>
+                    <p className="text-[11px] text-slate-500">{firstStatus ? singleEndpoint ? firstStatus.health : `${firstStatus.health} · ${firstStatus.detectedRole}` : "Connection checked after save"}</p>
+                    {!singleEndpoint && (
+                      <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                        <input type="checkbox" checked={haEnabled} onChange={(e) => setHaEnabled(e.target.checked)} />
+                        This connection has more than one node (HA / primary-secondary)
+                      </label>
+                    )}
+                  </div>
+                </Field>
+              );
+            }
+            return (
+              <Field label="HA nodes" className="md:col-span-2">
+                <div className="space-y-2">
+                  <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                    <input type="checkbox" checked={haEnabled} onChange={(e) => { setHaEnabled(e.target.checked); if (!e.target.checked) set("nodes", form.nodes.slice(0, 1)); }} />
+                    This connection has more than one node (HA / primary-secondary)
+                  </label>
+                  {form.nodes.map((node, index) => {
+                    const status = connection?.nodes.find((item) => item.id === node.id);
+                    return <div key={node.id ?? index} className="rounded border border-slate-200 p-2 dark:border-slate-800">
+                      <div className="grid grid-cols-6 gap-2">
+                        <Input className="col-span-2" value={node.name} placeholder="node name" onChange={(e) => set("nodes", form.nodes.map((item, i) => i === index ? { ...item, name: e.target.value } : item))} required />
+                        <Input className="col-span-3" value={node.host} placeholder="host" onChange={(e) => set("nodes", form.nodes.map((item, i) => i === index ? { ...item, host: e.target.value } : item))} required />
+                        <Input type="number" value={node.port} onChange={(e) => set("nodes", form.nodes.map((item, i) => i === index ? { ...item, port: Number(e.target.value) } : item))} required />
+                      </div>
+                      <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
+                        <span>{status ? `${status.health} · ${status.detectedRole}` : "role auto-detected after save"}</span>
+                        {form.nodes.length > 1 && <button type="button" className="ml-auto text-red-500" onClick={() => set("nodes", form.nodes.filter((_, i) => i !== index))}>Remove</button>}
+                      </div>
+                    </div>;
+                  })}
+                  <button type="button" className="text-xs text-orange-600" onClick={() => set("nodes", [...form.nodes, { name: `node-${form.nodes.length + 1}`, host: "", port: DEFAULT_PORT[form.engine] }])}>+ Add node</button>
+                  <p className="text-[11px] text-slate-500">Primary/secondary role is detected from the database and refreshed periodically; it is not manually trusted.</p>
+                </div>
+              </Field>
+            );
+          })()}
           <Field label={fileEngine ? "Database file (absolute path)" : "Database"}><Input value={form.database} onChange={e => set("database", e.target.value)} placeholder={fileEngine ? "/path/to/database" : DEFAULT_DATABASE[form.engine]} required={fileEngine} /></Field>
           <Field label="Environment">
             <Select value={form.environment} onChange={(e) => set("environment", e.target.value)}>
@@ -344,59 +397,6 @@ export default function ConnectionForm({
             )}
           </div>
         </details>}
-        {!fileEngine && (() => {
-          const label = form.engine === "clickhouse" ? "Server (native TCP port, usually 9440 with TLS or 9000 without)" : form.engine === "mongodb" ? "Server (authentication database: admin)" : form.engine === "redis" || form.engine === "valkey" ? "Server" : form.engine === "cassandra" ? "Server (native transport port, usually 9042)" : form.engine === "elasticsearch" ? "Server (HTTP API port, usually 9200)" : form.engine === "snowflake" ? "Account identifier (used as host, e.g. myorg-myaccount)" : "Server";
-          const first = form.nodes[0];
-          const firstStatus = first ? connection?.nodes.find((item) => item.id === first.id) : undefined;
-          // A single host/port is the common case for every engine, including
-          // ones with several nodes - HA is opt-in instead of always showing
-          // a "node name" field and an Add/Remove UI nobody needs yet.
-          if (singleEndpoint || !haEnabled) {
-            return (
-              <Field label={label}>
-                <div className="space-y-1">
-                  <div className="grid grid-cols-3 gap-2">
-                    <Input className="col-span-2" value={first?.host ?? ""} placeholder="host" onChange={(e) => set("nodes", [{ ...first, name: first?.name ?? "node-1", host: e.target.value, port: first?.port ?? DEFAULT_PORT[form.engine] }])} required />
-                    <Input type="number" value={first?.port ?? DEFAULT_PORT[form.engine]} onChange={(e) => set("nodes", [{ ...first, name: first?.name ?? "node-1", host: first?.host ?? "", port: Number(e.target.value) }])} required />
-                  </div>
-                  <p className="text-[11px] text-slate-500">{firstStatus ? singleEndpoint ? firstStatus.health : `${firstStatus.health} · ${firstStatus.detectedRole}` : "Connection checked after save"}</p>
-                  {!singleEndpoint && (
-                    <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                      <input type="checkbox" checked={haEnabled} onChange={(e) => setHaEnabled(e.target.checked)} />
-                      This connection has more than one node (HA / primary-secondary)
-                    </label>
-                  )}
-                </div>
-              </Field>
-            );
-          }
-          return (
-            <Field label="HA nodes">
-              <div className="space-y-2">
-                <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                  <input type="checkbox" checked={haEnabled} onChange={(e) => { setHaEnabled(e.target.checked); if (!e.target.checked) set("nodes", form.nodes.slice(0, 1)); }} />
-                  This connection has more than one node (HA / primary-secondary)
-                </label>
-                {form.nodes.map((node, index) => {
-                  const status = connection?.nodes.find((item) => item.id === node.id);
-                  return <div key={node.id ?? index} className="rounded border border-slate-200 p-2 dark:border-slate-800">
-                    <div className="grid grid-cols-6 gap-2">
-                      <Input className="col-span-2" value={node.name} placeholder="node name" onChange={(e) => set("nodes", form.nodes.map((item, i) => i === index ? { ...item, name: e.target.value } : item))} required />
-                      <Input className="col-span-3" value={node.host} placeholder="host" onChange={(e) => set("nodes", form.nodes.map((item, i) => i === index ? { ...item, host: e.target.value } : item))} required />
-                      <Input type="number" value={node.port} onChange={(e) => set("nodes", form.nodes.map((item, i) => i === index ? { ...item, port: Number(e.target.value) } : item))} required />
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
-                      <span>{status ? `${status.health} · ${status.detectedRole}` : "role auto-detected after save"}</span>
-                      {form.nodes.length > 1 && <button type="button" className="ml-auto text-red-500" onClick={() => set("nodes", form.nodes.filter((_, i) => i !== index))}>Remove</button>}
-                    </div>
-                  </div>;
-                })}
-                <button type="button" className="text-xs text-orange-600" onClick={() => set("nodes", [...form.nodes, { name: `node-${form.nodes.length + 1}`, host: "", port: DEFAULT_PORT[form.engine] }])}>+ Add node</button>
-                <p className="text-[11px] text-slate-500">Primary/secondary role is detected from the database and refreshed periodically; it is not manually trusted.</p>
-              </div>
-            </Field>
-          );
-        })()}
         {fileEngine && <p className="text-[12px] text-slate-500">Open an existing file on this computer. SQLite and DuckDB do not use network credentials. DuckDB requires a build with DuckDB support.</p>}
         {form.engine === "mongodb" && <p className="text-[12px] text-slate-500">Browse collections and find documents using Extended JSON. Document writes, aggregation, SRV URLs and SSH are not supported yet. Leave the username blank for an unauthenticated local server.</p>}
         {form.engine === "cockroachdb" && <p className="text-[12px] text-slate-500">CockroachDB is queried through its PostgreSQL wire protocol; SQL, schema browsing and HA nodes all work the same way they do for PostgreSQL.</p>}

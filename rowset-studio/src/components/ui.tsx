@@ -30,9 +30,9 @@ export function Input({ className = "", ...props }: InputHTMLAttributes<HTMLInpu
   );
 }
 
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) {
   return (
-    <label className="block space-y-1">
+    <label className={`block space-y-1 ${className}`}>
       <span className="text-[12px] font-medium text-slate-600 dark:text-slate-400">{label}</span>
       {children}
     </label>

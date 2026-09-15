@@ -7,3 +7,8 @@ Simple Icons (https://simpleicons.org, CC0 1.0), fetched from
 https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/. Geometry unchanged;
 each is recolored to its brand color (CockroachDB #6933FF, Redis #DC382D,
 Cassandra #1287B1, Elasticsearch #00BFB3, Snowflake #29B5E8).
+
+Valkey: not in Simple Icons. Official mark from the Valkey project's own
+website repo, https://github.com/valkey-io/valkey-io.github.io (Linux
+Foundation project), static/img/Valkey-logo.svg. Used unmodified,
+including its own brand color.

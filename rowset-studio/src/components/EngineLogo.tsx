@@ -7,6 +7,7 @@ import mongodbLogo from "../assets/engines/mongodb.svg";
 import clickhouseLogo from "../assets/engines/clickhouse.svg";
 import cockroachdbLogo from "../assets/engines/cockroachdb.svg";
 import redisLogo from "../assets/engines/redis.svg";
+import valkeyLogo from "../assets/engines/valkey.svg";
 import cassandraLogo from "../assets/engines/cassandra.svg";
 import elasticsearchLogo from "../assets/engines/elasticsearch.svg";
 import snowflakeLogo from "../assets/engines/snowflake.svg";
@@ -44,6 +45,7 @@ const logos: Record<string, string> = {
   sqlserver: mssqlLogo,
   cockroachdb: cockroachdbLogo,
   redis: redisLogo,
+  valkey: valkeyLogo,
   cassandra: cassandraLogo,
   elasticsearch: elasticsearchLogo,
   snowflake: snowflakeLogo,
@@ -105,10 +107,6 @@ const badgeColors: Record<string, string> = {
   cockroachdb: "#6933FF",
   snowflake: "#29B5E8",
   redis: "#DC382D",
-  // No traced logo available yet (not in Simple Icons); this badge is the
-  // real fallback here, not the unused leftover it is for the five engines
-  // above that already have one.
-  valkey: "#5C9E31",
   cassandra: "#1287B1",
   elasticsearch: "#FEC514",
 };
