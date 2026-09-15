@@ -333,21 +333,27 @@ function AutoRefreshMenu({ ms, onChange, disabled, disabledReason }: { ms: numbe
         disabled={disabled}
         title={disabled ? disabledReason : active ? `Re-running every ${ms / 1000}s` : "Auto-refresh: repeat this statement on an interval"}
         onClick={() => setOpen((value) => !value)}
-        className={`relative inline-flex h-8 items-center gap-1 rounded-md border px-2 text-[12px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+        className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-[12px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
           active
-            ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-300"
+            ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
             : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
         }`}
       >
-        <Icon name="clock" size={14} />
+        {active ? (
+          <span className="relative flex h-2 w-2 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" />
+          </span>
+        ) : (
+          <Icon name="clock" size={14} />
+        )}
         {active && <span>{ms / 1000}s</span>}
-        {active && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-sky-500" />}
       </button>
       {open && (
         <div role="menu" className="absolute right-0 z-30 mt-1 w-40 rounded-md border border-slate-200 bg-white py-1 text-[12px] shadow-lg dark:border-slate-800 dark:bg-slate-900">
           {AUTO_REFRESH_OPTIONS.map((option) => (
             <button key={option.ms} role="menuitemradio" aria-checked={ms === option.ms} type="button" onClick={() => { setOpen(false); onChange(option.ms); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">
-              <Icon name="check" size={13} className={`shrink-0 ${ms === option.ms ? "text-sky-600 dark:text-sky-400" : "invisible"}`} />
+              <Icon name="check" size={13} className={`shrink-0 ${ms === option.ms ? "text-amber-600 dark:text-amber-400" : "invisible"}`} />
               {option.label}
             </button>
           ))}
