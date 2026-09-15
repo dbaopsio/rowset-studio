@@ -16,9 +16,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: rowset-core/go.mod
-          cache-dependency-path: |
-            rowset-core/go.sum
-            rowset-parser/go.sum
+          # This job only runs on a tag push, not on every commit, so a
+          # persisted cache has little to restore from and mostly just pays
+          # the (slow, on the macOS runner) cost of saving one - that save
+          # was the single largest chunk of this job's wall time.
+          cache: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
