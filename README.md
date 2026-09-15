@@ -1,99 +1,153 @@
 # Rowset Studio
 
-Rowset Studio is a SQL workspace for PostgreSQL, MySQL, MariaDB and SQL Server
-that runs on your own computer. Personal workspaces also support SQLite,
-DuckDB (CGO builds), ClickHouse and a read-only MongoDB document explorer. One executable serves the Studio web interface
-on the loopback address and opens it in your browser; there is nothing else to
-install or run.
+<p align="center">
+  <img src="rowset-studio/src/assets/engines/postgres.png" height="40" alt="PostgreSQL" />
+  <img src="rowset-studio/src/assets/engines/mysql.png" height="40" alt="MySQL" />
+  <img src="rowset-studio/src/assets/engines/mariadb.png" height="40" alt="MariaDB" />
+  <img src="rowset-studio/src/assets/engines/mssql.svg" height="40" alt="SQL Server" />
+  <img src="rowset-studio/src/assets/engines/cockroachdb.svg" height="40" alt="CockroachDB" />
+  <img src="rowset-studio/src/assets/engines/snowflake.svg" height="40" alt="Snowflake" />
+  <img src="rowset-studio/src/assets/engines/clickhouse.svg" height="40" alt="ClickHouse" />
+  <img src="rowset-studio/src/assets/engines/mongodb.svg" height="40" alt="MongoDB" />
+  <img src="rowset-studio/src/assets/engines/redis.svg" height="40" alt="Redis" />
+  <img src="rowset-studio/src/assets/engines/cassandra.svg" height="40" alt="Cassandra" />
+  <img src="rowset-studio/src/assets/engines/elasticsearch.svg" height="40" alt="Elasticsearch" />
+</p>
+
+<p align="center">
+  <b>A local-first SQL &amp; NoSQL workspace — one executable, no server to run, nothing to sign in to.</b>
+</p>
+
+<p align="center">
+  <a href="https://github.com/dbaopsio/rowset-studio/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/dbaopsio/rowset-studio?display_name=tag&sort=semver&label=release"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
+  <a href="rowset-core/go.mod"><img alt="Go" src="https://img.shields.io/github/go-mod/go-version/dbaopsio/rowset-studio?filename=rowset-core%2Fgo.mod"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey">
+</p>
+
+Rowset Studio runs entirely on your own computer. One executable starts a local
+server on the loopback address, signs you in with a one-use ticket and opens
+the Studio in your browser — no account, no cloud, no separate database to
+install for the app itself. Credentials, notebooks and workspaces are
+encrypted in a local SQLite database.
+
+## Supported engines
+
+| Engine | Connection | What's supported |
+| --- | --- | --- |
+| <img src="rowset-studio/src/assets/engines/postgres.png" height="18" valign="middle"> PostgreSQL | Host/port or URL, SSH tunnel | Full SQL editor, DDL, CSV import, row editing, schema compare |
+| <img src="rowset-studio/src/assets/engines/mysql.png" height="18" valign="middle"> MySQL | Host/port or URL, SSH tunnel | Full SQL editor, DDL, CSV import, row editing, schema compare |
+| <img src="rowset-studio/src/assets/engines/mariadb.png" height="18" valign="middle"> MariaDB | Host/port or URL, SSH tunnel | Full SQL editor, DDL, CSV import, row editing, schema compare |
+| <img src="rowset-studio/src/assets/engines/mssql.svg" height="18" valign="middle"> SQL Server | Host/port or URL, SSH tunnel | Full SQL editor, DDL, CSV import, row editing, schema compare |
+| <img src="rowset-studio/src/assets/engines/cockroachdb.svg" height="18" valign="middle"> CockroachDB | Host/port (PostgreSQL wire protocol) | Same as PostgreSQL |
+| <img src="rowset-studio/src/assets/engines/snowflake.svg" height="18" valign="middle"> Snowflake | Account, warehouse, role | Full SQL editor, DDL, schema browsing |
+| SQLite | Absolute path to an existing file | SQL, transactions, schema, keys, indexes, DDL, CSV/JSON export |
+| DuckDB | Absolute path to an existing file; CGO build | SQL, transactions, tables/views, DDL, CSV/JSON export |
+| <img src="rowset-studio/src/assets/engines/clickhouse.svg" height="18" valign="middle"> ClickHouse | Native TCP: 9440 with TLS, 9000 without | SQL, databases, tables/views, DDL, CSV/JSON export |
+| <img src="rowset-studio/src/assets/engines/mongodb.svg" height="18" valign="middle"> MongoDB | Host/port; `authSource=admin` | Compass-style filter/project/sort/skip/limit query bar synced with `db.collection.find()`, read-only |
+| <img src="rowset-studio/src/assets/engines/redis.svg" height="18" valign="middle"> Redis | Host/port | Pattern/type scan bar, keys grouped by type as pseudo-tables |
+| <img src="rowset-studio/src/assets/engines/cassandra.svg" height="18" valign="middle"> Cassandra | Host/port, keyspace | CQL editor, keyspace/table browsing |
+| <img src="rowset-studio/src/assets/engines/elasticsearch.svg" height="18" valign="middle"> Elasticsearch | HTTP API host/port | Index/query/size search bar, index mapping browsing |
+
+CockroachDB and Snowflake behave like the four original SQL engines (row
+editing, CSV import excepted for Snowflake). MongoDB, Redis, Cassandra and
+Elasticsearch are read-only in this release, with a query bar tailored to
+each — see [Additional databases](#additional-databases-and-schema-comparison)
+below for exact limits.
 
 ## Features
 
-- **Connections** — PostgreSQL, MySQL, MariaDB and SQL Server. Paste a
-  connection URL or fill in the form. TLS modes `disable`, `require`,
-  `verify-ca` and `verify-full`, custom CA and client certificates. Several
-  nodes per connection with primary/secondary detection and routing. Reach a
-  database through an **SSH tunnel** (password or private key), with the
-  server's host key trusted the first time and verified on every connection.
+- **Connections** — paste a connection URL or fill in the form. TLS modes
+  `disable`, `require`, `verify-ca` and `verify-full`, custom CA and client
+  certificates. Several nodes per connection with primary/secondary detection
+  and routing. Reach a database through an **SSH tunnel** (password or
+  private key), with the server's host key trusted the first time and
+  verified on every connection. A **Safe mode** switch per connection blocks
+  every write statement, no separate read-only role required.
+- **Command palette** (<kbd>⇧⌘K</kbd>) — jump to any connection or page
+  without leaving the keyboard.
 - **SQL editor** — run the statement at the cursor, the selection, or every
-  statement in the tab (each keeps its own result). Auto-commit or manual commit
-  mode with explicit Commit/Rollback, cancellation, formatting, open/download
-  `.sql` files.
+  statement in the tab (each keeps its own result). Auto-commit or manual
+  commit mode with explicit Commit/Rollback, cancellation, formatting,
+  open/download `.sql` files, and a **Snippets** menu to save and reuse
+  statements per connection.
 - **Execution plans** — Explain draws the plan of a statement as a diagram
   with cost heat and warnings; actual rows and timings on request.
 - **Edit rows** — change cells of a one-table result, review the generated
   UPDATE statements and apply them like any query.
 - **CSV import** — import a CSV file into a table in one transaction, with a
   preview and column mapping.
-- **Schema browser** — schemas, tables, views, routines, triggers, columns and
-  indexes, with quick actions to open a table or copy names.
+- **Schema browser** — schemas, tables, views, routines, triggers, columns
+  and indexes, with quick actions to open a table or copy names.
 - **Notebooks** — Markdown notes and SQL cells together, encrypted and saved
-  automatically. Export as Markdown or as a SQL script. **Save** in the editor
-  adds the current query to a notebook; a cell opens in a new editor tab.
+  automatically. Export as Markdown or as a SQL script. **Save** in the
+  editor adds the current query to a notebook; a cell opens in a new editor
+  tab.
 - **Row backups** — optionally save the rows an UPDATE or DELETE changes;
   Activity → Row backups opens a script that puts them back.
 - **Schedules** — run a SELECT at set times in your time zone and save each
   result as a CSV or JSON file, while Rowset Studio is running.
-- **Activity** — your statements across every connection, plus per-connection
-  history in the editor.
-- **Policies** — default guardrails (block `DELETE`/`UPDATE` without `WHERE`,
-  `DROP`, `TRUNCATE`, table reads without `WHERE`) and your own rules: block a
-  table, schema or statement type, limit rows, stop long queries, allow writes
-  only in a time window.
-- **Workspace autosave** — tabs survive restarts; concurrent edits from another
-  window are detected instead of overwritten. Tabs can be exported and imported.
-
-Credentials, notebooks and workspaces are encrypted in a local SQLite database.
+- **Activity** — your statements across every connection, plus
+  per-connection history in the editor.
+- **Policies** — default guardrails (block `DELETE`/`UPDATE` without
+  `WHERE`, `DROP`, `TRUNCATE`, table reads without `WHERE`) and your own
+  rules: block a table, schema or statement type, limit rows, stop long
+  queries, allow writes only in a time window.
+- **Workspace autosave** — tabs survive restarts; concurrent edits from
+  another window are detected instead of overwritten. Tabs can be exported
+  and imported.
 
 ## Additional databases and schema comparison
 
 **Schema comparison** is available in the sidebar and a database's menu.
 Choose the desired source structure and the target database/schema. The page
-compares table/column metadata and index summaries, and shows each table's DDL
-side by side. A migration draft opens in the target SQL editor without running.
-Only simple nullable column additions are generated; other changes remain
-explicit manual steps. This is not a complete dependency-aware migration tool:
-CHECK constraints, complete index/FK definitions, views and routines need
-separate DDL review. Failed metadata reads are shown and disable drafts.
+compares table/column metadata and index summaries, and shows each table's
+DDL side by side. A migration draft opens in the target SQL editor without
+running. Only simple nullable column additions are generated; other changes
+remain explicit manual steps. This is not a complete dependency-aware
+migration tool: CHECK constraints, complete index/FK definitions, views and
+routines need separate DDL review. Failed metadata reads are shown and
+disable drafts.
 
-| Engine | Connection | Initial support |
-| --- | --- | --- |
-| SQLite | Absolute path to an existing file | SQL, transactions, schema, keys, indexes, DDL, CSV/JSON export |
-| DuckDB | Absolute path to an existing file; CGO build | SQL, transactions, tables/views, DDL, CSV/JSON export |
-| ClickHouse | Native TCP: 9440 with TLS, 9000 without | SQL, databases, tables/views, DDL, CSV/JSON export |
-| MongoDB | Host/port; credentials use `authSource=admin` | Database/collection browser, find/filter/sort, cancellation, Extended JSON export |
+MongoDB, Redis, Cassandra and Elasticsearch are read-only: aggregation
+pipelines, transactions, writes and SSH tunnels are not yet supported for
+them, and index/primary-key/foreign-key metadata is not loaded for any
+non-`database/sql` engine (SQLite, DuckDB, ClickHouse and these four).
+Inline grid editing, CSV import and SQL INSERT export remain available only
+for the SQL engines. Query each engine's own tools directly for operations
+Rowset doesn't cover yet.
 
-The new engines are available in personal workspaces, with one configured
-endpoint. MongoDB uses the same **Query** editor with Extended JSON and is read-only; aggregation,
-SRV URLs and SSH are not yet supported. DuckDB/ClickHouse key and index metadata
-is not yet loaded. Inline grid editing, CSV import and SQL INSERT export remain
-available only for the original four engines. Query the SQL engines directly
-for other supported operations.
-
-Native `build-local-binary.sh` builds include DuckDB and require a working C/C++
-compiler. `CGO_ENABLED=0` builds, including the portable cross-platform release
-script, omit DuckDB; the UI only offers it when the server includes it.
-Cross-compiling with DuckDB requires a C/C++ toolchain for the target platform.
+Native `build-local-binary.sh` builds include DuckDB and require a working
+C/C++ compiler. `CGO_ENABLED=0` builds, including the portable
+cross-platform release script, omit DuckDB; the UI only offers it when the
+server includes it. Cross-compiling with DuckDB requires a C/C++ toolchain
+for the target platform.
 
 ## Query results and parameters
 
-The result toolbar filters already loaded rows without querying the database.
-Add conditions for a column or search all columns; conditions combine with AND.
-Numeric comparisons preserve decimal and integer precision. Grid, text and
-CSV/JSON exports use the filtered rows; edits retain their original row identity.
+The result toolbar filters already loaded rows without querying the
+database. Add conditions for a column or search all columns; conditions
+combine with AND. Numeric comparisons preserve decimal and integer
+precision. Grid, text and CSV/JSON exports use the filtered rows; edits
+retain their original row identity.
 
-SQL queries can use `{{name}}` value placeholders outside strings and comments.
-The editor shows a parameter field for each name, with Text, Number, Boolean
-and NULL types. Values live only in the current session. Rowset expands typed
-SQL literals before sending a query through the normal policies and execution
-path; this is not server-side prepared-statement binding. Executed values appear
-in history. All script parameters are checked before the first statement runs.
-Parameterized schedules and multi-connection runs are not supported yet.
+SQL queries can use `{{name}}` value placeholders outside strings and
+comments. The editor shows a parameter field for each name, with Text,
+Number, Boolean and NULL types. Values live only in the current session.
+Rowset expands typed SQL literals before sending a query through the normal
+policies and execution path; this is not server-side prepared-statement
+binding. Executed values appear in history. All script parameters are
+checked before the first statement runs. Parameterized schedules and
+multi-connection runs are not supported yet.
 
 For MongoDB, select the connection in the same editor and open a collection
-from the explorer. Queries use `{ "collection": "items", "filter": {}, "sort": {},
-"limit": 100 }` in Extended JSON. Run, Stop, saved tabs, history and results use
-the common workspace. Formatting and request construction preserve raw numeric
-literals; result documents retain BSON type information.
+from the explorer. A Compass-style bar (Filter / Project / Sort / Skip /
+Limit / Max Time MS) stays in sync with the raw
+`{ "collection": "items", "filter": {}, "sort": {}, "limit": 100 }`
+Extended JSON below it — editing either one updates the other. Run, Stop,
+saved tabs, history and results use the common workspace. Formatting and
+request construction preserve raw numeric literals; result documents retain
+BSON type information.
 
 ## Install
 
@@ -120,20 +174,21 @@ installs for the current user only; no administrator rights are needed.
 
 Run the same command again to update. `ROWSET_VERSION=0.0.13` installs a
 specific release. To uninstall, run `sh -s -- --uninstall` instead of `sh` on
-macOS/Linux, or set `$env:ROWSET_UNINSTALL = 1` before the PowerShell command;
-your connections and notebooks are kept.
+macOS/Linux, or set `$env:ROWSET_UNINSTALL = 1` before the PowerShell
+command; your connections and notebooks are kept.
 
-Prefer to download yourself? Every [release](https://github.com/dbaopsio/rowset-studio/releases)
-has archives for macOS (Apple silicon, Intel and a universal app), Windows and
-Linux (x64 and ARM64) plus `SHA256SUMS`. Releases are not code-signed yet, so a
-file downloaded with a browser triggers Gatekeeper or SmartScreen; on macOS,
+Prefer to download yourself? Every
+[release](https://github.com/dbaopsio/rowset-studio/releases) has archives
+for macOS (Apple silicon, Intel and a universal app), Windows and Linux (x64
+and ARM64) plus `SHA256SUMS`. Releases are not code-signed yet, so a file
+downloaded with a browser triggers Gatekeeper or SmartScreen; on macOS,
 `xattr -dr com.apple.quarantine "Rowset Studio.app"` clears it.
 
 ## Run
 
 Open **Rowset Studio** from the applications menu, or run `rowset`. It starts
-the local server, creates its private configuration on first launch, signs you
-in with a one-use local ticket and opens your browser.
+the local server, creates its private configuration on first launch, signs
+you in with a one-use local ticket and opens your browser.
 
 | Command | Effect |
 | --- | --- |
@@ -141,15 +196,15 @@ in with a one-use local ticket and opens your browser.
 | `rowset desktop-stop` | stop the running Rowset Studio |
 | `rowset --version` | print the version |
 
-**Shutdown Rowset** at the bottom of the sidebar stops the server. On macOS the
-menu-bar icon also offers **Open Rowset** and **Quit**; quitting asks to roll
-back open transactions.
+**Shutdown Rowset** at the bottom of the sidebar stops the server. On macOS
+the menu-bar icon also offers **Open Rowset** and **Quit**; quitting asks to
+roll back open transactions.
 
 Data lives in `Rowset/Community` under the user configuration directory
 (`~/Library/Application Support` on macOS, `%AppData%` on Windows,
 `~/.config` on Linux). Set `ROWSET_DESKTOP_DIR` to use another directory, for
-example a disposable test workspace. The directory holds the encryption keys; do
-not share it. Exported workspace JSON is **not** encrypted.
+example a disposable test workspace. The directory holds the encryption
+keys; do not share it. Exported workspace JSON is **not** encrypted.
 
 Rowset writes a copy of its database into `snapshots/` in the same directory
 once a day and keeps the newest seven. Before a new version upgrades the
@@ -157,16 +212,16 @@ database it also writes a `before-…` copy, which is never rotated out. To go
 back to a copy, quit Rowset and put the file in place of
 `rowset-community.sqlite3`.
 
-Statement history and the audit log are kept for as long as you keep them. To
-remove old entries automatically, set a period in days:
+Statement history and the audit log are kept for as long as you keep them.
+To remove old entries automatically, set a period in days:
 
 | Variable | Removes |
 | --- | --- |
 | `ROWSET_QUERY_HISTORY_RETENTION_DAYS` | history entries older than this |
 | `ROWSET_AUDIT_RETENTION_DAYS` | audit entries older than this |
 
-A shared server applies 30 days of history and 90 days of audit unless these are
-set; `0` keeps everything.
+A shared server applies 30 days of history and 90 days of audit unless these
+are set; `0` keeps everything.
 
 ## Build from source
 
@@ -183,7 +238,8 @@ release workflow, which tests, builds and publishes the assets.
 ## Build requirements
 
 - Go 1.25
-- Node.js with npm (install Studio dependencies with `npm ci` in `rowset-studio`)
+- Node.js with npm (install Studio dependencies with `npm ci` in
+  `rowset-studio`)
 - For the macOS app: Xcode command-line tools (`swiftc`, `codesign`)
 
 ## Development
@@ -201,13 +257,20 @@ release workflow, which tests, builds and publishes the assets.
 (cd rowset-studio && npm run build && npm run lint && npm test)
 ```
 
-Live engine tests run against real PostgreSQL, MySQL, MariaDB and SQL Server
-servers and are skipped unless `ROWSET_MATRIX_POSTGRES_PASSWORD`,
-`ROWSET_MATRIX_MYSQL_PASSWORD`, `ROWSET_MATRIX_MARIADB_PASSWORD` and
-`ROWSET_MATRIX_MSSQL_PASSWORD` are set.
+Live engine tests run against real database servers and are skipped unless
+their credentials are set:
 
-The version lives in `rowset-studio/package.json`; the build scripts stamp it
-into Studio, the executable and the macOS app. See [CHANGELOG.md](CHANGELOG.md).
+| Engine | Variables |
+| --- | --- |
+| PostgreSQL / MySQL / MariaDB / SQL Server | `ROWSET_MATRIX_POSTGRES_PASSWORD`, `ROWSET_MATRIX_MYSQL_PASSWORD`, `ROWSET_MATRIX_MARIADB_PASSWORD`, `ROWSET_MATRIX_MSSQL_PASSWORD` |
+| CockroachDB | `ROWSET_TEST_COCKROACHDB_HOST` (+ `_PORT`) |
+| Redis | `ROWSET_TEST_REDIS_HOST` (+ `_PORT`) |
+| Cassandra | `ROWSET_TEST_CASSANDRA_HOST` (+ `_PORT`) |
+| Elasticsearch | `ROWSET_TEST_ELASTICSEARCH_HOST` (+ `_PORT`) |
+
+The version lives in `rowset-studio/package.json`; the build scripts stamp
+it into Studio, the executable and the macOS app. See
+[CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
