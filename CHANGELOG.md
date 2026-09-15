@@ -5,6 +5,14 @@ and `scripts/package-macos.sh` stamp it into Studio (sidebar), the `rowset`
 executable and the macOS app. Every change set bumps the patch version and adds
 an entry here.
 
+## 0.0.83 — 2026-09-15
+
+- Server (Host/Port, or HA nodes) moved up next to username/password
+  in the connection form, instead of near the bottom.
+- Dropped the separate Alias field - it's derived from Name
+  automatically now, same as it always was when left blank.
+- Valkey has its real logo instead of a colored-initial badge.
+
 ## 0.0.82 — 2026-09-15
 
 - HA nodes are opt-in now: a new connection shows a plain Host + Port
